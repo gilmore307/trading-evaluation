@@ -38,6 +38,8 @@ Required future fields:
 
 `promotion_eligibility_decision` states whether settlement evidence makes a candidate eligible for evaluation-owned model activation.
 
+Agent review evidence may support this decision only when it follows the fixed `promotion-evaluation-review` skill. The review is advisory and must not change the sealed benchmark, write activation records, or replace deterministic validation.
+
 ## Model Activation Record
 
 `model_activation_record` records the config release after an eligible promotion decision.

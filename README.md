@@ -39,11 +39,14 @@ frozen benchmark contract
   -> benchmark exclusion proof
   -> fold settlement run
   -> settlement metric rows/report refs
+  -> fixed-rubric promotion reviewer advisory
   -> promotion eligibility decision
   -> model activation record / active model config
 ```
 
 The primary benchmark is one fixed target and one fixed window so fold-to-fold results remain horizontally comparable. Guardrail benchmarks may exist for overfit detection, but they do not replace the primary leaderboard unless a new benchmark contract version is explicitly accepted.
+
+Agent review, when used, must follow the workspace skill `skills/openclaw/promotion-evaluation-review`. The reviewer produces advisory structured evidence only; deterministic evaluation code validates eligibility and writes activation records.
 
 ## Platform Boundaries
 

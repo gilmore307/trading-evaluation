@@ -14,9 +14,10 @@ Model activation is evaluation-owned.
 - rollback ref;
 - activation scope.
 
+Agent review can support activation readiness only through the fixed `promotion-evaluation-review` skill and only as advisory evidence. It cannot directly switch active config pointers.
+
 ## Forbidden Side Effects
 
 Activation records must not place orders, call brokers, mutate accounts, call providers, or perform storage lifecycle mutation.
 
 Execution and realtime services consume the active config after it exists; they do not decide activation.
-
