@@ -17,6 +17,10 @@
         "drawdown",
         "range_bound"
       ],
+      "event_coverage_tags": [
+        "earnings_crossing",
+        "product_cycle_repricing"
+      ],
       "start_date": "2018-01-01",
       "target_symbol": "XYZ",
       "target_context_ref": "target-context-review://XYZ",
@@ -31,6 +35,9 @@
       "market_condition_tags": [
         "high_volatility",
         "event_shock"
+      ],
+      "event_coverage_tags": [
+        "crypto_cycle_event"
       ],
       "start_date": "2018-01-01",
       "target_symbol": "QRS",

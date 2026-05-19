@@ -11,6 +11,8 @@ MAX_STRESS_COMPONENT_WEIGHT = 0.15
 MIN_SINGLE_NAME_COMPONENT_WEIGHT = 0.55
 MAX_ETF_COMPONENT_WEIGHT = 0.30
 MAX_CRYPTO_COMPONENT_WEIGHT = 0.15
+MIN_EARNINGS_CROSSING_COMPONENT_WEIGHT = 0.10
+MIN_EVENT_DRIVEN_COMPONENT_WEIGHT = 0.25
 KNOWN_COMPONENT_ROLES = {"primary", "stress_edge_case", "guardrail_stress"}
 STRESS_COMPONENT_ROLES = {"stress_edge_case", "guardrail_stress"}
 TARGET_CONTEXT_EXCEPTION_TAGS = {"missing_layer2_context", "intentionally_no_target_context"}
@@ -26,6 +28,23 @@ KNOWN_DATA_AVAILABILITY_TAGS = {
     "event_gap",
     "partial_event_coverage",
     "intentionally_no_target_context",
+}
+KNOWN_EVENT_COVERAGE_TAGS = {
+    "earnings_crossing",
+    "earnings_gap",
+    "ai_capex_repricing",
+    "banking_stress",
+    "commodity_supply_shock",
+    "crypto_cycle_event",
+    "data_availability_stress",
+    "liquidity_shock",
+    "medical_trial_or_approval",
+    "policy_macro_event",
+    "product_cycle_repricing",
+    "rate_inflation_shock",
+    "regulatory_policy",
+    "sector_rotation",
+    "squeeze_event",
 }
 
 
@@ -58,6 +77,7 @@ class BenchmarkComponent:
     weight: float
     market_condition_tags: tuple[str, ...]
     data_availability_tags: tuple[str, ...]
+    event_coverage_tags: tuple[str, ...]
     target_context_ref: str
     stress_exception_ref: str
 
@@ -78,6 +98,7 @@ class BenchmarkComponent:
             weight=weight,
             market_condition_tags=_strings(payload.get("market_condition_tags") or ()),
             data_availability_tags=_strings(payload.get("data_availability_tags") or ()),
+            event_coverage_tags=_strings(payload.get("event_coverage_tags") or ()),
             target_context_ref=str(payload.get("target_context_ref") or "").strip(),
             stress_exception_ref=str(payload.get("stress_exception_ref") or "").strip(),
         )
@@ -94,6 +115,7 @@ class BenchmarkComponent:
             "weight": self.weight,
             "market_condition_tags": list(self.market_condition_tags),
             "data_availability_tags": list(self.data_availability_tags),
+            "event_coverage_tags": list(self.event_coverage_tags),
             "target_context_ref": self.target_context_ref,
             "stress_exception_ref": self.stress_exception_ref,
         }
@@ -150,6 +172,7 @@ class BenchmarkContract:
                     weight=1.0,
                     market_condition_tags=_strings(payload.get("market_condition_tags") or ()),
                     data_availability_tags=_strings(payload.get("data_availability_tags") or ()),
+                    event_coverage_tags=_strings(payload.get("event_coverage_tags") or ()),
                     target_context_ref=str(payload.get("target_context_ref") or "").strip(),
                     stress_exception_ref=str(payload.get("stress_exception_ref") or "").strip(),
                 ),
@@ -239,6 +262,8 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
     single_name_weight = 0.0
     etf_weight = 0.0
     crypto_weight = 0.0
+    earnings_crossing_weight = 0.0
+    event_driven_weight = 0.0
     total_weight = 0.0
     for component in contract.benchmark_components:
         total_weight += component.weight
@@ -263,6 +288,13 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
         unknown_tags = set(component.data_availability_tags) - KNOWN_DATA_AVAILABILITY_TAGS
         if unknown_tags:
             errors.append(f"benchmark component {component.component_id} has unknown data_availability_tags: {', '.join(sorted(unknown_tags))}")
+        unknown_event_tags = set(component.event_coverage_tags) - KNOWN_EVENT_COVERAGE_TAGS
+        if unknown_event_tags:
+            errors.append(f"benchmark component {component.component_id} has unknown event_coverage_tags: {', '.join(sorted(unknown_event_tags))}")
+        if "earnings_crossing" in component.event_coverage_tags:
+            earnings_crossing_weight += component.weight
+        if component.event_coverage_tags:
+            event_driven_weight += component.weight
         critical_stress_tags = set(component.data_availability_tags) & CRITICAL_DATA_STRESS_TAGS
         if critical_stress_tags and component.component_role not in STRESS_COMPONENT_ROLES:
             errors.append(
@@ -290,6 +322,10 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
         errors.append("crypto component weight must not exceed 15% of the benchmark panel")
     if stress_weight > MAX_STRESS_COMPONENT_WEIGHT:
         errors.append("stress component weight must not exceed 15% of the benchmark panel")
+    if earnings_crossing_weight < MIN_EARNINGS_CROSSING_COMPONENT_WEIGHT:
+        errors.append("earnings_crossing component weight must be at least 10% of the benchmark panel")
+    if event_driven_weight < MIN_EVENT_DRIVEN_COMPONENT_WEIGHT:
+        errors.append("event-driven component weight must be at least 25% of the benchmark panel")
     if contract.min_trading_days < 252:
         errors.append("min_trading_days must be at least one trading year")
     all_market_condition_tags = set(contract.market_condition_tags)

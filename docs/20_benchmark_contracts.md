@@ -12,6 +12,7 @@ Required properties:
 - component role metadata separating primary judgment from controlled stress-edge cases.
 - enough length to reduce accident and one-off event bias.
 - diverse market conditions: trend, drawdown, volatility regime changes, event shocks, and transition periods.
+- explicit event coverage metadata for earnings-crossing windows, policy/macro shocks, liquidity or squeeze events, product-cycle repricing, and crypto-cycle events.
 - deliberate coverage of then-hot thematic single-name winners, including names outside the selected ETF universe when target-context review exists.
 - a small crypto sleeve because crypto is a future primary execution focus.
 - a small controlled stress sleeve for critical data-edge cases such as crypto missing quote/order-book context, sparse bars, missing Layer 2 context, or partial event coverage.
@@ -25,6 +26,8 @@ Suggested composition:
 
 - at least 55% single-name optionable equity components.
 - no more than 30% ETF components; ETFs are background anchors, not the main benchmark surface.
+- at least 10% earnings-crossing component weight.
+- at least 25% event-driven component weight.
 - substantial then-hot thematic single-name components from storage, optical modules, rare earth, nuclear, data center, AI, healthcare, meme/option-stress, or similar period-specific leadership themes.
 - 5-15% crypto spot components.
 - No single target, year, theme bucket, or market state should dominate the panel.

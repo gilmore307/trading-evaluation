@@ -29,6 +29,7 @@ VALID_CONTRACT = {
             "end_date": "2021-12-31",
             "weight": 0.9,
             "market_condition_tags": ["trend_up", "drawdown", "range_bound"],
+            "event_coverage_tags": ["earnings_crossing", "product_cycle_repricing"],
             "target_context_ref": "target-context-review://XYZ",
         },
         {
@@ -41,6 +42,7 @@ VALID_CONTRACT = {
             "end_date": "2021-12-31",
             "weight": 0.1,
             "market_condition_tags": ["high_volatility", "event_shock"],
+            "event_coverage_tags": ["crypto_cycle_event"],
             "target_context_ref": "target-context-review://QRS",
         },
     ],
@@ -260,6 +262,17 @@ class BenchmarkContractTests(unittest.TestCase):
         self.assertIn("equity_single_name component weight must be at least 55% of the benchmark panel", result.errors)
         self.assertIn("equity_etf component weight must not exceed 30% of the benchmark panel", result.errors)
         self.assertIn("crypto component weight must not exceed 15% of the benchmark panel", result.errors)
+
+    def test_event_coverage_policy_is_enforced(self):
+        payload = dict(VALID_CONTRACT)
+        payload["benchmark_components"] = [
+            dict(VALID_CONTRACT["benchmark_components"][0], event_coverage_tags=[], weight=0.90),
+            dict(VALID_CONTRACT["benchmark_components"][1], event_coverage_tags=[], weight=0.10),
+        ]
+        result = validate_benchmark_contract(payload)
+        self.assertEqual(result.validation_status, "failed")
+        self.assertIn("earnings_crossing component weight must be at least 10% of the benchmark panel", result.errors)
+        self.assertIn("event-driven component weight must be at least 25% of the benchmark panel", result.errors)
 
 
 if __name__ == "__main__":
