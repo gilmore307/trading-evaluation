@@ -36,7 +36,21 @@ Required future fields:
 
 ## Promotion Eligibility Decision
 
-`promotion_eligibility_decision` will state whether settlement evidence makes a candidate eligible for a later activation gate.
+`promotion_eligibility_decision` states whether settlement evidence makes a candidate eligible for evaluation-owned model activation.
 
-It must never activate a production model by itself.
+## Model Activation Record
 
+`model_activation_record` records the config release after an eligible promotion decision.
+
+Required fields:
+
+- `promotion_eligibility_decision_ref`
+- `activated_model_id`
+- `activated_config_ref`
+- `active_model_config_ref`
+- `rollback_ref`
+- `activation_scope`
+- `activated_by`
+- `activated_at_utc`
+
+It must report `broker_execution_performed = false` and `account_mutation_performed = false`.
