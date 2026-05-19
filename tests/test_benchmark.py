@@ -22,18 +22,24 @@ VALID_CONTRACT = {
         {
             "component_id": "component_a",
             "target_symbol": "XYZ",
+            "asset_class": "equity_single_name",
+            "theme_bucket": "hot_thematic_growth",
             "start_date": "2018-01-01",
             "end_date": "2021-12-31",
             "weight": 0.5,
             "market_condition_tags": ["trend_up", "drawdown", "range_bound"],
+            "target_context_ref": "target-context-review://XYZ",
         },
         {
             "component_id": "component_b",
             "target_symbol": "QRS",
+            "asset_class": "crypto_spot",
+            "theme_bucket": "crypto_high_volatility",
             "start_date": "2018-01-01",
             "end_date": "2021-12-31",
             "weight": 0.5,
             "market_condition_tags": ["high_volatility", "event_shock"],
+            "target_context_ref": "target-context-review://QRS",
         },
     ],
     "excluded_training_windows": [
@@ -65,6 +71,13 @@ class BenchmarkContractTests(unittest.TestCase):
         payload["training_universe_symbols"] = ["XYZ"]
         result = validate_benchmark_contract(payload)
         self.assertEqual(result.validation_status, "passed")
+
+    def test_non_etf_component_requires_target_context_ref(self):
+        payload = dict(VALID_CONTRACT)
+        payload["benchmark_components"] = [dict(VALID_CONTRACT["benchmark_components"][0], target_context_ref="")]
+        result = validate_benchmark_contract(payload)
+        self.assertEqual(result.validation_status, "failed")
+        self.assertIn("benchmark component component_a target_context_ref is required for non-ETF target routing", result.errors)
 
     def test_same_target_fold_overlap_is_blocked(self):
         result = validate_benchmark_contract(VALID_CONTRACT)
@@ -102,10 +115,13 @@ class BenchmarkContractTests(unittest.TestCase):
                 {
                     "component_id": "component_a",
                     "target_symbol": "XYZ",
+                    "asset_class": "equity_single_name",
+                    "theme_bucket": "hot_thematic_growth",
                     "start_date": "2018-01-01",
                     "end_date": "2021-12-31",
                     "weight": 1.0,
                     "market_condition_tags": ["trend_up"],
+                    "target_context_ref": "target-context-review://XYZ",
                 }
             ],
             excluded_training_windows=[

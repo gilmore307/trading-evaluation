@@ -9,6 +9,7 @@
   "benchmark_components": [
     {
       "component_id": "component_a",
+      "asset_class": "equity_single_name",
       "end_date": "2021-12-31",
       "market_condition_tags": [
         "trend_up",
@@ -17,10 +18,13 @@
       ],
       "start_date": "2018-01-01",
       "target_symbol": "XYZ",
+      "target_context_ref": "target-context-review://XYZ",
+      "theme_bucket": "hot_thematic_growth",
       "weight": 0.5
     },
     {
       "component_id": "component_b",
+      "asset_class": "crypto_spot",
       "end_date": "2021-12-31",
       "market_condition_tags": [
         "high_volatility",
@@ -28,6 +32,8 @@
       ],
       "start_date": "2018-01-01",
       "target_symbol": "QRS",
+      "target_context_ref": "target-context-review://QRS",
+      "theme_bucket": "crypto_high_volatility",
       "weight": 0.5
     }
   ],

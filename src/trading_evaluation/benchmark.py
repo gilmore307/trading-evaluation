@@ -30,10 +30,13 @@ class BenchmarkComponent:
 
     component_id: str
     target_symbol: str
+    asset_class: str
+    theme_bucket: str
     start_date: date
     end_date: date
     weight: float
     market_condition_tags: tuple[str, ...]
+    target_context_ref: str
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any], *, fallback_id: str = "component_1") -> "BenchmarkComponent":
@@ -44,20 +47,26 @@ class BenchmarkComponent:
         return cls(
             component_id=str(payload.get("component_id") or fallback_id).strip(),
             target_symbol=str(payload.get("target_symbol") or "").strip().upper(),
+            asset_class=str(payload.get("asset_class") or "").strip(),
+            theme_bucket=str(payload.get("theme_bucket") or "").strip(),
             start_date=_parse_date(payload.get("start_date"), field_name="component.start_date"),
             end_date=_parse_date(payload.get("end_date"), field_name="component.end_date"),
             weight=weight,
             market_condition_tags=_strings(payload.get("market_condition_tags") or ()),
+            target_context_ref=str(payload.get("target_context_ref") or "").strip(),
         )
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "component_id": self.component_id,
             "target_symbol": self.target_symbol,
+            "asset_class": self.asset_class,
+            "theme_bucket": self.theme_bucket,
             "start_date": self.start_date.isoformat(),
             "end_date": self.end_date.isoformat(),
             "weight": self.weight,
             "market_condition_tags": list(self.market_condition_tags),
+            "target_context_ref": self.target_context_ref,
         }
 
 
@@ -104,10 +113,13 @@ class BenchmarkContract:
                 BenchmarkComponent(
                     component_id="component_1",
                     target_symbol=target_symbol,
+                    asset_class=str(payload.get("asset_class") or "").strip(),
+                    theme_bucket=str(payload.get("theme_bucket") or "").strip(),
                     start_date=start_date,
                     end_date=end_date,
                     weight=1.0,
                     market_condition_tags=_strings(payload.get("market_condition_tags") or ()),
+                    target_context_ref=str(payload.get("target_context_ref") or "").strip(),
                 ),
             )
         return cls(
@@ -196,6 +208,12 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
             errors.append("benchmark component_id is required")
         if not component.target_symbol:
             errors.append("benchmark component target_symbol is required")
+        if not component.asset_class:
+            errors.append(f"benchmark component {component.component_id} asset_class is required")
+        if not component.theme_bucket:
+            errors.append(f"benchmark component {component.component_id} theme_bucket is required")
+        if _requires_target_context_review(component) and not component.target_context_ref:
+            errors.append(f"benchmark component {component.component_id} target_context_ref is required for non-ETF target routing")
         if component.end_date <= component.start_date:
             errors.append(f"benchmark component {component.component_id} end_date must be after start_date")
         if component.weight <= 0:
@@ -254,6 +272,10 @@ def is_training_fold_blocked_by_benchmark(
         component.target_symbol == symbol and _windows_overlap(start, end, component.start_date, component.end_date)
         for component in contract.benchmark_components
     )
+
+
+def _requires_target_context_review(component: BenchmarkComponent) -> bool:
+    return component.asset_class in {"equity_single_name", "crypto_spot", "crypto_asset"}
 
 
 def _validate_excluded_training_windows(windows: Sequence[Mapping[str, Any]]) -> list[str]:

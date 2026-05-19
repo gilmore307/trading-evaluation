@@ -5,7 +5,7 @@
 `evaluation_benchmark_contract` defines the frozen evaluation surface:
 
 - `contract_id`
-- `benchmark_components` with anonymous component id, target symbol, start/end window, weight, and market-condition tags
+- `benchmark_components` with anonymous component id, target symbol, asset class, theme bucket, start/end window, weight, market-condition tags, and target-context ref where required
 - `start_date`
 - `end_date`
 - `min_trading_days`
@@ -17,7 +17,7 @@
 - `excluded_training_windows` keyed by target/window
 - `guardrail_refs`
 
-The current validator requires at least one benchmark component, chronological date ranges, positive component weights, sufficient declared market-condition coverage, non-empty baseline refs, and explicit exclusion windows covering every component's target/window. When a benchmark component uses a target over a time window, same-target training folds that overlap that window are contaminated and must be skipped or blocked. `is_training_fold_blocked_by_benchmark` is the reusable helper for that target/window check.
+The current validator requires at least one benchmark component, chronological date ranges, asset class and theme bucket metadata, positive component weights, sufficient declared market-condition coverage, non-empty baseline refs, and explicit exclusion windows covering every component's target/window. Single-name equity and crypto components require a reviewed target-context ref so non-ETF targets still route through accepted target-context/proxy review. When a benchmark component uses a target over a time window, same-target training folds that overlap that window are contaminated and must be skipped or blocked. `is_training_fold_blocked_by_benchmark` is the reusable helper for that target/window check.
 
 ## Fold Settlement Run
 

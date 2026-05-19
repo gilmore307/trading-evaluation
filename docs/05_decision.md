@@ -16,6 +16,8 @@ The primary benchmark may use multiple fixed target/window components inside one
 
 The panel must be long enough to reduce accident, structurally complex enough to cover diverse market states, and excluded from candidate training by target/window. If a target appears in a benchmark component, any same-target training fold that overlaps that component window must be skipped or blocked. The target may still be trained outside sealed benchmark windows.
 
+The panel should include more than ETF constituents. It should deliberately include a controlled share of then-hot thematic single names and a small crypto sleeve because those are expected future live focus areas. Non-ETF targets require reviewed target-context/proxy refs before they can enter the panel.
+
 ## D003 - Promotion Readiness Belongs In Evaluation; Runtime Activation Belongs In Execution
 
 Date: 2026-05-19
