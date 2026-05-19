@@ -1,0 +1,34 @@
+{
+  "baseline_refs": [
+    "baseline://buy_and_hold",
+    "baseline://no_trade"
+  ],
+  "contract_id": "primary_benchmark_pending_review",
+  "cost_model_ref": "storage://benchmark/cost_model/pending_review",
+  "data_snapshot_ref": "storage://benchmark/data_snapshot/pending_review",
+  "end_date": "2021-12-31",
+  "excluded_training_windows": [
+    {
+      "end_date": "2021-12-31",
+      "reason": "primary benchmark",
+      "start_date": "2018-01-01"
+    }
+  ],
+  "guardrail_refs": [
+    "benchmark://guardrail/liquidity_regime"
+  ],
+  "market_condition_tags": [
+    "trend_up",
+    "drawdown",
+    "high_volatility",
+    "range_bound",
+    "event_shock"
+  ],
+  "min_trading_days": 756,
+  "start_date": "2018-01-01",
+  "target_symbol": "XYZ",
+  "training_universe_symbols": [
+    "AAOI",
+    "SPY"
+  ]
+}
