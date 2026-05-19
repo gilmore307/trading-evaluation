@@ -24,6 +24,7 @@ VALID_CONTRACT = {
             "target_symbol": "XYZ",
             "asset_class": "equity_single_name",
             "theme_bucket": "hot_thematic_growth",
+            "component_role": "primary",
             "start_date": "2018-01-01",
             "end_date": "2021-12-31",
             "weight": 0.5,
@@ -35,6 +36,7 @@ VALID_CONTRACT = {
             "target_symbol": "QRS",
             "asset_class": "crypto_spot",
             "theme_bucket": "crypto_high_volatility",
+            "component_role": "primary",
             "start_date": "2018-01-01",
             "end_date": "2021-12-31",
             "weight": 0.5,
@@ -79,6 +81,74 @@ class BenchmarkContractTests(unittest.TestCase):
         self.assertEqual(result.validation_status, "failed")
         self.assertIn("benchmark component component_a target_context_ref is required for non-ETF target routing", result.errors)
 
+    def test_stress_component_can_model_missing_layer2_context(self):
+        payload = dict(VALID_CONTRACT)
+        payload["benchmark_components"] = [
+            dict(
+                VALID_CONTRACT["benchmark_components"][0],
+                component_role="stress_edge_case",
+                data_availability_tags=["missing_layer2_context", "sparse_bars"],
+                target_context_ref="",
+                stress_exception_ref="benchmark-stress://missing-layer2/thematic-single-name",
+                weight=0.10,
+            ),
+            dict(VALID_CONTRACT["benchmark_components"][1], weight=0.90),
+        ]
+        result = validate_benchmark_contract(payload)
+        self.assertEqual(result.validation_status, "passed")
+
+    def test_quote_only_crypto_stress_component_is_allowed_with_exception(self):
+        payload = dict(VALID_CONTRACT)
+        payload["benchmark_components"] = [
+            dict(VALID_CONTRACT["benchmark_components"][0], weight=0.90),
+            dict(
+                VALID_CONTRACT["benchmark_components"][1],
+                component_role="stress_edge_case",
+                data_availability_tags=["quote_only_no_trades"],
+                stress_exception_ref="benchmark-stress://crypto-quote-only",
+                weight=0.10,
+            ),
+        ]
+        result = validate_benchmark_contract(payload)
+        self.assertEqual(result.validation_status, "passed")
+
+    def test_stress_weight_is_capped(self):
+        payload = dict(VALID_CONTRACT)
+        payload["benchmark_components"] = [
+            dict(
+                VALID_CONTRACT["benchmark_components"][0],
+                component_role="stress_edge_case",
+                data_availability_tags=["missing_layer2_context"],
+                target_context_ref="",
+                stress_exception_ref="benchmark-stress://missing-layer2",
+                weight=0.20,
+            )
+        ]
+        payload["excluded_training_windows"] = [
+            {"target_symbol": "XYZ", "start_date": "2018-01-01", "end_date": "2021-12-31", "reason": "primary benchmark"}
+        ]
+        result = validate_benchmark_contract(payload)
+        self.assertEqual(result.validation_status, "failed")
+        self.assertIn("stress component weight must not exceed 15% of the benchmark panel", result.errors)
+
+    def test_critical_data_stress_tags_must_be_explicit_stress_components(self):
+        payload = dict(VALID_CONTRACT)
+        payload["benchmark_components"] = [
+            dict(
+                VALID_CONTRACT["benchmark_components"][1],
+                data_availability_tags=["quote_only_no_trades"],
+            )
+        ]
+        payload["excluded_training_windows"] = [
+            {"target_symbol": "QRS", "start_date": "2018-01-01", "end_date": "2021-12-31", "reason": "primary benchmark"}
+        ]
+        result = validate_benchmark_contract(payload)
+        self.assertEqual(result.validation_status, "failed")
+        self.assertIn(
+            "benchmark component component_b critical data stress tags require a stress component_role",
+            result.errors,
+        )
+
     def test_same_target_fold_overlap_is_blocked(self):
         result = validate_benchmark_contract(VALID_CONTRACT)
         self.assertTrue(
@@ -117,6 +187,7 @@ class BenchmarkContractTests(unittest.TestCase):
                     "target_symbol": "XYZ",
                     "asset_class": "equity_single_name",
                     "theme_bucket": "hot_thematic_growth",
+                    "component_role": "primary",
                     "start_date": "2018-01-01",
                     "end_date": "2021-12-31",
                     "weight": 1.0,

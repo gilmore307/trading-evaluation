@@ -7,6 +7,22 @@ from datetime import date
 from typing import Any, Mapping, Sequence
 
 REQUIRED_MARKET_CONDITION_TAGS = 4
+MAX_STRESS_COMPONENT_WEIGHT = 0.15
+KNOWN_COMPONENT_ROLES = {"primary", "stress_edge_case", "guardrail_stress"}
+STRESS_COMPONENT_ROLES = {"stress_edge_case", "guardrail_stress"}
+TARGET_CONTEXT_EXCEPTION_TAGS = {"missing_layer2_context", "intentionally_no_target_context"}
+CRITICAL_DATA_STRESS_TAGS = {"quote_only_no_trades", "missing_layer2_context", "intentionally_no_target_context"}
+KNOWN_DATA_AVAILABILITY_TAGS = {
+    "full_ohlcv",
+    "quote_only_no_trades",
+    "missing_layer2_context",
+    "sparse_bars",
+    "thin_liquidity",
+    "halt_or_suspension",
+    "event_gap",
+    "partial_event_coverage",
+    "intentionally_no_target_context",
+}
 
 
 def _parse_date(value: object, *, field_name: str) -> date:
@@ -32,11 +48,14 @@ class BenchmarkComponent:
     target_symbol: str
     asset_class: str
     theme_bucket: str
+    component_role: str
     start_date: date
     end_date: date
     weight: float
     market_condition_tags: tuple[str, ...]
+    data_availability_tags: tuple[str, ...]
     target_context_ref: str
+    stress_exception_ref: str
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any], *, fallback_id: str = "component_1") -> "BenchmarkComponent":
@@ -49,11 +68,14 @@ class BenchmarkComponent:
             target_symbol=str(payload.get("target_symbol") or "").strip().upper(),
             asset_class=str(payload.get("asset_class") or "").strip(),
             theme_bucket=str(payload.get("theme_bucket") or "").strip(),
+            component_role=str(payload.get("component_role") or "primary").strip(),
             start_date=_parse_date(payload.get("start_date"), field_name="component.start_date"),
             end_date=_parse_date(payload.get("end_date"), field_name="component.end_date"),
             weight=weight,
             market_condition_tags=_strings(payload.get("market_condition_tags") or ()),
+            data_availability_tags=_strings(payload.get("data_availability_tags") or ()),
             target_context_ref=str(payload.get("target_context_ref") or "").strip(),
+            stress_exception_ref=str(payload.get("stress_exception_ref") or "").strip(),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -62,11 +84,14 @@ class BenchmarkComponent:
             "target_symbol": self.target_symbol,
             "asset_class": self.asset_class,
             "theme_bucket": self.theme_bucket,
+            "component_role": self.component_role,
             "start_date": self.start_date.isoformat(),
             "end_date": self.end_date.isoformat(),
             "weight": self.weight,
             "market_condition_tags": list(self.market_condition_tags),
+            "data_availability_tags": list(self.data_availability_tags),
             "target_context_ref": self.target_context_ref,
+            "stress_exception_ref": self.stress_exception_ref,
         }
 
 
@@ -115,11 +140,14 @@ class BenchmarkContract:
                     target_symbol=target_symbol,
                     asset_class=str(payload.get("asset_class") or "").strip(),
                     theme_bucket=str(payload.get("theme_bucket") or "").strip(),
+                    component_role=str(payload.get("component_role") or "primary").strip(),
                     start_date=start_date,
                     end_date=end_date,
                     weight=1.0,
                     market_condition_tags=_strings(payload.get("market_condition_tags") or ()),
+                    data_availability_tags=_strings(payload.get("data_availability_tags") or ()),
                     target_context_ref=str(payload.get("target_context_ref") or "").strip(),
+                    stress_exception_ref=str(payload.get("stress_exception_ref") or "").strip(),
                 ),
             )
         return cls(
@@ -203,6 +231,7 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
     component_ids = [component.component_id for component in contract.benchmark_components]
     if len(set(component_ids)) != len(component_ids):
         errors.append("benchmark component_id values must be unique")
+    stress_weight = 0.0
     for component in contract.benchmark_components:
         if not component.component_id:
             errors.append("benchmark component_id is required")
@@ -212,12 +241,32 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
             errors.append(f"benchmark component {component.component_id} asset_class is required")
         if not component.theme_bucket:
             errors.append(f"benchmark component {component.component_id} theme_bucket is required")
-        if _requires_target_context_review(component) and not component.target_context_ref:
+        if not component.component_role:
+            errors.append(f"benchmark component {component.component_id} component_role is required")
+        elif component.component_role not in KNOWN_COMPONENT_ROLES:
+            errors.append(f"benchmark component {component.component_id} component_role is not recognized")
+        unknown_tags = set(component.data_availability_tags) - KNOWN_DATA_AVAILABILITY_TAGS
+        if unknown_tags:
+            errors.append(f"benchmark component {component.component_id} has unknown data_availability_tags: {', '.join(sorted(unknown_tags))}")
+        critical_stress_tags = set(component.data_availability_tags) & CRITICAL_DATA_STRESS_TAGS
+        if critical_stress_tags and component.component_role not in STRESS_COMPONENT_ROLES:
+            errors.append(
+                f"benchmark component {component.component_id} critical data stress tags require a stress component_role"
+            )
+        if component.component_role in STRESS_COMPONENT_ROLES:
+            stress_weight += component.weight
+            if not component.stress_exception_ref:
+                errors.append(f"benchmark component {component.component_id} stress_exception_ref is required for stress components")
+        if "quote_only_no_trades" in component.data_availability_tags and not component.asset_class.startswith("crypto"):
+            errors.append(f"benchmark component {component.component_id} quote_only_no_trades is only accepted for crypto components")
+        if _requires_target_context_review(component) and not component.target_context_ref and not _has_target_context_exception(component):
             errors.append(f"benchmark component {component.component_id} target_context_ref is required for non-ETF target routing")
         if component.end_date <= component.start_date:
             errors.append(f"benchmark component {component.component_id} end_date must be after start_date")
         if component.weight <= 0:
             errors.append(f"benchmark component {component.component_id} weight must be positive")
+    if stress_weight > MAX_STRESS_COMPONENT_WEIGHT:
+        errors.append("stress component weight must not exceed 15% of the benchmark panel")
     if contract.min_trading_days < 252:
         errors.append("min_trading_days must be at least one trading year")
     all_market_condition_tags = set(contract.market_condition_tags)
@@ -276,6 +325,14 @@ def is_training_fold_blocked_by_benchmark(
 
 def _requires_target_context_review(component: BenchmarkComponent) -> bool:
     return component.asset_class in {"equity_single_name", "crypto_spot", "crypto_asset"}
+
+
+def _has_target_context_exception(component: BenchmarkComponent) -> bool:
+    return (
+        component.component_role in STRESS_COMPONENT_ROLES
+        and bool(component.stress_exception_ref)
+        and bool(set(component.data_availability_tags) & TARGET_CONTEXT_EXCEPTION_TAGS)
+    )
 
 
 def _validate_excluded_training_windows(windows: Sequence[Mapping[str, Any]]) -> list[str]:

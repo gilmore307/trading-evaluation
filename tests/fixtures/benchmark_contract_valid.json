@@ -9,6 +9,7 @@
   "benchmark_components": [
     {
       "component_id": "component_a",
+      "component_role": "primary",
       "asset_class": "equity_single_name",
       "end_date": "2021-12-31",
       "market_condition_tags": [
@@ -24,6 +25,7 @@
     },
     {
       "component_id": "component_b",
+      "component_role": "primary",
       "asset_class": "crypto_spot",
       "end_date": "2021-12-31",
       "market_condition_tags": [
