@@ -14,7 +14,7 @@ Required properties:
 - diverse market conditions: trend, drawdown, volatility regime changes, event shocks, and transition periods.
 - deliberate coverage of then-hot thematic single-name winners, including names outside the selected ETF universe when target-context review exists.
 - a small crypto sleeve because crypto is a future primary execution focus.
-- a small controlled stress sleeve for critical data-edge cases such as quote-only crypto, sparse bars, missing Layer 2 context, or partial event coverage.
+- a small controlled stress sleeve for critical data-edge cases such as crypto missing quote/order-book context, sparse bars, missing Layer 2 context, or partial event coverage.
 - no same-target window overlap with training-used folds.
 - any fold for a benchmark target that intersects a benchmark component window must be skipped or blocked for candidate training.
 - fixed data snapshot, cost model, slippage/fee assumptions, and baseline ladder.
@@ -31,8 +31,8 @@ Suggested composition:
 Controlled stress sleeve:
 
 - Stress components must use `component_role = stress_edge_case` or `guardrail_stress`.
-- Critical stress tags such as `quote_only_no_trades` and `missing_layer2_context` are not allowed on ordinary primary components.
-- Quote-only/no-trade components are accepted only for crypto components.
+- Critical stress tags such as `missing_quote_order_book_context` and `missing_layer2_context` are not allowed on ordinary primary components.
+- Missing quote/order-book context stress components are accepted only for crypto components.
 - Thematic single-name components may omit Layer 2 context only as an explicit stress exception, not as a normal target-routing shortcut.
 - Aggregate stress component weight must stay capped at 15% of the panel.
 

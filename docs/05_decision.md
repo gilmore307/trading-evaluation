@@ -18,7 +18,7 @@ The panel must be long enough to reduce accident, structurally complex enough to
 
 The panel should include more than ETF constituents. It should deliberately include a controlled share of then-hot thematic single names and a small crypto sleeve because those are expected future live focus areas. Non-ETF targets require reviewed target-context/proxy refs before they can enter the panel.
 
-The panel may also include a small controlled stress sleeve for data-edge cases that live execution must tolerate, including quote-only crypto and thematic single names with intentionally missing Layer 2 context. These components must be explicitly labeled as stress components, carry data-availability tags and a stress-exception ref, and remain capped so they test robustness without dominating primary benchmark judgment.
+The panel may also include a small controlled stress sleeve for data-edge cases that live execution must tolerate, including crypto with missing quote/order-book context and thematic single names with intentionally missing Layer 2 context. These components must be explicitly labeled as stress components, carry data-availability tags and a stress-exception ref, and remain capped so they test robustness without dominating primary benchmark judgment.
 
 ## D003 - Promotion Readiness Belongs In Evaluation; Runtime Activation Belongs In Execution
 

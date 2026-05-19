@@ -97,15 +97,15 @@ class BenchmarkContractTests(unittest.TestCase):
         result = validate_benchmark_contract(payload)
         self.assertEqual(result.validation_status, "passed")
 
-    def test_quote_only_crypto_stress_component_is_allowed_with_exception(self):
+    def test_crypto_missing_quote_order_book_stress_component_is_allowed_with_exception(self):
         payload = dict(VALID_CONTRACT)
         payload["benchmark_components"] = [
             dict(VALID_CONTRACT["benchmark_components"][0], weight=0.90),
             dict(
                 VALID_CONTRACT["benchmark_components"][1],
                 component_role="stress_edge_case",
-                data_availability_tags=["quote_only_no_trades"],
-                stress_exception_ref="benchmark-stress://crypto-quote-only",
+                data_availability_tags=["missing_quote_order_book_context"],
+                stress_exception_ref="benchmark-stress://crypto-missing-quote-order-book",
                 weight=0.10,
             ),
         ]
@@ -136,7 +136,7 @@ class BenchmarkContractTests(unittest.TestCase):
         payload["benchmark_components"] = [
             dict(
                 VALID_CONTRACT["benchmark_components"][1],
-                data_availability_tags=["quote_only_no_trades"],
+                data_availability_tags=["missing_quote_order_book_context"],
             )
         ]
         payload["excluded_training_windows"] = [

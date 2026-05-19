@@ -11,10 +11,11 @@ MAX_STRESS_COMPONENT_WEIGHT = 0.15
 KNOWN_COMPONENT_ROLES = {"primary", "stress_edge_case", "guardrail_stress"}
 STRESS_COMPONENT_ROLES = {"stress_edge_case", "guardrail_stress"}
 TARGET_CONTEXT_EXCEPTION_TAGS = {"missing_layer2_context", "intentionally_no_target_context"}
-CRITICAL_DATA_STRESS_TAGS = {"quote_only_no_trades", "missing_layer2_context", "intentionally_no_target_context"}
+CRITICAL_DATA_STRESS_TAGS = {"missing_quote_order_book_context", "missing_layer2_context", "intentionally_no_target_context"}
 KNOWN_DATA_AVAILABILITY_TAGS = {
     "full_ohlcv",
-    "quote_only_no_trades",
+    "trade_derived_liquidity_only",
+    "missing_quote_order_book_context",
     "missing_layer2_context",
     "sparse_bars",
     "thin_liquidity",
@@ -257,8 +258,8 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
             stress_weight += component.weight
             if not component.stress_exception_ref:
                 errors.append(f"benchmark component {component.component_id} stress_exception_ref is required for stress components")
-        if "quote_only_no_trades" in component.data_availability_tags and not component.asset_class.startswith("crypto"):
-            errors.append(f"benchmark component {component.component_id} quote_only_no_trades is only accepted for crypto components")
+        if "missing_quote_order_book_context" in component.data_availability_tags and not component.asset_class.startswith("crypto"):
+            errors.append(f"benchmark component {component.component_id} missing_quote_order_book_context is only accepted for crypto components")
         if _requires_target_context_review(component) and not component.target_context_ref and not _has_target_context_exception(component):
             errors.append(f"benchmark component {component.component_id} target_context_ref is required for non-ETF target routing")
         if component.end_date <= component.start_date:
