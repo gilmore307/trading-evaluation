@@ -1,8 +1,8 @@
 # trading-evaluation
 
-`trading-evaluation` is the independent evaluation, promotion-eligibility, and model-activation repository for the trading system.
+`trading-evaluation` is the independent benchmark, fold-settlement, and promotion-readiness repository for the trading system.
 
-It owns frozen benchmark contracts, benchmark exclusion proof, fold settlement, model-performance comparison, promotion eligibility decisions, and model activation records. It is the system's evaluation referee and release authority for model configs: it judges model candidates against accepted evidence and may publish the active model config, but it does not train models, execute trades, mutate accounts, run provider acquisition, or own durable storage layout.
+It owns frozen benchmark contracts, benchmark exclusion proof, fold settlement, model-performance comparison, promotion eligibility decisions, and promotion readiness records. It is the system's offline evaluation referee: it judges model candidates against accepted evidence and may admit them to execution shadow review, but it does not train models, switch active model configs, execute trades, mutate accounts, run provider acquisition, or own durable storage layout.
 
 ## Top-Level Structure
 
@@ -29,7 +29,7 @@ docs/
   20_benchmark_contracts.md
   30_fold_settlement.md
   40_promotion_eligibility.md
-  50_activation.md
+  50_promotion_readiness.md
 ```
 
 ## Current Route
@@ -41,17 +41,19 @@ frozen benchmark contract
   -> settlement metric rows/report refs
   -> fixed-rubric promotion reviewer advisory
   -> promotion eligibility decision
-  -> model activation record / active model config
+  -> promotion readiness record
+  -> execution shadow cycle selection
 ```
 
 The primary benchmark is one fixed target and one fixed window so fold-to-fold results remain horizontally comparable. Guardrail benchmarks may exist for overfit detection, but they do not replace the primary leaderboard unless a new benchmark contract version is explicitly accepted.
 
-Agent review, when used, must follow the workspace skill `skills/openclaw/promotion-evaluation-review`. The reviewer produces advisory structured evidence only; deterministic evaluation code validates eligibility and writes activation records.
+Agent review, when used, must follow the workspace skill `skills/openclaw/promotion-evaluation-review`. The reviewer produces advisory structured evidence only; deterministic evaluation code validates eligibility and writes promotion readiness records.
 
 ## Platform Boundaries
 
 - `trading-model` owns training, model generation, and raw model outputs.
-- `trading-evaluation` owns independent benchmark evaluation, fold settlement, promotion eligibility, and model activation records.
+- `trading-evaluation` owns independent benchmark evaluation, fold settlement, promotion eligibility, and promotion readiness records.
+- `trading-execution` owns live/shadow runtime model selection and active model switching after a market-hours shadow cycle.
 - `trading-manager` owns scheduling and control-plane state, not model-quality judgment or activation.
 - `trading-storage` owns durable settlement reports, references, backup, archive, restore, and lifecycle.
 - `trading-execution` owns broker/exchange execution and account mutation.
@@ -64,5 +66,5 @@ Shared names, fields, statuses, scripts, and contract ids discovered here must b
 PYTHONPATH=src python3 -m unittest discover -s tests
 python3 -m compileall -q src scripts
 PYTHONPATH=src python3 scripts/evaluation/validate_benchmark_contract.py --input tests/fixtures/benchmark_contract_valid.json
-PYTHONPATH=src python3 scripts/evaluation/build_model_activation_record.py --promotion-eligibility-json tests/fixtures/promotion_eligibility_eligible.json --activated-model-id market_regime_model --activated-config-ref storage://models/market_regime/new --active-model-config-ref storage://evaluation/active/market_regime_model --rollback-ref storage://models/market_regime/old --activation-scope shadow
+PYTHONPATH=src python3 scripts/evaluation/build_promotion_readiness_record.py --promotion-eligibility-json tests/fixtures/promotion_eligibility_eligible.json --candidate-model-ref storage://models/market_regime/new --candidate-config-ref storage://configs/market_regime/new --rollback-ref storage://models/market_regime/old
 ```

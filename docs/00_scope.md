@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`trading-evaluation` is the independent benchmark, fold-settlement, promotion-eligibility, and model-activation repository for the trading system.
+`trading-evaluation` is the independent benchmark, fold-settlement, promotion-eligibility, and promotion-readiness repository for the trading system.
 
 It exists to keep model-quality judgment separate from model training, manager orchestration, storage lifecycle, dashboard display, and execution.
 
@@ -16,7 +16,7 @@ It exists to keep model-quality judgment separate from model training, manager o
 - baseline comparison policy.
 - guardrail benchmark policy for overfit detection.
 - promotion eligibility decisions derived from settlement evidence.
-- model activation records and active model config contracts.
+- promotion readiness records admitting candidates to execution shadow review.
 - fixture-safe validation helpers for benchmark contracts.
 
 ## Out of Scope
@@ -33,8 +33,8 @@ It exists to keep model-quality judgment separate from model training, manager o
 
 ## Boundary Rules
 
-- Evaluation may judge a candidate and publish model activation records.
-- Model activation is a config release action; it must not execute broker/order/account mutation.
+- Evaluation may judge a candidate and publish promotion readiness records.
+- Runtime activation and active model selection belong to `trading-execution`; evaluation must not switch active configs.
 - The primary benchmark must be stable across folds; changing it requires a new accepted benchmark contract version, not silent replacement.
 - A benchmark target must not be a training target, and benchmark windows must be excluded from training/evaluation splits used to build the candidate.
 - Detailed settlement artifacts belong under `trading-storage` contracts; this repository owns their semantic validation and summary metric meaning.

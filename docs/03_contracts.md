@@ -36,23 +36,21 @@ Required future fields:
 
 ## Promotion Eligibility Decision
 
-`promotion_eligibility_decision` states whether settlement evidence makes a candidate eligible for evaluation-owned model activation.
+`promotion_eligibility_decision` states whether settlement evidence makes a candidate eligible for execution shadow review.
 
-Agent review evidence may support this decision only when it follows the fixed `promotion-evaluation-review` skill. The review is advisory and must not change the sealed benchmark, write activation records, or replace deterministic validation.
+Agent review evidence may support this decision only when it follows the fixed `promotion-evaluation-review` skill. The review is advisory and must not change the sealed benchmark, write active config pointers, or replace deterministic validation.
 
-## Model Activation Record
+## Promotion Readiness Record
 
-`model_activation_record` records the config release after an eligible promotion decision.
+`promotion_readiness_record` admits an eligible candidate to execution-owned shadow review.
 
 Required fields:
 
 - `promotion_eligibility_decision_ref`
-- `activated_model_id`
-- `activated_config_ref`
-- `active_model_config_ref`
+- `candidate_model_ref`
+- `candidate_config_ref`
 - `rollback_ref`
-- `activation_scope`
-- `activated_by`
-- `activated_at_utc`
+- `execution_shadow_scope`
+- `created_at_utc`
 
-It must report `broker_execution_performed = false` and `account_mutation_performed = false`.
+It must report `model_activation_performed = false`, `active_model_config_written = false`, `broker_execution_performed = false`, and `account_mutation_performed = false`.

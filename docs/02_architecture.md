@@ -4,7 +4,7 @@
 
 ```text
 src/trading_evaluation/benchmark.py    Benchmark contract parsing and validation.
-src/trading_evaluation/activation.py   Promotion eligibility and activation-record validation.
+src/trading_evaluation/promotion.py    Promotion eligibility and readiness validation.
 scripts/evaluation/                   Thin executable wrappers over src.
 tests/                                Fixture-safe unit and CLI tests.
 ```
@@ -22,7 +22,8 @@ BenchmarkContract
   -> FoldSettlementRun
   -> FoldSettlementMetric[]
   -> PromotionEligibilityDecision
-  -> ModelActivationRecord / ActiveModelConfig
+  -> PromotionReadinessRecord
+  -> ExecutionShadowCycleSelection
 ```
 
-The implemented scaffold validates benchmark contracts and can build model activation records from eligible evaluation decisions. It does not compute performance, query providers, mutate SQL, write storage artifacts, execute brokers, construct orders, or mutate accounts.
+The implemented scaffold validates benchmark contracts and can build promotion readiness records from eligible evaluation decisions. It does not compute performance, query providers, mutate SQL, write storage artifacts, switch active model configs, execute brokers, construct orders, or mutate accounts.

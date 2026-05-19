@@ -6,14 +6,14 @@ import unittest
 from pathlib import Path
 
 from trading_evaluation import (
-    build_model_activation_record,
     build_promotion_eligibility_decision,
-    validate_model_activation_record,
+    build_promotion_readiness_record,
+    validate_promotion_readiness_record,
 )
 
 
-class ActivationTests(unittest.TestCase):
-    def test_builds_activation_from_eligible_decision(self):
+class PromotionTests(unittest.TestCase):
+    def test_builds_readiness_from_eligible_decision(self):
         decision = build_promotion_eligibility_decision(
             fold_id="fold_2016-01_2016-06",
             candidate_model_ref="storage://models/candidate",
@@ -23,21 +23,21 @@ class ActivationTests(unittest.TestCase):
             decision_reason="passed frozen benchmark",
         )
 
-        record = build_model_activation_record(
+        record = build_promotion_readiness_record(
             promotion_eligibility_decision=decision,
-            activated_model_id="market_regime_model",
-            activated_config_ref="storage://models/market_regime/new",
-            active_model_config_ref="storage://evaluation/active/market_regime_model",
+            candidate_model_ref="storage://models/market_regime/new",
+            candidate_config_ref="storage://configs/market_regime/new",
             rollback_ref="storage://models/market_regime/old",
-            activation_scope="shadow",
         )
 
-        self.assertEqual(record["contract_type"], "model_activation_record")
+        self.assertEqual(record["contract_type"], "promotion_readiness_record")
+        self.assertFalse(record["model_activation_performed"])
+        self.assertFalse(record["active_model_config_written"])
         self.assertFalse(record["broker_execution_performed"])
         self.assertFalse(record["account_mutation_performed"])
-        self.assertEqual(validate_model_activation_record(record).validation_status, "passed")
+        self.assertEqual(validate_promotion_readiness_record(record).validation_status, "passed")
 
-    def test_rejects_activation_from_non_eligible_decision(self):
+    def test_rejects_readiness_from_non_eligible_decision(self):
         decision = build_promotion_eligibility_decision(
             fold_id="fold_2016-01_2016-06",
             candidate_model_ref="storage://models/candidate",
@@ -48,42 +48,36 @@ class ActivationTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "requires an eligible"):
-            build_model_activation_record(
+            build_promotion_readiness_record(
                 promotion_eligibility_decision=decision,
-                activated_model_id="market_regime_model",
-                activated_config_ref="storage://models/market_regime/new",
-                active_model_config_ref="storage://evaluation/active/market_regime_model",
+                candidate_model_ref="storage://models/market_regime/new",
+                candidate_config_ref="storage://configs/market_regime/new",
                 rollback_ref="storage://models/market_regime/old",
-                activation_scope="shadow",
             )
 
-    def test_cli_builds_activation_record(self):
+    def test_cli_builds_promotion_readiness_record(self):
         with tempfile.TemporaryDirectory() as directory:
             decision_path = Path(directory) / "eligibility.json"
             decision_path.write_text(Path("tests/fixtures/promotion_eligibility_eligible.json").read_text(encoding="utf-8"), encoding="utf-8")
             completed = subprocess.run(
                 [
                     sys.executable,
-                    "scripts/evaluation/build_model_activation_record.py",
+                    "scripts/evaluation/build_promotion_readiness_record.py",
                     "--promotion-eligibility-json",
                     str(decision_path),
-                    "--activated-model-id",
-                    "market_regime_model",
-                    "--activated-config-ref",
+                    "--candidate-model-ref",
                     "storage://models/market_regime/new",
-                    "--active-model-config-ref",
-                    "storage://evaluation/active/market_regime_model",
+                    "--candidate-config-ref",
+                    "storage://configs/market_regime/new",
                     "--rollback-ref",
                     "storage://models/market_regime/old",
-                    "--activation-scope",
-                    "shadow",
                 ],
                 check=True,
                 capture_output=True,
                 text=True,
             )
         payload = json.loads(completed.stdout)
-        self.assertEqual(payload["contract_type"], "model_activation_record")
+        self.assertEqual(payload["contract_type"], "promotion_readiness_record")
         self.assertEqual(payload["promotion_eligibility_decision_ref"], "promelig_fixture")
 
 

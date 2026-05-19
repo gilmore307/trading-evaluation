@@ -1,4 +1,4 @@
-"""Evaluation-owned model activation records."""
+"""Evaluation-owned promotion eligibility and readiness records."""
 
 from __future__ import annotations
 
@@ -10,8 +10,7 @@ from typing import Any, Iterable, Literal, Mapping
 
 ELIGIBLE_STATUS = "eligible"
 PROMOTION_ELIGIBILITY_DECISION_CONTRACT = "promotion_eligibility_decision"
-MODEL_ACTIVATION_RECORD_CONTRACT = "model_activation_record"
-ACTIVE_MODEL_CONFIG_CONTRACT = "active_model_config"
+PROMOTION_READINESS_RECORD_CONTRACT = "promotion_readiness_record"
 ALLOWED_ELIGIBILITY_STATUSES = {"eligible", "rejected", "review_required", "revoked", "superseded"}
 
 
@@ -30,7 +29,7 @@ def _list(values: Iterable[str] | None) -> list[str]:
 
 @dataclass(frozen=True)
 class ActivationValidation:
-    """Validation result for an activation artifact."""
+    """Validation result for an evaluation promotion artifact."""
 
     contract_type: str
     validation_status: str
@@ -111,86 +110,80 @@ def validate_promotion_eligibility_decision(payload: Mapping[str, Any]) -> Activ
     )
 
 
-def build_model_activation_record(
+def build_promotion_readiness_record(
     *,
     promotion_eligibility_decision: Mapping[str, Any],
-    activated_model_id: str,
-    activated_config_ref: str,
-    active_model_config_ref: str,
+    candidate_model_ref: str,
+    candidate_config_ref: str,
     rollback_ref: str,
-    activation_scope: str,
-    activated_by: str = "trading-evaluation",
-    replaced_config_ref: str | None = None,
-    activation_record_id: str | None = None,
-    activated_at_utc: str | None = None,
+    execution_shadow_scope: str = "paper_or_live_shadow",
+    readiness_record_id: str | None = None,
+    created_at_utc: str | None = None,
 ) -> dict[str, Any]:
-    """Build a model activation record from an eligible evaluation decision."""
+    """Build a record admitting an eligible candidate to execution shadow review."""
 
     validation = validate_promotion_eligibility_decision(promotion_eligibility_decision)
     if validation.validation_status != "passed":
         raise ValueError("; ".join(validation.errors))
     if promotion_eligibility_decision["decision_status"] != ELIGIBLE_STATUS:
-        raise ValueError("model activation requires an eligible promotion_eligibility_decision")
-    required_values = {
-        "activated_model_id": activated_model_id,
-        "activated_config_ref": activated_config_ref,
-        "active_model_config_ref": active_model_config_ref,
+        raise ValueError("promotion readiness requires an eligible promotion_eligibility_decision")
+    for field, value in {
+        "candidate_model_ref": candidate_model_ref,
+        "candidate_config_ref": candidate_config_ref,
         "rollback_ref": rollback_ref,
-        "activation_scope": activation_scope,
-        "activated_by": activated_by,
-    }
-    for field, value in required_values.items():
+        "execution_shadow_scope": execution_shadow_scope,
+    }.items():
         if not value:
             raise ValueError(f"{field} is required")
     decision_ref = str(promotion_eligibility_decision["promotion_eligibility_decision_id"])
     record = {
-        "contract_type": MODEL_ACTIVATION_RECORD_CONTRACT,
-        "model_activation_record_id": activation_record_id
-        or _stable_id("modelact", decision_ref, activated_model_id, activated_config_ref, active_model_config_ref, rollback_ref),
+        "contract_type": PROMOTION_READINESS_RECORD_CONTRACT,
+        "promotion_readiness_record_id": readiness_record_id
+        or _stable_id("promready", decision_ref, candidate_model_ref, candidate_config_ref, rollback_ref),
         "promotion_eligibility_decision_ref": decision_ref,
-        "activated_model_id": activated_model_id,
-        "activated_config_ref": activated_config_ref,
-        "active_model_config_ref": active_model_config_ref,
-        "replaced_config_ref": replaced_config_ref,
+        "candidate_model_ref": candidate_model_ref,
+        "candidate_config_ref": candidate_config_ref,
         "rollback_ref": rollback_ref,
-        "activation_scope": activation_scope,
-        "activated_by": activated_by,
-        "activated_at_utc": activated_at_utc or _now_utc(),
+        "execution_shadow_scope": execution_shadow_scope,
+        "created_at_utc": created_at_utc or _now_utc(),
+        "model_activation_performed": False,
+        "active_model_config_written": False,
         "broker_execution_performed": False,
         "account_mutation_performed": False,
     }
-    activation_validation = validate_model_activation_record(record)
-    if activation_validation.validation_status != "passed":
-        raise ValueError("; ".join(activation_validation.errors))
+    readiness_validation = validate_promotion_readiness_record(record)
+    if readiness_validation.validation_status != "passed":
+        raise ValueError("; ".join(readiness_validation.errors))
     return record
 
 
-def validate_model_activation_record(payload: Mapping[str, Any]) -> ActivationValidation:
+def validate_promotion_readiness_record(payload: Mapping[str, Any]) -> ActivationValidation:
     errors: list[str] = []
     required = (
         "contract_type",
-        "model_activation_record_id",
+        "promotion_readiness_record_id",
         "promotion_eligibility_decision_ref",
-        "activated_model_id",
-        "activated_config_ref",
-        "active_model_config_ref",
+        "candidate_model_ref",
+        "candidate_config_ref",
         "rollback_ref",
-        "activation_scope",
-        "activated_by",
-        "activated_at_utc",
+        "execution_shadow_scope",
+        "created_at_utc",
     )
     for field in required:
         if payload.get(field) in (None, ""):
             errors.append(f"{field} is required")
-    if payload.get("contract_type") != MODEL_ACTIVATION_RECORD_CONTRACT:
-        errors.append(f"contract_type must be {MODEL_ACTIVATION_RECORD_CONTRACT}")
-    if payload.get("broker_execution_performed") is not False:
-        errors.append("broker_execution_performed must be false")
-    if payload.get("account_mutation_performed") is not False:
-        errors.append("account_mutation_performed must be false")
+    if payload.get("contract_type") != PROMOTION_READINESS_RECORD_CONTRACT:
+        errors.append(f"contract_type must be {PROMOTION_READINESS_RECORD_CONTRACT}")
+    for field in (
+        "model_activation_performed",
+        "active_model_config_written",
+        "broker_execution_performed",
+        "account_mutation_performed",
+    ):
+        if payload.get(field) is not False:
+            errors.append(f"{field} must be false")
     return ActivationValidation(
-        contract_type="model_activation_record_validation",
+        contract_type="promotion_readiness_record_validation",
         validation_status="passed" if not errors else "failed",
         errors=tuple(errors),
     )
-
