@@ -2,7 +2,7 @@
 
 ## Active Tasks
 
-- Select the first primary benchmark target/window under review. The target must not be a training target, and the window must be long and structurally complex enough for horizontal fold comparison.
+- Select the first primary benchmark panel under review. Component target/window pairs must be excluded from same-target training folds, and the panel must be long and structurally complex enough for horizontal fold comparison.
 - Implement fold settlement metric assembly after the benchmark contract is accepted.
 - Move remaining promotion eligibility and readiness logic out of manager/model paths into this repository in controlled slices.
 

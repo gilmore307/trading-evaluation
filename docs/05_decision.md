@@ -7,14 +7,14 @@ Status: Accepted
 
 `trading-evaluation` owns benchmark judgment, fold settlement, promotion eligibility, and promotion readiness records. It does not train models, schedule workflow, store durable artifacts, switch active model configs, execute broker actions, or mutate accounts.
 
-## D002 - Primary Benchmark Is One Frozen Target Window
+## D002 - Primary Benchmark Is One Frozen Panel
 
 Date: 2026-05-19
 Status: Accepted
 
-The primary benchmark uses one fixed target and one fixed time window so fold settlement remains horizontally comparable across model generations.
+The primary benchmark may use multiple fixed target/window components inside one frozen panel so fold settlement remains horizontally comparable across model generations.
 
-The benchmark window must be long enough to reduce accident, structurally complex enough to cover diverse market states, and excluded from training. The target must not be a training-used target.
+The panel must be long enough to reduce accident, structurally complex enough to cover diverse market states, and excluded from candidate training by target/window. If a target appears in a benchmark component, any same-target training fold that overlaps that component window must be skipped or blocked. The target may still be trained outside sealed benchmark windows.
 
 ## D003 - Promotion Readiness Belongs In Evaluation; Runtime Activation Belongs In Execution
 

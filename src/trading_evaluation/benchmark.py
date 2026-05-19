@@ -25,13 +25,51 @@ def _strings(value: object) -> tuple[str, ...]:
 
 
 @dataclass(frozen=True)
+class BenchmarkComponent:
+    """One blinded component inside a frozen benchmark panel."""
+
+    component_id: str
+    target_symbol: str
+    start_date: date
+    end_date: date
+    weight: float
+    market_condition_tags: tuple[str, ...]
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any], *, fallback_id: str = "component_1") -> "BenchmarkComponent":
+        try:
+            weight = float(payload.get("weight", 1.0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("benchmark component weight must be numeric") from exc
+        return cls(
+            component_id=str(payload.get("component_id") or fallback_id).strip(),
+            target_symbol=str(payload.get("target_symbol") or "").strip().upper(),
+            start_date=_parse_date(payload.get("start_date"), field_name="component.start_date"),
+            end_date=_parse_date(payload.get("end_date"), field_name="component.end_date"),
+            weight=weight,
+            market_condition_tags=_strings(payload.get("market_condition_tags") or ()),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "component_id": self.component_id,
+            "target_symbol": self.target_symbol,
+            "start_date": self.start_date.isoformat(),
+            "end_date": self.end_date.isoformat(),
+            "weight": self.weight,
+            "market_condition_tags": list(self.market_condition_tags),
+        }
+
+
+@dataclass(frozen=True)
 class BenchmarkContract:
-    """Frozen primary benchmark contract."""
+    """Frozen primary benchmark panel contract."""
 
     contract_id: str
     target_symbol: str
     start_date: date
     end_date: date
+    benchmark_components: tuple[BenchmarkComponent, ...]
     min_trading_days: int
     market_condition_tags: tuple[str, ...]
     data_snapshot_ref: str
@@ -50,11 +88,34 @@ class BenchmarkContract:
         windows = payload.get("excluded_training_windows") or []
         if not isinstance(windows, Sequence) or isinstance(windows, (str, bytes)):
             windows = []
+        raw_components = payload.get("benchmark_components") or []
+        if not isinstance(raw_components, Sequence) or isinstance(raw_components, (str, bytes)):
+            raw_components = []
+        components = tuple(
+            BenchmarkComponent.from_mapping(component, fallback_id=f"component_{index}")
+            for index, component in enumerate(raw_components, start=1)
+            if isinstance(component, Mapping)
+        )
+        target_symbol = str(payload.get("target_symbol") or "").strip().upper()
+        start_date = _parse_date(payload.get("start_date"), field_name="start_date")
+        end_date = _parse_date(payload.get("end_date"), field_name="end_date")
+        if not components and target_symbol:
+            components = (
+                BenchmarkComponent(
+                    component_id="component_1",
+                    target_symbol=target_symbol,
+                    start_date=start_date,
+                    end_date=end_date,
+                    weight=1.0,
+                    market_condition_tags=_strings(payload.get("market_condition_tags") or ()),
+                ),
+            )
         return cls(
             contract_id=str(payload.get("contract_id") or "").strip(),
-            target_symbol=str(payload.get("target_symbol") or "").strip().upper(),
-            start_date=_parse_date(payload.get("start_date"), field_name="start_date"),
-            end_date=_parse_date(payload.get("end_date"), field_name="end_date"),
+            target_symbol=target_symbol,
+            start_date=start_date,
+            end_date=end_date,
+            benchmark_components=components,
             min_trading_days=min_trading_days,
             market_condition_tags=_strings(payload.get("market_condition_tags") or ()),
             data_snapshot_ref=str(payload.get("data_snapshot_ref") or "").strip(),
@@ -71,6 +132,7 @@ class BenchmarkContract:
             "target_symbol": self.target_symbol,
             "start_date": self.start_date.isoformat(),
             "end_date": self.end_date.isoformat(),
+            "benchmark_components": [component.to_dict() for component in self.benchmark_components],
             "min_trading_days": self.min_trading_days,
             "market_condition_tags": list(self.market_condition_tags),
             "data_snapshot_ref": self.data_snapshot_ref,
@@ -120,13 +182,30 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
 
     if not contract.contract_id:
         errors.append("contract_id is required")
-    if not contract.target_symbol:
-        errors.append("target_symbol is required")
+    if not contract.target_symbol and not contract.benchmark_components:
+        errors.append("target_symbol or benchmark_components is required")
     if contract.end_date <= contract.start_date:
         errors.append("end_date must be after start_date")
+    if not contract.benchmark_components:
+        errors.append("benchmark_components must include at least one component")
+    component_ids = [component.component_id for component in contract.benchmark_components]
+    if len(set(component_ids)) != len(component_ids):
+        errors.append("benchmark component_id values must be unique")
+    for component in contract.benchmark_components:
+        if not component.component_id:
+            errors.append("benchmark component_id is required")
+        if not component.target_symbol:
+            errors.append("benchmark component target_symbol is required")
+        if component.end_date <= component.start_date:
+            errors.append(f"benchmark component {component.component_id} end_date must be after start_date")
+        if component.weight <= 0:
+            errors.append(f"benchmark component {component.component_id} weight must be positive")
     if contract.min_trading_days < 252:
         errors.append("min_trading_days must be at least one trading year")
-    if len(set(contract.market_condition_tags)) < REQUIRED_MARKET_CONDITION_TAGS:
+    all_market_condition_tags = set(contract.market_condition_tags)
+    for component in contract.benchmark_components:
+        all_market_condition_tags.update(component.market_condition_tags)
+    if len(all_market_condition_tags) < REQUIRED_MARKET_CONDITION_TAGS:
         errors.append("market_condition_tags must cover at least four distinct market conditions")
     if not contract.data_snapshot_ref:
         errors.append("data_snapshot_ref is required")
@@ -134,10 +213,17 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
         errors.append("cost_model_ref is required")
     if not contract.baseline_refs:
         errors.append("baseline_refs must include at least one accepted baseline")
-    if contract.target_symbol and contract.target_symbol in set(contract.training_universe_symbols):
-        errors.append("target_symbol must not appear in training_universe_symbols")
     if not contract.excluded_training_windows:
-        warnings.append("excluded_training_windows is empty; provide explicit split exclusion evidence before acceptance")
+        errors.append("excluded_training_windows is required for benchmark training-contamination exclusion")
+    else:
+        exclusion_errors = _validate_excluded_training_windows(contract.excluded_training_windows)
+        errors.extend(exclusion_errors)
+        for component in contract.benchmark_components:
+            if not _component_window_is_excluded(component, contract.excluded_training_windows):
+                errors.append(
+                    "excluded_training_windows must cover every benchmark component target/window "
+                    f"({component.component_id}:{component.target_symbol})"
+                )
     if not contract.guardrail_refs:
         warnings.append("guardrail_refs is empty; primary benchmark remains valid but overfit detection is weaker")
 
@@ -149,3 +235,55 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
         contract=contract,
     )
 
+
+def is_training_fold_blocked_by_benchmark(
+    contract: BenchmarkContract,
+    *,
+    target_symbol: str,
+    fold_start_date: date | str,
+    fold_end_date: date | str,
+) -> bool:
+    """Return true when a target fold overlaps a sealed benchmark component."""
+
+    symbol = target_symbol.strip().upper()
+    start = date.fromisoformat(fold_start_date) if isinstance(fold_start_date, str) else fold_start_date
+    end = date.fromisoformat(fold_end_date) if isinstance(fold_end_date, str) else fold_end_date
+    if end <= start:
+        raise ValueError("fold_end_date must be after fold_start_date")
+    return any(
+        component.target_symbol == symbol and _windows_overlap(start, end, component.start_date, component.end_date)
+        for component in contract.benchmark_components
+    )
+
+
+def _validate_excluded_training_windows(windows: Sequence[Mapping[str, Any]]) -> list[str]:
+    errors: list[str] = []
+    for index, window in enumerate(windows, start=1):
+        try:
+            start = _parse_date(window.get("start_date"), field_name="excluded_training_windows.start_date")
+            end = _parse_date(window.get("end_date"), field_name="excluded_training_windows.end_date")
+        except ValueError as exc:
+            errors.append(f"excluded_training_windows[{index}] {exc}")
+            continue
+        if end <= start:
+            errors.append(f"excluded_training_windows[{index}] end_date must be after start_date")
+    return errors
+
+
+def _component_window_is_excluded(component: BenchmarkComponent, windows: Sequence[Mapping[str, Any]]) -> bool:
+    for window in windows:
+        raw_symbol = str(window.get("target_symbol") or "").strip().upper()
+        if raw_symbol and raw_symbol != component.target_symbol:
+            continue
+        try:
+            start = _parse_date(window.get("start_date"), field_name="excluded_training_windows.start_date")
+            end = _parse_date(window.get("end_date"), field_name="excluded_training_windows.end_date")
+        except ValueError:
+            continue
+        if start <= component.start_date and end >= component.end_date:
+            return True
+    return False
+
+
+def _windows_overlap(left_start: date, left_end: date, right_start: date, right_end: date) -> bool:
+    return left_start < right_end and right_start < left_end

@@ -5,12 +5,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from trading_evaluation import validate_benchmark_contract
+from trading_evaluation import is_training_fold_blocked_by_benchmark, validate_benchmark_contract
 
 
 VALID_CONTRACT = {
     "contract_id": "primary_benchmark_pending_review",
-    "target_symbol": "XYZ",
     "start_date": "2018-01-01",
     "end_date": "2021-12-31",
     "min_trading_days": 756,
@@ -18,8 +17,29 @@ VALID_CONTRACT = {
     "data_snapshot_ref": "storage://benchmark/data_snapshot/pending_review",
     "cost_model_ref": "storage://benchmark/cost_model/pending_review",
     "baseline_refs": ["baseline://buy_and_hold", "baseline://no_trade"],
-    "training_universe_symbols": ["AAOI", "SPY"],
-    "excluded_training_windows": [{"start_date": "2018-01-01", "end_date": "2021-12-31", "reason": "primary benchmark"}],
+    "training_universe_symbols": ["AAOI", "SPY", "XYZ"],
+    "benchmark_components": [
+        {
+            "component_id": "component_a",
+            "target_symbol": "XYZ",
+            "start_date": "2018-01-01",
+            "end_date": "2021-12-31",
+            "weight": 0.5,
+            "market_condition_tags": ["trend_up", "drawdown", "range_bound"],
+        },
+        {
+            "component_id": "component_b",
+            "target_symbol": "QRS",
+            "start_date": "2018-01-01",
+            "end_date": "2021-12-31",
+            "weight": 0.5,
+            "market_condition_tags": ["high_volatility", "event_shock"],
+        },
+    ],
+    "excluded_training_windows": [
+        {"target_symbol": "XYZ", "start_date": "2018-01-01", "end_date": "2021-12-31", "reason": "primary benchmark"},
+        {"target_symbol": "QRS", "start_date": "2018-01-01", "end_date": "2021-12-31", "reason": "primary benchmark"},
+    ],
     "guardrail_refs": ["benchmark://guardrail/liquidity_regime"],
 }
 
@@ -29,19 +49,68 @@ class BenchmarkContractTests(unittest.TestCase):
         result = validate_benchmark_contract(VALID_CONTRACT)
         self.assertEqual(result.validation_status, "passed")
         self.assertEqual(result.errors, ())
-        self.assertEqual(result.contract.target_symbol, "XYZ")
+        self.assertEqual([component.target_symbol for component in result.contract.benchmark_components], ["XYZ", "QRS"])
 
-    def test_training_symbol_overlap_fails(self):
-        payload = dict(VALID_CONTRACT, target_symbol="AAOI")
+    def test_missing_component_training_exclusion_fails(self):
+        payload = dict(VALID_CONTRACT)
+        payload["excluded_training_windows"] = [
+            {"target_symbol": "XYZ", "start_date": "2018-01-01", "end_date": "2021-12-31", "reason": "primary benchmark"}
+        ]
         result = validate_benchmark_contract(payload)
         self.assertEqual(result.validation_status, "failed")
-        self.assertIn("target_symbol must not appear in training_universe_symbols", result.errors)
+        self.assertIn("excluded_training_windows must cover every benchmark component target/window (component_b:QRS)", result.errors)
+
+    def test_same_target_training_universe_allowed_when_benchmark_window_is_excluded(self):
+        payload = dict(VALID_CONTRACT)
+        payload["training_universe_symbols"] = ["XYZ"]
+        result = validate_benchmark_contract(payload)
+        self.assertEqual(result.validation_status, "passed")
+
+    def test_same_target_fold_overlap_is_blocked(self):
+        result = validate_benchmark_contract(VALID_CONTRACT)
+        self.assertTrue(
+            is_training_fold_blocked_by_benchmark(
+                result.contract,
+                target_symbol="XYZ",
+                fold_start_date="2020-01-01",
+                fold_end_date="2020-06-30",
+            )
+        )
+        self.assertFalse(
+            is_training_fold_blocked_by_benchmark(
+                result.contract,
+                target_symbol="XYZ",
+                fold_start_date="2022-01-01",
+                fold_end_date="2022-06-30",
+            )
+        )
+        self.assertFalse(
+            is_training_fold_blocked_by_benchmark(
+                result.contract,
+                target_symbol="ABC",
+                fold_start_date="2020-01-01",
+                fold_end_date="2020-06-30",
+            )
+        )
 
     def test_short_or_simple_window_fails(self):
         payload = dict(
             VALID_CONTRACT,
             min_trading_days=60,
             market_condition_tags=["trend_up"],
+            benchmark_components=[
+                {
+                    "component_id": "component_a",
+                    "target_symbol": "XYZ",
+                    "start_date": "2018-01-01",
+                    "end_date": "2021-12-31",
+                    "weight": 1.0,
+                    "market_condition_tags": ["trend_up"],
+                }
+            ],
+            excluded_training_windows=[
+                {"target_symbol": "XYZ", "start_date": "2018-01-01", "end_date": "2021-12-31", "reason": "primary benchmark"}
+            ],
         )
         result = validate_benchmark_contract(payload)
         self.assertEqual(result.validation_status, "failed")
@@ -70,4 +139,3 @@ class BenchmarkContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
