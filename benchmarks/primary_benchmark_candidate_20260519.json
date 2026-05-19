@@ -1,7 +1,7 @@
 {
   "contract_id": "primary_benchmark_candidate_20260519",
   "start_date": "2020-02-18",
-  "end_date": "2024-06-28",
+  "end_date": "2026-04-30",
   "min_trading_days": 1260,
   "market_condition_tags": [
     "trend_up",
@@ -17,7 +17,8 @@
     "liquidity_stress",
     "crypto_cycle",
     "single_name_momentum",
-    "optionable_equity_focus"
+    "optionable_equity_focus",
+    "recent_hot_thematic_cycle"
   ],
   "data_snapshot_ref": "storage://benchmark/primary_benchmark_candidate_20260519/data_snapshot/pending_materialization",
   "cost_model_ref": "storage://benchmark/primary_benchmark_candidate_20260519/cost_model/pending_review",
@@ -47,7 +48,11 @@
     "COIN",
     "AAOI",
     "AMD",
-    "BTC-USDT"
+    "BTC-USDT",
+    "WDC",
+    "MU",
+    "CEG",
+    "LITE"
   ],
   "benchmark_components": [
     {
@@ -58,7 +63,7 @@
       "component_role": "primary",
       "start_date": "2020-02-18",
       "end_date": "2020-06-30",
-      "weight": 0.07,
+      "weight": 0.05,
       "market_condition_tags": [
         "drawdown",
         "event_shock",
@@ -79,7 +84,7 @@
       "component_role": "primary",
       "start_date": "2021-09-01",
       "end_date": "2022-06-30",
-      "weight": 0.05,
+      "weight": 0.04,
       "market_condition_tags": [
         "trend_up",
         "inflation_shock",
@@ -99,7 +104,7 @@
       "component_role": "primary",
       "start_date": "2022-01-03",
       "end_date": "2023-10-31",
-      "weight": 0.05,
+      "weight": 0.04,
       "market_condition_tags": [
         "trend_down",
         "rate_shock",
@@ -159,7 +164,7 @@
       "component_role": "primary",
       "start_date": "2020-05-01",
       "end_date": "2021-08-31",
-      "weight": 0.04,
+      "weight": 0.03,
       "market_condition_tags": [
         "trend_up",
         "event_shock",
@@ -179,7 +184,7 @@
       "component_role": "primary",
       "start_date": "2021-01-04",
       "end_date": "2021-03-31",
-      "weight": 0.04,
+      "weight": 0.03,
       "market_condition_tags": [
         "event_shock",
         "high_volatility",
@@ -199,7 +204,7 @@
       "component_role": "primary",
       "start_date": "2020-11-18",
       "end_date": "2021-06-30",
-      "weight": 0.04,
+      "weight": 0.03,
       "market_condition_tags": [
         "trend_up",
         "sector_leadership",
@@ -219,7 +224,7 @@
       "component_role": "primary",
       "start_date": "2021-08-02",
       "end_date": "2021-11-30",
-      "weight": 0.04,
+      "weight": 0.03,
       "market_condition_tags": [
         "trend_up",
         "sector_leadership",
@@ -239,7 +244,7 @@
       "component_role": "primary",
       "start_date": "2022-02-03",
       "end_date": "2022-11-30",
-      "weight": 0.04,
+      "weight": 0.03,
       "market_condition_tags": [
         "trend_down",
         "rate_shock",
@@ -259,7 +264,7 @@
       "component_role": "primary",
       "start_date": "2022-07-01",
       "end_date": "2023-02-28",
-      "weight": 0.04,
+      "weight": 0.03,
       "market_condition_tags": [
         "trend_up",
         "rotation",
@@ -359,7 +364,7 @@
       "component_role": "primary",
       "start_date": "2023-01-03",
       "end_date": "2023-12-29",
-      "weight": 0.05,
+      "weight": 0.04,
       "market_condition_tags": [
         "trend_up",
         "crypto_cycle",
@@ -413,6 +418,87 @@
       "stress_exception_ref": ""
     },
     {
+      "component_id": "bmk_20260519_21_wdc_storage_cycle",
+      "target_symbol": "WDC",
+      "asset_class": "equity_single_name",
+      "theme_bucket": "storage_memory_cycle",
+      "component_role": "primary",
+      "start_date": "2025-04-01",
+      "end_date": "2026-04-30",
+      "weight": 0.04,
+      "market_condition_tags": [
+        "trend_up",
+        "sector_leadership",
+        "recent_hot_thematic_cycle"
+      ],
+      "data_availability_tags": [
+        "full_ohlcv"
+      ],
+      "target_context_ref": "target-context-review://benchmark-candidate-20260519/WDC",
+      "stress_exception_ref": ""
+    },
+    {
+      "component_id": "bmk_20260519_22_mu_ai_memory_cycle",
+      "target_symbol": "MU",
+      "asset_class": "equity_single_name",
+      "theme_bucket": "ai_memory_cycle",
+      "component_role": "primary",
+      "start_date": "2025-06-02",
+      "end_date": "2026-04-30",
+      "weight": 0.03,
+      "market_condition_tags": [
+        "trend_up",
+        "sector_leadership",
+        "recent_hot_thematic_cycle"
+      ],
+      "data_availability_tags": [
+        "full_ohlcv"
+      ],
+      "target_context_ref": "target-context-review://benchmark-candidate-20260519/MU",
+      "stress_exception_ref": ""
+    },
+    {
+      "component_id": "bmk_20260519_23_ceg_nuclear_power_repricing",
+      "target_symbol": "CEG",
+      "asset_class": "equity_single_name",
+      "theme_bucket": "nuclear_data_center_power",
+      "component_role": "primary",
+      "start_date": "2025-01-02",
+      "end_date": "2025-12-31",
+      "weight": 0.03,
+      "market_condition_tags": [
+        "trend_up",
+        "sector_leadership",
+        "recent_hot_thematic_cycle"
+      ],
+      "data_availability_tags": [
+        "full_ohlcv"
+      ],
+      "target_context_ref": "target-context-review://benchmark-candidate-20260519/CEG",
+      "stress_exception_ref": ""
+    },
+    {
+      "component_id": "bmk_20260519_24_lite_optical_module_reacceleration",
+      "target_symbol": "LITE",
+      "asset_class": "equity_single_name",
+      "theme_bucket": "optical_module_reacceleration",
+      "component_role": "primary",
+      "start_date": "2025-08-01",
+      "end_date": "2026-04-30",
+      "weight": 0.03,
+      "market_condition_tags": [
+        "trend_up",
+        "sector_leadership",
+        "recent_hot_thematic_cycle",
+        "high_volatility"
+      ],
+      "data_availability_tags": [
+        "full_ohlcv"
+      ],
+      "target_context_ref": "target-context-review://benchmark-candidate-20260519/LITE",
+      "stress_exception_ref": ""
+    },
+    {
       "component_id": "bmk_20260519_19_btc_crypto_bull",
       "target_symbol": "BTC-USDT",
       "asset_class": "crypto_spot",
@@ -420,7 +506,7 @@
       "component_role": "primary",
       "start_date": "2021-01-01",
       "end_date": "2021-04-30",
-      "weight": 0.06,
+      "weight": 0.05,
       "market_condition_tags": [
         "trend_up",
         "crypto_cycle",
@@ -440,7 +526,7 @@
       "component_role": "stress_edge_case",
       "start_date": "2022-05-01",
       "end_date": "2022-11-30",
-      "weight": 0.06,
+      "weight": 0.05,
       "market_condition_tags": [
         "trend_down",
         "crypto_cycle",
@@ -575,6 +661,30 @@
       "start_date": "2022-05-01",
       "end_date": "2022-11-30",
       "reason": "primary benchmark candidate stress component bmk_20260519_20_btc_crypto_winter_stress"
+    },
+    {
+      "target_symbol": "WDC",
+      "start_date": "2025-04-01",
+      "end_date": "2026-04-30",
+      "reason": "primary benchmark candidate component bmk_20260519_21_wdc_storage_cycle"
+    },
+    {
+      "target_symbol": "MU",
+      "start_date": "2025-06-02",
+      "end_date": "2026-04-30",
+      "reason": "primary benchmark candidate component bmk_20260519_22_mu_ai_memory_cycle"
+    },
+    {
+      "target_symbol": "CEG",
+      "start_date": "2025-01-02",
+      "end_date": "2025-12-31",
+      "reason": "primary benchmark candidate component bmk_20260519_23_ceg_nuclear_power_repricing"
+    },
+    {
+      "target_symbol": "LITE",
+      "start_date": "2025-08-01",
+      "end_date": "2026-04-30",
+      "reason": "primary benchmark candidate component bmk_20260519_24_lite_optical_module_reacceleration"
     }
   ],
   "guardrail_refs": [
