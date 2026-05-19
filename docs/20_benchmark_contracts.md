@@ -23,10 +23,12 @@ Required properties:
 
 Suggested composition:
 
-- 60-75% equity single-name and ETF components.
-- 15-25% then-hot thematic single-name components from storage, optical modules, rare earth, nuclear, data center, AI, or similar period-specific leadership themes.
+- at least 55% single-name optionable equity components.
+- no more than 30% ETF components; ETFs are background anchors, not the main benchmark surface.
+- substantial then-hot thematic single-name components from storage, optical modules, rare earth, nuclear, data center, AI, healthcare, meme/option-stress, or similar period-specific leadership themes.
 - 5-15% crypto spot components.
 - No single target, year, theme bucket, or market state should dominate the panel.
+- Large same-background overlap should be limited. Components may share time periods only when each target adds genuinely different tradability, liquidity, option-expression, or thematic stress evidence.
 
 Controlled stress sleeve:
 

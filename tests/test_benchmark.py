@@ -27,7 +27,7 @@ VALID_CONTRACT = {
             "component_role": "primary",
             "start_date": "2018-01-01",
             "end_date": "2021-12-31",
-            "weight": 0.5,
+            "weight": 0.9,
             "market_condition_tags": ["trend_up", "drawdown", "range_bound"],
             "target_context_ref": "target-context-review://XYZ",
         },
@@ -39,7 +39,7 @@ VALID_CONTRACT = {
             "component_role": "primary",
             "start_date": "2018-01-01",
             "end_date": "2021-12-31",
-            "weight": 0.5,
+            "weight": 0.1,
             "market_condition_tags": ["high_volatility", "event_shock"],
             "target_context_ref": "target-context-review://QRS",
         },
@@ -92,7 +92,13 @@ class BenchmarkContractTests(unittest.TestCase):
                 stress_exception_ref="benchmark-stress://missing-layer2/thematic-single-name",
                 weight=0.10,
             ),
-            dict(VALID_CONTRACT["benchmark_components"][1], weight=0.90),
+            dict(VALID_CONTRACT["benchmark_components"][0], component_id="component_c", target_symbol="ABC", target_context_ref="target-context-review://ABC", weight=0.80),
+            dict(VALID_CONTRACT["benchmark_components"][1], weight=0.10),
+        ]
+        payload["excluded_training_windows"] = [
+            {"target_symbol": "XYZ", "start_date": "2018-01-01", "end_date": "2021-12-31", "reason": "primary benchmark"},
+            {"target_symbol": "ABC", "start_date": "2018-01-01", "end_date": "2021-12-31", "reason": "primary benchmark"},
+            {"target_symbol": "QRS", "start_date": "2018-01-01", "end_date": "2021-12-31", "reason": "primary benchmark"},
         ]
         result = validate_benchmark_contract(payload)
         self.assertEqual(result.validation_status, "passed")
@@ -122,10 +128,14 @@ class BenchmarkContractTests(unittest.TestCase):
                 target_context_ref="",
                 stress_exception_ref="benchmark-stress://missing-layer2",
                 weight=0.20,
-            )
+            ),
+            dict(VALID_CONTRACT["benchmark_components"][0], component_id="component_c", target_symbol="ABC", target_context_ref="target-context-review://ABC", weight=0.70),
+            dict(VALID_CONTRACT["benchmark_components"][1], weight=0.10),
         ]
         payload["excluded_training_windows"] = [
-            {"target_symbol": "XYZ", "start_date": "2018-01-01", "end_date": "2021-12-31", "reason": "primary benchmark"}
+            {"target_symbol": "XYZ", "start_date": "2018-01-01", "end_date": "2021-12-31", "reason": "primary benchmark"},
+            {"target_symbol": "ABC", "start_date": "2018-01-01", "end_date": "2021-12-31", "reason": "primary benchmark"},
+            {"target_symbol": "QRS", "start_date": "2018-01-01", "end_date": "2021-12-31", "reason": "primary benchmark"},
         ]
         result = validate_benchmark_contract(payload)
         self.assertEqual(result.validation_status, "failed")
@@ -134,8 +144,10 @@ class BenchmarkContractTests(unittest.TestCase):
     def test_critical_data_stress_tags_must_be_explicit_stress_components(self):
         payload = dict(VALID_CONTRACT)
         payload["benchmark_components"] = [
+            dict(VALID_CONTRACT["benchmark_components"][0], component_id="component_a", weight=0.90),
             dict(
                 VALID_CONTRACT["benchmark_components"][1],
+                weight=0.10,
                 data_availability_tags=["missing_quote_order_book_context"],
             )
         ]
@@ -190,15 +202,17 @@ class BenchmarkContractTests(unittest.TestCase):
                     "component_role": "primary",
                     "start_date": "2018-01-01",
                     "end_date": "2021-12-31",
-                    "weight": 1.0,
+                    "weight": 0.9,
                     "market_condition_tags": ["trend_up"],
                     "target_context_ref": "target-context-review://XYZ",
                 }
             ],
             excluded_training_windows=[
-                {"target_symbol": "XYZ", "start_date": "2018-01-01", "end_date": "2021-12-31", "reason": "primary benchmark"}
+                {"target_symbol": "XYZ", "start_date": "2018-01-01", "end_date": "2021-12-31", "reason": "primary benchmark"},
+                {"target_symbol": "QRS", "start_date": "2018-01-01", "end_date": "2021-12-31", "reason": "primary benchmark"},
             ],
         )
+        payload["benchmark_components"].append(dict(VALID_CONTRACT["benchmark_components"][1], weight=0.1))
         result = validate_benchmark_contract(payload)
         self.assertEqual(result.validation_status, "failed")
         self.assertIn("min_trading_days must be at least one trading year", result.errors)
@@ -228,6 +242,24 @@ class BenchmarkContractTests(unittest.TestCase):
         result = validate_benchmark_contract(json.loads(path.read_text(encoding="utf-8")))
         self.assertEqual(result.validation_status, "passed")
         self.assertEqual(sum(component.weight for component in result.contract.benchmark_components), 1.0)
+        single_name_weight = sum(component.weight for component in result.contract.benchmark_components if component.asset_class == "equity_single_name")
+        etf_weight = sum(component.weight for component in result.contract.benchmark_components if component.asset_class == "equity_etf")
+        crypto_weight = sum(component.weight for component in result.contract.benchmark_components if component.asset_class.startswith("crypto"))
+        self.assertGreaterEqual(single_name_weight, 0.55)
+        self.assertLessEqual(etf_weight, 0.30)
+        self.assertLessEqual(crypto_weight, 0.15)
+
+    def test_stock_first_weight_policy_is_enforced(self):
+        payload = dict(VALID_CONTRACT)
+        payload["benchmark_components"] = [
+            dict(VALID_CONTRACT["benchmark_components"][0], asset_class="equity_etf", weight=0.60),
+            dict(VALID_CONTRACT["benchmark_components"][1], weight=0.40),
+        ]
+        result = validate_benchmark_contract(payload)
+        self.assertEqual(result.validation_status, "failed")
+        self.assertIn("equity_single_name component weight must be at least 55% of the benchmark panel", result.errors)
+        self.assertIn("equity_etf component weight must not exceed 30% of the benchmark panel", result.errors)
+        self.assertIn("crypto component weight must not exceed 15% of the benchmark panel", result.errors)
 
 
 if __name__ == "__main__":

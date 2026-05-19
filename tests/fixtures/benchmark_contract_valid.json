@@ -21,7 +21,7 @@
       "target_symbol": "XYZ",
       "target_context_ref": "target-context-review://XYZ",
       "theme_bucket": "hot_thematic_growth",
-      "weight": 0.5
+      "weight": 0.9
     },
     {
       "component_id": "component_b",
@@ -36,7 +36,7 @@
       "target_symbol": "QRS",
       "target_context_ref": "target-context-review://QRS",
       "theme_bucket": "crypto_high_volatility",
-      "weight": 0.5
+      "weight": 0.1
     }
   ],
   "end_date": "2021-12-31",

@@ -8,6 +8,9 @@ from typing import Any, Mapping, Sequence
 
 REQUIRED_MARKET_CONDITION_TAGS = 4
 MAX_STRESS_COMPONENT_WEIGHT = 0.15
+MIN_SINGLE_NAME_COMPONENT_WEIGHT = 0.55
+MAX_ETF_COMPONENT_WEIGHT = 0.30
+MAX_CRYPTO_COMPONENT_WEIGHT = 0.15
 KNOWN_COMPONENT_ROLES = {"primary", "stress_edge_case", "guardrail_stress"}
 STRESS_COMPONENT_ROLES = {"stress_edge_case", "guardrail_stress"}
 TARGET_CONTEXT_EXCEPTION_TAGS = {"missing_layer2_context", "intentionally_no_target_context"}
@@ -233,7 +236,18 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
     if len(set(component_ids)) != len(component_ids):
         errors.append("benchmark component_id values must be unique")
     stress_weight = 0.0
+    single_name_weight = 0.0
+    etf_weight = 0.0
+    crypto_weight = 0.0
+    total_weight = 0.0
     for component in contract.benchmark_components:
+        total_weight += component.weight
+        if component.asset_class == "equity_single_name":
+            single_name_weight += component.weight
+        if component.asset_class == "equity_etf":
+            etf_weight += component.weight
+        if component.asset_class.startswith("crypto"):
+            crypto_weight += component.weight
         if not component.component_id:
             errors.append("benchmark component_id is required")
         if not component.target_symbol:
@@ -266,6 +280,14 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
             errors.append(f"benchmark component {component.component_id} end_date must be after start_date")
         if component.weight <= 0:
             errors.append(f"benchmark component {component.component_id} weight must be positive")
+    if abs(total_weight - 1.0) > 0.000001:
+        errors.append("benchmark component weights must sum to 1.0")
+    if single_name_weight < MIN_SINGLE_NAME_COMPONENT_WEIGHT:
+        errors.append("equity_single_name component weight must be at least 55% of the benchmark panel")
+    if etf_weight > MAX_ETF_COMPONENT_WEIGHT:
+        errors.append("equity_etf component weight must not exceed 30% of the benchmark panel")
+    if crypto_weight > MAX_CRYPTO_COMPONENT_WEIGHT:
+        errors.append("crypto component weight must not exceed 15% of the benchmark panel")
     if stress_weight > MAX_STRESS_COMPONENT_WEIGHT:
         errors.append("stress component weight must not exceed 15% of the benchmark panel")
     if contract.min_trading_days < 252:

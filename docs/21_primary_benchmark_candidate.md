@@ -9,41 +9,49 @@ It is intended for review before promotion to the frozen primary benchmark.
 
 | Sleeve | Components | Weight |
 |---|---:|---:|
-| ETF and macro regime backbone | 10 | 0.62 |
-| Hot thematic single names | 5 | 0.26 |
+| Single-name optionable equities | 14 | 0.67 |
+| ETF and macro regime anchors | 4 | 0.21 |
 | Crypto spot | 2 | 0.12 |
-| Controlled stress components | 2 | 0.10 |
+| Controlled stress components | 2 | 0.11 |
 
-Stress weight is counted inside the thematic and crypto sleeves. It remains
-below the 15% benchmark cap.
+Stress weight is counted inside the single-name and crypto sleeves. It remains
+below the 15% benchmark cap. ETF components are deliberately minor context
+anchors, not the primary benchmark surface, because the live system is expected
+to focus on stock and stock-option decisions.
 
 ## Components
 
 | Component | Target | Window | Weight | Role | Purpose |
 |---|---|---|---:|---|---|
-| bmk_20260519_01_spy_covid_shock | SPY | 2020-02-18 to 2020-06-30 | 0.08 | primary | COVID crash and rebound |
-| bmk_20260519_02_qqq_rate_hike_drawdown | QQQ | 2022-01-03 to 2022-12-30 | 0.08 | primary | rate-hike technology drawdown |
-| bmk_20260519_03_iwm_reopening_rotation | IWM | 2020-11-02 to 2021-06-30 | 0.06 | primary | reopening and small-cap rotation |
-| bmk_20260519_04_xle_energy_inflation | XLE | 2020-11-02 to 2022-06-30 | 0.07 | primary | energy inflation leadership |
-| bmk_20260519_05_xlf_bank_stress | XLF | 2023-03-01 to 2023-05-31 | 0.04 | primary | regional-bank stress window |
-| bmk_20260519_06_xbi_biotech_unwind | XBI | 2021-02-16 to 2022-06-30 | 0.06 | primary | speculative biotech unwind |
-| bmk_20260519_07_smh_ai_semiconductor_cycle | SMH | 2023-01-03 to 2024-06-28 | 0.07 | primary | AI semiconductor leadership |
-| bmk_20260519_08_tlt_duration_crash | TLT | 2022-01-03 to 2023-10-31 | 0.06 | primary | duration/rate shock |
-| bmk_20260519_09_uso_oil_dislocation | USO | 2020-03-02 to 2020-05-29 | 0.05 | primary | oil dislocation |
-| bmk_20260519_10_xme_materials_reflation | XME | 2020-04-01 to 2021-05-31 | 0.05 | primary | materials reflation |
-| bmk_20260519_11_nvda_ai_leader | NVDA | 2023-01-03 to 2024-06-28 | 0.07 | primary | AI/data-center leader |
-| bmk_20260519_12_mp_rare_earth | MP | 2020-11-18 to 2021-11-30 | 0.04 | primary | rare-earth leader |
-| bmk_20260519_13_ccj_nuclear_uranium | CCJ | 2020-11-02 to 2021-11-30 | 0.04 | primary | nuclear/uranium leader |
-| bmk_20260519_14_vrt_data_center | VRT | 2023-01-03 to 2024-06-28 | 0.06 | primary | data-center power infrastructure |
-| bmk_20260519_15_aaoi_optical_module_stress | AAOI | 2023-05-01 to 2024-03-29 | 0.05 | stress_edge_case | optical-module hot stock with missing Layer 2 context |
-| bmk_20260519_16_btc_crypto_bull | BTC-USDT | 2021-01-01 to 2021-12-31 | 0.07 | primary | crypto bull cycle |
-| bmk_20260519_17_btc_crypto_winter_stress | BTC-USDT | 2022-01-01 to 2022-12-31 | 0.05 | stress_edge_case | crypto winter with missing quote/order-book context |
+| bmk_20260519_01_spy_covid_shock | SPY | 2020-02-18 to 2020-06-30 | 0.07 | primary | broad-market COVID crash and rebound anchor |
+| bmk_20260519_02_xle_energy_inflation | XLE | 2021-09-01 to 2022-06-30 | 0.05 | primary | energy inflation leadership anchor |
+| bmk_20260519_03_tlt_duration_crash | TLT | 2022-01-03 to 2023-10-31 | 0.05 | primary | duration/rate shock anchor |
+| bmk_20260519_04_xlf_bank_stress | XLF | 2023-03-01 to 2023-05-31 | 0.04 | primary | regional-bank stress anchor |
+| bmk_20260519_05_tsla_split_sp500_momentum | TSLA | 2020-08-31 to 2021-01-29 | 0.06 | primary | large-cap retail momentum and option activity |
+| bmk_20260519_06_mrna_vaccine_leader | MRNA | 2020-05-01 to 2021-08-31 | 0.04 | primary | vaccine-era biotech leadership |
+| bmk_20260519_07_gme_meme_option_stress | GME | 2021-01-04 to 2021-03-31 | 0.04 | primary | meme-stock option/liquidity stress |
+| bmk_20260519_08_mp_rare_earth | MP | 2020-11-18 to 2021-06-30 | 0.04 | primary | rare-earth leader |
+| bmk_20260519_09_ccj_nuclear_uranium | CCJ | 2021-08-02 to 2021-11-30 | 0.04 | primary | nuclear/uranium leader |
+| bmk_20260519_10_meta_rate_hike_drawdown | META | 2022-02-03 to 2022-11-30 | 0.04 | primary | mega-cap platform rate-hike drawdown |
+| bmk_20260519_11_fslr_clean_energy_rotation | FSLR | 2022-07-01 to 2023-02-28 | 0.04 | primary | clean-energy policy rotation |
+| bmk_20260519_12_nvda_ai_repricing | NVDA | 2023-05-24 to 2023-08-31 | 0.07 | primary | AI semiconductor repricing |
+| bmk_20260519_13_vrt_data_center_power | VRT | 2023-04-26 to 2023-10-31 | 0.06 | primary | data-center power infrastructure |
+| bmk_20260519_14_smci_ai_server_mania | SMCI | 2024-01-02 to 2024-03-29 | 0.06 | primary | AI server hot thematic move |
+| bmk_20260519_15_lly_glp1_leader | LLY | 2023-08-01 to 2024-06-28 | 0.04 | primary | GLP-1 healthcare leader |
+| bmk_20260519_16_coin_crypto_equity_proxy | COIN | 2023-01-03 to 2023-12-29 | 0.05 | primary | crypto equity proxy |
+| bmk_20260519_17_aaoi_optical_module_stress | AAOI | 2023-07-01 to 2023-09-29 | 0.05 | stress_edge_case | optical-module hot stock with missing Layer 2 context |
+| bmk_20260519_18_amd_ai_semiconductor_followthrough | AMD | 2023-10-02 to 2024-03-29 | 0.04 | primary | AI semiconductor follow-through |
+| bmk_20260519_19_btc_crypto_bull | BTC-USDT | 2021-01-01 to 2021-04-30 | 0.06 | primary | crypto bull cycle |
+| bmk_20260519_20_btc_crypto_winter_stress | BTC-USDT | 2022-05-01 to 2022-11-30 | 0.06 | stress_edge_case | crypto winter with missing quote/order-book context |
 
 ## Review Notes
 
 - Every target/window in this candidate has a matching training-exclusion window.
-- ETF backbone symbols have local Alpaca monthly bar coverage in the current storage tree.
+- The panel avoids using many ETFs; ETF components are 21% of weight and serve as background anchors only.
+- Single-name optionable equities are 67% of weight.
+- Same-background overlap is intentionally restrained by using shorter single-name episode windows instead of long full-cycle overlapping ranges.
 - Single-name components require reviewed target-context refs before freeze.
 - The crypto route assumes OKX trade-derived liquidity bars; standalone raw crypto trades are transient, and quote/order-book context is the explicit stress gap.
+- Layer 8 option-expression evaluation should compare option expression against an underlying-only expression baseline. If options are unsuitable, the model may recommend the underlying-expression route rather than forcing an option contract.
 - This candidate should not be used for training, tuning, prompt iteration, or model selection until it is frozen and sealed as evaluation-only data.
 
