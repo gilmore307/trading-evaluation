@@ -8,6 +8,7 @@ It owns frozen benchmark contracts, benchmark exclusion proof, fold settlement, 
 
 ```text
 docs/        Repository scope, architecture, contracts, tasks, decisions, and evaluation modules.
+benchmarks/  Reviewable benchmark contract candidates before freeze.
 scripts/     Executable evaluation and validation entrypoints.
 src/         Importable benchmark, settlement, and promotion-eligibility helpers.
 tests/       First-party tests.
@@ -27,6 +28,7 @@ docs/
   05_decision.md
   06_memory.md
   20_benchmark_contracts.md
+  21_primary_benchmark_candidate.md
   30_fold_settlement.md
   40_promotion_eligibility.md
   50_promotion_readiness.md
@@ -45,7 +47,7 @@ frozen benchmark contract
   -> execution shadow cycle selection
 ```
 
-The primary benchmark is one fixed target and one fixed window so fold-to-fold results remain horizontally comparable. Guardrail benchmarks may exist for overfit detection, but they do not replace the primary leaderboard unless a new benchmark contract version is explicitly accepted.
+The primary benchmark is one frozen target/window panel so fold-to-fold results remain horizontally comparable. Guardrail benchmarks may exist for overfit detection, but they do not replace the primary leaderboard unless a new benchmark contract is explicitly accepted.
 
 Agent review, when used, must follow the workspace skill `skills/openclaw/promotion-evaluation-review`. The reviewer produces advisory structured evidence only; deterministic evaluation code validates eligibility and writes promotion readiness records.
 

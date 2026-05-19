@@ -44,4 +44,6 @@ Guardrail benchmarks may catch overfit or pathological candidates. They should n
 
 ## Current Selection Status
 
-The first primary benchmark panel is not selected yet. Do not fabricate it from the current training target. Selection requires a reviewed market-coverage rationale and target/window exclusion proof for every component.
+The first primary benchmark panel is not frozen yet. The current review candidate is benchmarks/primary_benchmark_candidate_20260519.json, summarized in docs/21_primary_benchmark_candidate.md.
+
+Do not use the candidate for training, tuning, prompt iteration, model selection, or promotion until it is explicitly accepted and frozen. Selection requires reviewed market-coverage rationale and target/window exclusion proof for every component.

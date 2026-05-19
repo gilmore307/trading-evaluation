@@ -223,6 +223,12 @@ class BenchmarkContractTests(unittest.TestCase):
         self.assertEqual(result["contract_type"], "evaluation_benchmark_contract_validation")
         self.assertEqual(result["validation_status"], "passed")
 
+    def test_primary_benchmark_candidate_passes_validation(self):
+        path = Path("benchmarks/primary_benchmark_candidate_20260519.json")
+        result = validate_benchmark_contract(json.loads(path.read_text(encoding="utf-8")))
+        self.assertEqual(result.validation_status, "passed")
+        self.assertEqual(sum(component.weight for component in result.contract.benchmark_components), 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()
