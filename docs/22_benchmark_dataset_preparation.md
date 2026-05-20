@@ -28,13 +28,12 @@ Equity single-name and ETF components prepare one-shot acquisition requirements 
 - `05_feed_gdelt_news` for broad market, sector, theme, and symbol event evidence
 - `07_feed_trading_economics_calendar_web` for high-importance U.S. macro event evidence
 - `08_feed_sec_company_financials` for mapped single-name SEC companyfacts evidence
-- `09_feed_thetadata_option_selection_snapshot` for daily open, midday, and close option-chain snapshots
 
 Crypto components prepare one-shot acquisition requirements for:
 
 - `04_feed_okx_crypto_market_data`
 
-ThetaData selected-contract feeds (`10_feed_thetadata_option_primary_tracking` and `11_feed_thetadata_option_event_timeline`) are expanded only after the option-chain snapshots have produced concrete expiration/right/strike selections. They are not guessed in the initial bundle.
+ThetaData option-chain snapshots (`09_feed_thetadata_option_selection_snapshot`) are generated on demand from benchmark replay model buy/expression points. Selected-contract feeds (`10_feed_thetadata_option_primary_tracking` and `11_feed_thetadata_option_event_timeline`) expand only after those snapshots produce concrete expiration/right/strike selections. They are not guessed or pre-scanned across every benchmark day in the initial bundle.
 
 ## Command
 

@@ -153,7 +153,8 @@ def prepare_benchmark_dataset(
         },
         "known_deferred_requirements": [
             "one_shot_provider_acquisition_requires_separate_gate",
-            "thetadata_option_primary_tracking_and_event_timeline_expand_after_chain_snapshot_contract_selection",
+            "thetadata_option_selection_snapshot_expands_from_model_buy_point_decisions",
+            "thetadata_option_primary_tracking_and_event_timeline_expand_after_snapshot_contract_selection",
             "crypto_historical_quote_order_book_context_remains_accepted_missing_data_stress",
         ],
     }
@@ -304,13 +305,6 @@ def _component_sources(component: BenchmarkComponent) -> tuple[dict[str, str], .
                 if _target_cik(component.target_symbol)
                 else ()
             ),
-            {
-                "source_id": "thetadata_option_selection_snapshot",
-                "feed": "09_feed_thetadata_option_selection_snapshot",
-                "timeframe": "snapshot_time",
-                "notes": "daily open, midday, and close option-chain snapshots for option-layer contract selection",
-                "window_kind": "option_snapshot_times",
-            },
         )
     return ()
 
@@ -376,13 +370,6 @@ def _feed_params(component: BenchmarkComponent, source: Mapping[str, str], windo
             "benchmark_window_start": window["start_date"],
             "benchmark_window_end_exclusive": window["end_date_exclusive"],
         }
-    if feed == "09_feed_thetadata_option_selection_snapshot":
-        return {
-            "underlying": component.target_symbol,
-            "snapshot_time": window["snapshot_time"],
-            "benchmark_window_start": window["start_date"],
-            "benchmark_window_end_exclusive": window["end_date_exclusive"],
-        }
     if feed == "04_feed_okx_crypto_market_data":
         return {
             "instId": component.target_symbol,
@@ -396,27 +383,7 @@ def _feed_params(component: BenchmarkComponent, source: Mapping[str, str], windo
 
 
 def _source_windows(source: Mapping[str, str], window: Mapping[str, str]) -> list[dict[str, str]]:
-    if source.get("window_kind") != "option_snapshot_times":
-        return [dict(window)]
-    rows: list[dict[str, str]] = []
-    start_date = date.fromisoformat(window["start_date"])
-    end_date = date.fromisoformat(window["end_date_exclusive"])
-    current = start_date
-    while current < end_date:
-        if current.weekday() < 5:
-            for snapshot_time in (time(9, 35), time(12, 0), time(15, 55)):
-                snapshot = datetime.combine(current, snapshot_time, tzinfo=ET)
-                label = f"{current.isoformat()}_{snapshot_time.strftime('%H%M')}_et"
-                rows.append(
-                    {
-                        **window,
-                        "label": label,
-                        "output_suffix": label,
-                        "snapshot_time": snapshot.isoformat(),
-                    }
-                )
-        current += timedelta(days=1)
-    return rows
+    return [dict(window)]
 
 
 def _event_query_terms(component: BenchmarkComponent) -> list[str]:

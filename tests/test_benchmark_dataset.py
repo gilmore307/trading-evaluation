@@ -89,10 +89,10 @@ class BenchmarkDatasetPreparationTests(unittest.TestCase):
 
             self.assertEqual(prepared.manifest["contract_type"], "benchmark_dataset_preparation_manifest")
             self.assertEqual(prepared.manifest["component_count"], 2)
-            self.assertEqual(prepared.manifest["feed_acquisition_count"], 75)
+            self.assertEqual(prepared.manifest["feed_acquisition_count"], 6)
             self.assertEqual(prepared.manifest["available_feed_acquisition_count"], 1)
             self.assertEqual(prepared.manifest["deferred_feed_acquisition_count"], 0)
-            self.assertEqual(prepared.manifest["missing_feed_acquisition_count"], 74)
+            self.assertEqual(prepared.manifest["missing_feed_acquisition_count"], 5)
             self.assertFalse(prepared.manifest["safety"]["provider_calls_performed"])
             self.assertFalse(prepared.manifest["safety"]["manager_request_route_used"])
             self.assertFalse(prepared.manifest["safety"]["acquisition_requests_allow_live_provider_calls"])
@@ -107,7 +107,6 @@ class BenchmarkDatasetPreparationTests(unittest.TestCase):
                     "alpaca_news",
                     "gdelt_news",
                     "trading_economics_calendar_web",
-                    "thetadata_option_selection_snapshot",
                     "okx_crypto_market_data",
                 },
             )
@@ -124,11 +123,10 @@ class BenchmarkDatasetPreparationTests(unittest.TestCase):
             self.assertTrue(liquidity_params["fail_on_incomplete_pagination"])
             self.assertGreaterEqual(len(liquidity_params["acquisition_windows"]), 100)
             self.assertTrue(liquidity_params["acquisition_windows"][0]["label"].endswith("_0930_1030_et"))
-            option_rows = [row for row in acquisition_rows if row["source_id"] == "thetadata_option_selection_snapshot"]
-            self.assertEqual(len(option_rows), 69)
-            option_params = json.loads(option_rows[0]["params_json"])
-            self.assertEqual(option_params["underlying"], "XYZ")
-            self.assertIn("T09:35:00", option_params["snapshot_time"])
+            self.assertIn(
+                "thetadata_option_selection_snapshot_expands_from_model_buy_point_decisions",
+                prepared.manifest["known_deferred_requirements"],
+            )
             gdelt_params = json.loads(next(row for row in acquisition_rows if row["source_id"] == "gdelt_news")["params_json"])
             self.assertIn("XYZ", gdelt_params["query_terms"])
             te_params = json.loads(next(row for row in acquisition_rows if row["source_id"] == "trading_economics_calendar_web")["params_json"])
@@ -159,7 +157,7 @@ class BenchmarkDatasetPreparationTests(unittest.TestCase):
             )
             payload = json.loads(result.stdout)
             self.assertEqual(payload["preparation_status"], "prepared_one_shot_acquisition_bundle")
-            self.assertEqual(payload["feed_acquisition_count"], 75)
+            self.assertEqual(payload["feed_acquisition_count"], 6)
 
 
 if __name__ == "__main__":
