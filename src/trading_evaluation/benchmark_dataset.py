@@ -18,7 +18,7 @@ from .benchmark import BenchmarkComponent, BenchmarkContract, validate_benchmark
 
 BENCHMARK_DATASET_PREPARATION_MANIFEST_CONTRACT = "benchmark_dataset_preparation_manifest"
 BENCHMARK_COMPONENT_MANIFEST_CONTRACT = "benchmark_component_manifest"
-BENCHMARK_FEED_TASK_PLAN_CONTRACT = "benchmark_feed_task_plan"
+BENCHMARK_FEED_ACQUISITION_PLAN_CONTRACT = "benchmark_feed_acquisition_plan"
 BENCHMARK_COVERAGE_SUMMARY_CONTRACT = "benchmark_coverage_summary"
 DEFAULT_OUTPUT_ROOT = Path("/root/projects/trading-storage/storage/benchmark")
 DEFAULT_DATA_ROOT = Path("/root/projects/trading-data/storage")
@@ -31,15 +31,15 @@ COMPONENT_FIELDS = [
     "event_coverage_tags", "sector_coverage_tags", "target_context_ref", "stress_exception_ref",
 ]
 
-TASK_FIELDS = [
-    "requirement_id", "contract_id", "component_id", "target_symbol", "asset_class", "source_id", "feed",
-    "month", "start_date", "end_date_exclusive", "timeframe", "task_key_path", "expected_output_ref",
-    "coverage_status", "coverage_receipt_path", "notes",
+ACQUISITION_FIELDS = [
+    "acquisition_id", "contract_id", "component_id", "target_symbol", "asset_class", "source_id", "feed",
+    "month", "start_date", "end_date_exclusive", "timeframe", "acquisition_mode", "output_root",
+    "expected_output_ref", "coverage_status", "coverage_receipt_path", "params_json", "notes",
 ]
 
 COVERAGE_FIELDS = [
-    "contract_id", "component_id", "target_symbol", "source_id", "required_task_count",
-    "available_task_count", "deferred_task_count", "missing_task_count", "coverage_status", "notes",
+    "contract_id", "component_id", "target_symbol", "source_id", "required_acquisition_count",
+    "available_acquisition_count", "deferred_acquisition_count", "missing_acquisition_count", "coverage_status", "notes",
 ]
 
 
@@ -49,9 +49,8 @@ class PreparedBenchmarkDataset:
 
     manifest_path: Path
     component_manifest_path: Path
-    feed_task_plan_path: Path
+    feed_acquisition_plan_path: Path
     coverage_summary_path: Path
-    task_key_root: Path
     manifest: dict[str, Any]
 
 
@@ -73,27 +72,25 @@ def prepare_benchmark_dataset(
     contract = validation.contract
     prepared_at = prepared_at_utc or _now_utc()
     dataset_root = output_root / contract.contract_id
-    task_key_root = dataset_root / "task_keys"
     dataset_root.mkdir(parents=True, exist_ok=True)
-    task_key_root.mkdir(parents=True, exist_ok=True)
 
     component_rows = _component_rows(contract)
-    task_rows = _task_rows(contract, task_key_root=task_key_root, data_root=data_root)
-    coverage_rows = _coverage_rows(contract, task_rows)
+    acquisition_rows = _acquisition_rows(contract, data_root=data_root)
+    coverage_rows = _coverage_rows(contract, acquisition_rows)
 
     component_manifest_path = dataset_root / "component_manifest.csv"
-    feed_task_plan_path = dataset_root / "feed_task_plan.csv"
+    feed_acquisition_plan_path = dataset_root / "feed_acquisition_plan.csv"
     coverage_summary_path = dataset_root / "coverage_summary.csv"
     manifest_path = dataset_root / "dataset_manifest.json"
 
     _write_csv(component_manifest_path, COMPONENT_FIELDS, component_rows)
-    _write_csv(feed_task_plan_path, TASK_FIELDS, task_rows)
+    _write_csv(feed_acquisition_plan_path, ACQUISITION_FIELDS, acquisition_rows)
     _write_csv(coverage_summary_path, COVERAGE_FIELDS, coverage_rows)
 
     manifest = {
         "contract_type": BENCHMARK_DATASET_PREPARATION_MANIFEST_CONTRACT,
         "contract_id": contract.contract_id,
-        "preparation_status": "prepared_not_dispatched",
+        "preparation_status": "prepared_one_shot_acquisition_bundle",
         "freeze_status": "not_frozen",
         "prepared_at_utc": prepared_at,
         "source_contract_ref": source_contract_ref,
@@ -101,15 +98,14 @@ def prepare_benchmark_dataset(
         "dataset_root": str(dataset_root),
         "storage_ref": f"storage://trading-storage/benchmark/{contract.contract_id}/",
         "component_count": len(component_rows),
-        "feed_task_count": len(task_rows),
-        "available_feed_task_count": sum(1 for row in task_rows if row["coverage_status"] == "available"),
-        "deferred_feed_task_count": sum(1 for row in task_rows if row["coverage_status"] == "deferred"),
-        "missing_feed_task_count": sum(1 for row in task_rows if row["coverage_status"] == "missing"),
+        "feed_acquisition_count": len(acquisition_rows),
+        "available_feed_acquisition_count": sum(1 for row in acquisition_rows if row["coverage_status"] == "available"),
+        "deferred_feed_acquisition_count": sum(1 for row in acquisition_rows if row["coverage_status"] == "deferred"),
+        "missing_feed_acquisition_count": sum(1 for row in acquisition_rows if row["coverage_status"] == "missing"),
         "component_manifest_ref": str(component_manifest_path),
-        "feed_task_plan_ref": str(feed_task_plan_path),
+        "feed_acquisition_plan_ref": str(feed_acquisition_plan_path),
         "coverage_summary_ref": str(coverage_summary_path),
-        "task_key_root": str(task_key_root),
-        "artifact_refs": [str(component_manifest_path), str(feed_task_plan_path), str(coverage_summary_path)],
+        "artifact_refs": [str(component_manifest_path), str(feed_acquisition_plan_path), str(coverage_summary_path)],
         "safety": {
             "provider_calls_performed": False,
             "sql_mutation_performed": False,
@@ -118,12 +114,13 @@ def prepare_benchmark_dataset(
             "model_activation_performed": False,
             "broker_execution_performed": False,
             "account_mutation_performed": False,
-            "task_keys_allow_live_provider_calls": False,
+            "manager_request_route_used": False,
+            "acquisition_requests_allow_live_provider_calls": False,
         },
         "known_deferred_requirements": [
-            "provider_dispatch_requires_separate_manager_provider_execution_gate",
+            "one_shot_provider_acquisition_requires_separate_gate",
             "option_contract_selection_required_before_thetadata_selected_contract_feeds",
-            "sec_cik_mapping_required_before_sec_company_financial_task_keys",
+            "sec_cik_mapping_required_before_sec_company_financial_acquisition",
             "full_month_equity_liquidity_requires_narrow_event_windows_or_dedicated_aggregate_route",
             "crypto_historical_quote_order_book_context_remains_accepted_missing_data_stress",
         ],
@@ -133,9 +130,8 @@ def prepare_benchmark_dataset(
     return PreparedBenchmarkDataset(
         manifest_path=manifest_path,
         component_manifest_path=component_manifest_path,
-        feed_task_plan_path=feed_task_plan_path,
+        feed_acquisition_plan_path=feed_acquisition_plan_path,
         coverage_summary_path=coverage_summary_path,
-        task_key_root=task_key_root,
         manifest=manifest,
     )
 
@@ -163,23 +159,13 @@ def _component_rows(contract: BenchmarkContract) -> list[dict[str, Any]]:
     ]
 
 
-def _task_rows(contract: BenchmarkContract, *, task_key_root: Path, data_root: Path) -> list[dict[str, str]]:
+def _acquisition_rows(contract: BenchmarkContract, *, data_root: Path) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for component in contract.benchmark_components:
         for source in _component_sources(component):
             for window in _component_months(component):
-                requirement_id = _requirement_id(contract.contract_id, component, source["source_id"], window["month"])
-                task_key_path = task_key_root / source["source_id"] / component.target_symbol / window["month"] / "task_key.json"
+                acquisition_id = _acquisition_id(contract.contract_id, component, source["source_id"], window["month"])
                 source_output_root = _coverage_output_root(data_root, source["source_id"], component.target_symbol, window["month"])
-                task_key = _task_key(
-                    contract=contract,
-                    component=component,
-                    source=source,
-                    window=window,
-                    output_root=source_output_root,
-                )
-                task_key_path.parent.mkdir(parents=True, exist_ok=True)
-                task_key_path.write_text(json.dumps(task_key, indent=2, sort_keys=True) + "\n", encoding="utf-8")
                 receipt_path = _coverage_receipt_path(data_root, source["source_id"], component.target_symbol, window["month"])
                 if _receipt_succeeded(receipt_path):
                     coverage_status = "available"
@@ -189,7 +175,7 @@ def _task_rows(contract: BenchmarkContract, *, task_key_root: Path, data_root: P
                     coverage_status = "missing"
                 rows.append(
                     {
-                        "requirement_id": requirement_id,
+                        "acquisition_id": acquisition_id,
                         "contract_id": contract.contract_id,
                         "component_id": component.component_id,
                         "target_symbol": component.target_symbol,
@@ -200,10 +186,12 @@ def _task_rows(contract: BenchmarkContract, *, task_key_root: Path, data_root: P
                         "start_date": window["start_date"],
                         "end_date_exclusive": window["end_date_exclusive"],
                         "timeframe": source["timeframe"],
-                        "task_key_path": str(task_key_path),
+                        "acquisition_mode": "one_shot_benchmark_acquisition",
+                        "output_root": str(source_output_root),
                         "expected_output_ref": _expected_output_ref(source["source_id"], component.target_symbol, window["month"]),
                         "coverage_status": coverage_status,
                         "coverage_receipt_path": str(receipt_path),
+                        "params_json": json.dumps(_feed_params(component, source, window), sort_keys=True),
                         "notes": source["notes"],
                     }
                 )
@@ -245,17 +233,10 @@ def _component_sources(component: BenchmarkComponent) -> tuple[dict[str, str], .
     return ()
 
 
-def _task_key(
-    *,
-    contract: BenchmarkContract,
-    component: BenchmarkComponent,
-    source: Mapping[str, str],
-    window: Mapping[str, str],
-    output_root: Path,
-) -> dict[str, Any]:
+def _feed_params(component: BenchmarkComponent, source: Mapping[str, str], window: Mapping[str, str]) -> dict[str, Any]:
     feed = source["feed"]
     if feed == "01_feed_alpaca_bars":
-        params: dict[str, Any] = {
+        return {
             "symbol": component.target_symbol,
             "start": window["start_date"],
             "end": window["end_date_exclusive"],
@@ -264,8 +245,8 @@ def _task_key(
             "limit": 10000,
             "max_pages": 50,
         }
-    elif feed == "02_feed_alpaca_liquidity":
-        params = {
+    if feed == "02_feed_alpaca_liquidity":
+        return {
             "symbol": component.target_symbol,
             "start": window["start_date"],
             "end": window["end_date_exclusive"],
@@ -273,16 +254,16 @@ def _task_key(
             "limit": 10000,
             "max_pages": 250,
         }
-    elif feed == "03_feed_alpaca_news":
-        params = {
+    if feed == "03_feed_alpaca_news":
+        return {
             "symbols": [component.target_symbol],
             "start": window["start_date"],
             "end": window["end_date_exclusive"],
             "limit": 50,
             "max_pages": 20,
         }
-    elif feed == "04_feed_okx_crypto_market_data":
-        params = {
+    if feed == "04_feed_okx_crypto_market_data":
+        return {
             "instId": component.target_symbol,
             "timeframe": source["timeframe"],
             "limit": 300,
@@ -290,22 +271,7 @@ def _task_key(
             "benchmark_window_end_exclusive": window["end_date_exclusive"],
             "historical_window_status": "prepared_requirement_current_okx_feed_does_not_persist_quote_order_book_context",
         }
-    else:
-        params = {}
-    return {
-        "task_id": _requirement_id(contract.contract_id, component, source["source_id"], window["month"]),
-        "feed": feed,
-        "contract_type": "benchmark_dataset_feed_task_key",
-        "benchmark_contract_id": contract.contract_id,
-        "benchmark_component_id": component.component_id,
-        "params": params,
-        "output_root": str(output_root),
-        "manager_controls": {
-            "allow_live_provider_calls": False,
-            "prepared_for_review": True,
-            "provider_dispatch_gate_required": True,
-        },
-    }
+    return {}
 
 
 def _component_months(component: BenchmarkComponent) -> list[dict[str, str]]:
@@ -334,9 +300,9 @@ def _next_month(value: date) -> date:
     return date(value.year, value.month + 1, 1)
 
 
-def _coverage_rows(contract: BenchmarkContract, task_rows: Iterable[Mapping[str, str]]) -> list[dict[str, Any]]:
+def _coverage_rows(contract: BenchmarkContract, acquisition_rows: Iterable[Mapping[str, str]]) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, str], list[Mapping[str, str]]] = {}
-    for row in task_rows:
+    for row in acquisition_rows:
         grouped.setdefault((row["component_id"], row["source_id"]), []).append(row)
     rows: list[dict[str, Any]] = []
     component_by_id = {component.component_id: component for component in contract.benchmark_components}
@@ -359,12 +325,12 @@ def _coverage_rows(contract: BenchmarkContract, task_rows: Iterable[Mapping[str,
                 "component_id": component_id,
                 "target_symbol": component.target_symbol,
                 "source_id": source_id,
-                "required_task_count": required,
-                "available_task_count": available,
-                "deferred_task_count": deferred,
-                "missing_task_count": missing,
+                "required_acquisition_count": required,
+                "available_acquisition_count": available,
+                "deferred_acquisition_count": deferred,
+                "missing_acquisition_count": missing,
                 "coverage_status": coverage_status,
-                "notes": "local coverage scan only; missing rows require later provider dispatch or accepted stress exception",
+                "notes": "local coverage scan only; missing rows require one-shot provider acquisition or accepted stress exception",
             }
         )
     return rows
@@ -393,8 +359,8 @@ def _expected_output_ref(source_id: str, symbol: str, month: str) -> str:
     return f"storage://trading-data/monthly_backfill/{source_id}/{symbol.upper()}/{month}/"
 
 
-def _requirement_id(contract_id: str, component: BenchmarkComponent, source_id: str, month: str) -> str:
-    return "bmkreq_" + "_".join(
+def _acquisition_id(contract_id: str, component: BenchmarkComponent, source_id: str, month: str) -> str:
+    return "bmkacq_" + "_".join(
         [
             _path_token(contract_id),
             _path_token(component.component_id),
@@ -432,7 +398,7 @@ __all__ = [
     "BENCHMARK_COMPONENT_MANIFEST_CONTRACT",
     "BENCHMARK_COVERAGE_SUMMARY_CONTRACT",
     "BENCHMARK_DATASET_PREPARATION_MANIFEST_CONTRACT",
-    "BENCHMARK_FEED_TASK_PLAN_CONTRACT",
+    "BENCHMARK_FEED_ACQUISITION_PLAN_CONTRACT",
     "PreparedBenchmarkDataset",
     "prepare_benchmark_dataset",
 ]

@@ -32,12 +32,11 @@ Required fields include:
 - `shared_candidate_csv_ref`
 - `dataset_root`
 - `component_manifest_ref`
-- `feed_task_plan_ref`
+- `feed_acquisition_plan_ref`
 - `coverage_summary_ref`
-- `task_key_root`
 - safety booleans proving no provider calls, SQL mutation, model training, activation, broker execution, or account mutation occurred
 
-The preparation bundle may write files under `trading-storage/storage/benchmark/<contract_id>/`, but generated task keys remain fail-closed until a separate provider-dispatch gate enables live acquisition.
+The preparation bundle may write files under `trading-storage/storage/benchmark/<contract_id>/`, but it does not generate manager task/request rows or reusable task keys. Live provider acquisition for the sealed benchmark is a one-shot gated action that records receipts under the source storage roots.
 
 ## Fold Settlement Run
 

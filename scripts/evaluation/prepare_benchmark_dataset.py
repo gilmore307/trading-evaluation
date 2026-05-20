@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare storage-side benchmark dataset manifests without dispatching providers."""
+"""Prepare a storage-side one-shot benchmark acquisition bundle."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from trading_evaluation import prepare_benchmark_dataset
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Prepare benchmark dataset manifests and fail-closed task keys.")
+    parser = argparse.ArgumentParser(description="Prepare benchmark dataset manifests for one-shot acquisition.")
     parser.add_argument("--contract", required=True, type=Path, help="Path to a benchmark contract JSON file.")
     parser.add_argument(
         "--output-root",

@@ -72,7 +72,7 @@ VALID_DATASET_CONTRACT = {
 
 
 class BenchmarkDatasetPreparationTests(unittest.TestCase):
-    def test_prepare_benchmark_dataset_writes_manifests_and_fail_closed_task_keys(self):
+    def test_prepare_benchmark_dataset_writes_one_shot_acquisition_bundle(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             data_root = root / "data"
@@ -89,30 +89,26 @@ class BenchmarkDatasetPreparationTests(unittest.TestCase):
 
             self.assertEqual(prepared.manifest["contract_type"], "benchmark_dataset_preparation_manifest")
             self.assertEqual(prepared.manifest["component_count"], 2)
-            self.assertEqual(prepared.manifest["feed_task_count"], 4)
-            self.assertEqual(prepared.manifest["available_feed_task_count"], 1)
-            self.assertEqual(prepared.manifest["deferred_feed_task_count"], 1)
-            self.assertEqual(prepared.manifest["missing_feed_task_count"], 2)
+            self.assertEqual(prepared.manifest["feed_acquisition_count"], 4)
+            self.assertEqual(prepared.manifest["available_feed_acquisition_count"], 1)
+            self.assertEqual(prepared.manifest["deferred_feed_acquisition_count"], 1)
+            self.assertEqual(prepared.manifest["missing_feed_acquisition_count"], 2)
             self.assertFalse(prepared.manifest["safety"]["provider_calls_performed"])
-            self.assertFalse(prepared.manifest["safety"]["task_keys_allow_live_provider_calls"])
+            self.assertFalse(prepared.manifest["safety"]["manager_request_route_used"])
+            self.assertFalse(prepared.manifest["safety"]["acquisition_requests_allow_live_provider_calls"])
 
-            with prepared.feed_task_plan_path.open(newline="", encoding="utf-8") as handle:
-                task_rows = list(csv.DictReader(handle))
-            self.assertEqual({row["source_id"] for row in task_rows}, {"alpaca_bars", "alpaca_liquidity", "alpaca_news", "okx_crypto_market_data"})
-            self.assertIn("available", {row["coverage_status"] for row in task_rows})
-            self.assertIn("deferred", {row["coverage_status"] for row in task_rows})
-            self.assertIn("missing", {row["coverage_status"] for row in task_rows})
+            with prepared.feed_acquisition_plan_path.open(newline="", encoding="utf-8") as handle:
+                acquisition_rows = list(csv.DictReader(handle))
+            self.assertEqual({row["source_id"] for row in acquisition_rows}, {"alpaca_bars", "alpaca_liquidity", "alpaca_news", "okx_crypto_market_data"})
+            self.assertIn("available", {row["coverage_status"] for row in acquisition_rows})
+            self.assertIn("deferred", {row["coverage_status"] for row in acquisition_rows})
+            self.assertIn("missing", {row["coverage_status"] for row in acquisition_rows})
 
-            task_key_path = prepared.task_key_root / "alpaca_bars" / "XYZ" / "2018-01" / "task_key.json"
-            task_key = json.loads(task_key_path.read_text(encoding="utf-8"))
-            self.assertEqual(task_key["feed"], "01_feed_alpaca_bars")
-            self.assertEqual(task_key["params"]["symbol"], "XYZ")
-            self.assertEqual(
-                task_key["output_root"],
-                str(data_root / "monthly_backfill" / "alpaca_bars" / "XYZ" / "2018-01"),
-            )
-            self.assertFalse(task_key["manager_controls"]["allow_live_provider_calls"])
-            self.assertTrue(task_key["manager_controls"]["provider_dispatch_gate_required"])
+            bars_row = next(row for row in acquisition_rows if row["source_id"] == "alpaca_bars")
+            self.assertEqual(bars_row["feed"], "01_feed_alpaca_bars")
+            self.assertEqual(bars_row["output_root"], str(data_root / "monthly_backfill" / "alpaca_bars" / "XYZ" / "2018-01"))
+            self.assertEqual(json.loads(bars_row["params_json"])["symbol"], "XYZ")
+            self.assertFalse((prepared.manifest_path.parent / "task_keys").exists())
 
     def test_prepare_benchmark_dataset_cli(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -137,8 +133,8 @@ class BenchmarkDatasetPreparationTests(unittest.TestCase):
                 capture_output=True,
             )
             payload = json.loads(result.stdout)
-            self.assertEqual(payload["preparation_status"], "prepared_not_dispatched")
-            self.assertEqual(payload["feed_task_count"], 4)
+            self.assertEqual(payload["preparation_status"], "prepared_one_shot_acquisition_bundle")
+            self.assertEqual(payload["feed_acquisition_count"], 4)
 
 
 if __name__ == "__main__":
