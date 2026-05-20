@@ -11,9 +11,9 @@ from trading_evaluation import is_training_fold_blocked_by_benchmark, validate_b
 VALID_CONTRACT = {
     "contract_id": "promotion_benchmark_replay_fixture",
     "benchmark_mode": "candidate_policy_replay",
-    "start_date": "2024-01-02",
-    "end_date": "2026-01-02",
-    "min_trading_days": 504,
+    "start_date": "2021-01-01",
+    "end_date": "2026-01-01",
+    "min_trading_days": 1260,
     "market_condition_tags": ["trend_up", "drawdown", "high_volatility", "event_shock"],
     "candidate_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/default",
     "replay_route_ref": "trading-execution://historical_clock/realtime_decision_path",
@@ -24,8 +24,8 @@ VALID_CONTRACT = {
     "selection_metric_refs": ["metric://net_return_after_costs", "metric://max_drawdown", "metric://selection_hit_rate"],
     "excluded_training_windows": [
         {
-            "start_date": "2024-01-02",
-            "end_date": "2026-01-02",
+            "start_date": "2021-01-01",
+            "end_date": "2026-01-01",
             "reason": "promotion benchmark replay holdout",
         }
     ],
@@ -36,6 +36,7 @@ class BenchmarkContractTests(unittest.TestCase):
     def test_valid_candidate_policy_replay_contract_passes(self):
         result = validate_benchmark_contract(VALID_CONTRACT)
         self.assertEqual(result.validation_status, "passed")
+        self.assertEqual(result.warnings, ())
         self.assertEqual(result.contract.benchmark_mode, "candidate_policy_replay")
         self.assertEqual(result.contract.candidate_policy_ref, VALID_CONTRACT["candidate_policy_ref"])
 
@@ -61,12 +62,31 @@ class BenchmarkContractTests(unittest.TestCase):
         )
         self.assertIn("benchmark_components are obsolete for promotion benchmarks; use candidate_policy_ref", result.errors)
 
-    def test_two_year_replay_window_is_required(self):
-        payload = dict(VALID_CONTRACT, end_date="2024-12-31", min_trading_days=251)
+    def test_minimum_replay_window_is_required(self):
+        payload = dict(VALID_CONTRACT, start_date="2024-01-02", end_date="2024-12-31", min_trading_days=251)
         result = validate_benchmark_contract(payload)
         self.assertEqual(result.validation_status, "failed")
-        self.assertIn("benchmark replay window must cover at least two calendar years", result.errors)
-        self.assertIn("min_trading_days must be at least two trading years", result.errors)
+        self.assertIn("benchmark replay window must cover at least the minimum two calendar years", result.errors)
+        self.assertIn("min_trading_days must be at least the minimum two trading years", result.errors)
+
+    def test_two_year_replay_window_passes_with_preferred_coverage_warning(self):
+        payload = dict(
+            VALID_CONTRACT,
+            start_date="2024-01-02",
+            end_date="2026-01-02",
+            min_trading_days=504,
+            excluded_training_windows=[
+                {
+                    "start_date": "2024-01-02",
+                    "end_date": "2026-01-02",
+                    "reason": "minimum replay holdout",
+                }
+            ],
+        )
+        result = validate_benchmark_contract(payload)
+        self.assertEqual(result.validation_status, "passed")
+        self.assertIn("benchmark replay window is below the preferred five-year coverage target", result.warnings)
+        self.assertIn("min_trading_days is below the preferred five trading years", result.warnings)
 
     def test_candidate_policy_and_replay_route_are_required(self):
         payload = dict(VALID_CONTRACT, candidate_policy_ref="", replay_route_ref="", selection_metric_refs=[])
@@ -89,21 +109,21 @@ class BenchmarkContractTests(unittest.TestCase):
         )
         result = validate_benchmark_contract(payload)
         self.assertEqual(result.validation_status, "failed")
-        self.assertIn("excluded_training_windows must cover the full two-year benchmark replay window", result.errors)
+        self.assertIn("excluded_training_windows must cover the full benchmark replay window", result.errors)
 
     def test_training_fold_overlap_is_blocked_by_replay_window(self):
         result = validate_benchmark_contract(VALID_CONTRACT)
         self.assertTrue(
             is_training_fold_blocked_by_benchmark(
                 result.contract,
-                fold_start_date="2025-01-01",
-                fold_end_date="2025-06-30",
+                fold_start_date="2023-01-01",
+                fold_end_date="2023-06-30",
             )
         )
         self.assertFalse(
             is_training_fold_blocked_by_benchmark(
                 result.contract,
-                fold_start_date="2026-01-02",
+                fold_start_date="2026-01-01",
                 fold_end_date="2026-06-30",
             )
         )

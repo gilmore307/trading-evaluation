@@ -38,7 +38,7 @@ docs/
 
 ```text
 frozen benchmark contract
-  -> two-year candidate-policy replay holdout proof
+  -> candidate-policy replay holdout proof
   -> benchmark dataset preparation manifest
   -> fold settlement run
   -> settlement metric rows/report refs
@@ -48,7 +48,7 @@ frozen benchmark contract
   -> execution shadow cycle selection
 ```
 
-The promotion benchmark is a frozen two-year historical-clock replay. The candidate model must generate candidates from the accepted candidate policy, rank/select targets itself, and run through the realtime decision route against a frozen snapshot and cost model. Guardrail benchmarks may exist for overfit detection, but they do not replace the primary replay leaderboard unless a new benchmark contract is explicitly accepted.
+The promotion benchmark is a frozen historical-clock candidate-policy replay. The preferred replay length is about five years when coverage is complete; two years is only the minimum acceptable holdout. The candidate model must generate candidates from the accepted candidate policy, rank/select targets itself, and run through the realtime decision route against a frozen snapshot and cost model. Guardrail benchmarks may exist for overfit detection, but they do not replace the primary replay leaderboard unless a new benchmark contract is explicitly accepted.
 
 Agent review, when used, must follow the workspace skill `skills/openclaw/promotion-evaluation-review`. The reviewer produces advisory structured evidence only; deterministic evaluation code validates eligibility and writes promotion readiness records.
 

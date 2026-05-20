@@ -1,6 +1,6 @@
 # Benchmark Dataset Preparation
 
-`benchmark_dataset_preparation_manifest` is the storage-side one-shot acquisition bundle for an accepted two-year candidate-policy replay benchmark.
+`benchmark_dataset_preparation_manifest` is the storage-side one-shot acquisition bundle for an accepted candidate-policy replay benchmark.
 
 The preparation step writes runtime artifacts under `trading-storage/storage/benchmark/<contract_id>/`:
 
@@ -19,7 +19,7 @@ This step is not a benchmark freeze and does not use the manager task/request ro
 
 ## Feed Requirements
 
-Candidate-policy replay prepares one-shot acquisition requirements for the full two-year replay window:
+Candidate-policy replay prepares one-shot acquisition requirements for the full replay window:
 
 - `01_feed_alpaca_bars`
 - `02_feed_alpaca_liquidity`

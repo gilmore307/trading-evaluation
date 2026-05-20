@@ -9,7 +9,7 @@ It exists to keep model-quality judgment separate from model training, manager o
 ## In Scope
 
 - frozen promotion benchmark contracts.
-- two-year candidate-policy replay requirements.
+- candidate-policy replay window requirements.
 - proof that benchmark replay windows are excluded from training folds.
 - fold settlement run contracts.
 - settlement metric and report-reference contracts.

@@ -12,9 +12,9 @@ from trading_evaluation import prepare_benchmark_dataset
 VALID_DATASET_CONTRACT = {
     "contract_id": "promotion_benchmark_replay_dataset_test",
     "benchmark_mode": "candidate_policy_replay",
-    "start_date": "2024-01-02",
-    "end_date": "2026-01-02",
-    "min_trading_days": 504,
+    "start_date": "2021-01-01",
+    "end_date": "2026-01-01",
+    "min_trading_days": 1260,
     "market_condition_tags": ["trend_up", "drawdown", "high_volatility", "event_shock"],
     "candidate_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/default",
     "replay_route_ref": "trading-execution://historical_clock/realtime_decision_path",
@@ -25,8 +25,8 @@ VALID_DATASET_CONTRACT = {
     "selection_metric_refs": ["metric://net_return_after_costs"],
     "excluded_training_windows": [
         {
-            "start_date": "2024-01-02",
-            "end_date": "2026-01-02",
+            "start_date": "2021-01-01",
+            "end_date": "2026-01-01",
             "reason": "promotion benchmark replay holdout",
         }
     ],
@@ -43,7 +43,7 @@ class BenchmarkDatasetPreparationTests(unittest.TestCase):
                 / "benchmark_replay"
                 / "alpaca_bars"
                 / "promotion_benchmark_replay_dataset_test"
-                / "2024-01"
+                / "2021-01"
                 / "completion_receipt.json"
             )
             receipt_path.parent.mkdir(parents=True)
@@ -59,9 +59,9 @@ class BenchmarkDatasetPreparationTests(unittest.TestCase):
             self.assertEqual(prepared.manifest["contract_type"], "benchmark_dataset_preparation_manifest")
             self.assertEqual(prepared.manifest["benchmark_mode"], "candidate_policy_replay")
             self.assertEqual(prepared.manifest["replay_window_count"], 1)
-            self.assertEqual(prepared.manifest["feed_acquisition_count"], 150)
+            self.assertEqual(prepared.manifest["feed_acquisition_count"], 360)
             self.assertEqual(prepared.manifest["available_feed_acquisition_count"], 1)
-            self.assertEqual(prepared.manifest["missing_feed_acquisition_count"], 149)
+            self.assertEqual(prepared.manifest["missing_feed_acquisition_count"], 359)
             self.assertFalse(prepared.manifest["safety"]["provider_calls_performed"])
             self.assertFalse(prepared.manifest["safety"]["manager_request_route_used"])
             self.assertFalse(prepared.manifest["safety"]["acquisition_requests_allow_live_provider_calls"])
@@ -90,7 +90,7 @@ class BenchmarkDatasetPreparationTests(unittest.TestCase):
             self.assertEqual(bars_row["feed"], "01_feed_alpaca_bars")
             self.assertEqual(
                 bars_row["output_root"],
-                str(data_root / "benchmark_replay" / "alpaca_bars" / "promotion_benchmark_replay_dataset_test" / "2024-01"),
+                str(data_root / "benchmark_replay" / "alpaca_bars" / "promotion_benchmark_replay_dataset_test" / "2021-01"),
             )
             params = json.loads(bars_row["params_json"])
             self.assertEqual(params["candidate_policy_ref"], VALID_DATASET_CONTRACT["candidate_policy_ref"])
@@ -124,7 +124,7 @@ class BenchmarkDatasetPreparationTests(unittest.TestCase):
             )
             payload = json.loads(result.stdout)
             self.assertEqual(payload["preparation_status"], "prepared_candidate_policy_replay_acquisition_bundle")
-            self.assertEqual(payload["feed_acquisition_count"], 150)
+            self.assertEqual(payload["feed_acquisition_count"], 360)
 
 
 if __name__ == "__main__":

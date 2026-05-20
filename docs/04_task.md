@@ -2,7 +2,7 @@
 
 ## Active Tasks
 
-- Define and freeze the first two-year candidate-policy replay benchmark after dataset preparation coverage is inspected. Replay windows must remain excluded from training folds.
+- Define and freeze the first candidate-policy replay benchmark after dataset preparation coverage is inspected. Prefer about five years of replay when coverage is complete; replay windows must remain excluded from training folds.
 - Implement fold settlement metric assembly after the benchmark contract is accepted.
 - Move remaining promotion eligibility and readiness logic out of manager/model paths into this repository in controlled slices.
 

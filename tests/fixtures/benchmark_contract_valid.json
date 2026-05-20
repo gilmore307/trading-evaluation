@@ -8,12 +8,12 @@
   "contract_id": "promotion_benchmark_replay_fixture",
   "cost_model_ref": "storage://benchmark/promotion_replay/cost_model/pending_review",
   "data_snapshot_ref": "storage://benchmark/promotion_replay/data_snapshot/pending_materialization",
-  "end_date": "2026-01-02",
+  "end_date": "2026-01-01",
   "excluded_training_windows": [
     {
-      "end_date": "2026-01-02",
+      "end_date": "2026-01-01",
       "reason": "promotion benchmark replay holdout",
-      "start_date": "2024-01-02"
+      "start_date": "2021-01-01"
     }
   ],
   "guardrail_refs": [
@@ -25,12 +25,12 @@
     "high_volatility",
     "event_shock"
   ],
-  "min_trading_days": 504,
+  "min_trading_days": 1260,
   "replay_route_ref": "trading-execution://historical_clock/realtime_decision_path",
   "selection_metric_refs": [
     "metric://net_return_after_costs",
     "metric://max_drawdown",
     "metric://selection_hit_rate"
   ],
-  "start_date": "2024-01-02"
+  "start_date": "2021-01-01"
 }

@@ -9,6 +9,8 @@ from typing import Any, Mapping, Sequence
 EXPECTED_BENCHMARK_MODE = "candidate_policy_replay"
 MIN_REPLAY_CALENDAR_DAYS = 365 * 2
 MIN_REPLAY_TRADING_DAYS = 504
+PREFERRED_REPLAY_CALENDAR_DAYS = 365 * 5
+PREFERRED_REPLAY_TRADING_DAYS = 1260
 REQUIRED_MARKET_CONDITION_TAGS = 4
 
 
@@ -29,7 +31,7 @@ def _strings(value: object) -> tuple[str, ...]:
 
 @dataclass(frozen=True)
 class BenchmarkContract:
-    """Frozen two-year candidate-policy replay benchmark contract."""
+    """Frozen candidate-policy replay benchmark contract."""
 
     contract_id: str
     benchmark_mode: str
@@ -112,7 +114,7 @@ class BenchmarkValidation:
 
 
 def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidation:
-    """Validate the accepted two-year candidate-policy replay benchmark rules."""
+    """Validate the accepted candidate-policy replay benchmark rules."""
 
     errors: list[str] = []
     warnings: list[str] = []
@@ -138,9 +140,13 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
     if contract.end_date <= contract.start_date:
         errors.append("end_date must be after start_date")
     elif (contract.end_date - contract.start_date).days < MIN_REPLAY_CALENDAR_DAYS:
-        errors.append("benchmark replay window must cover at least two calendar years")
+        errors.append("benchmark replay window must cover at least the minimum two calendar years")
+    elif (contract.end_date - contract.start_date).days < PREFERRED_REPLAY_CALENDAR_DAYS:
+        warnings.append("benchmark replay window is below the preferred five-year coverage target")
     if contract.min_trading_days < MIN_REPLAY_TRADING_DAYS:
-        errors.append("min_trading_days must be at least two trading years")
+        errors.append("min_trading_days must be at least the minimum two trading years")
+    elif contract.min_trading_days < PREFERRED_REPLAY_TRADING_DAYS:
+        warnings.append("min_trading_days is below the preferred five trading years")
     if len(set(contract.market_condition_tags)) < REQUIRED_MARKET_CONDITION_TAGS:
         errors.append("market_condition_tags must cover at least four distinct market conditions")
     if not contract.candidate_policy_ref:
@@ -160,7 +166,7 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
     else:
         errors.extend(_validate_excluded_training_windows(contract.excluded_training_windows))
         if not _replay_window_is_excluded(contract, contract.excluded_training_windows):
-            errors.append("excluded_training_windows must cover the full two-year benchmark replay window")
+            errors.append("excluded_training_windows must cover the full benchmark replay window")
     if not contract.guardrail_refs:
         warnings.append("guardrail_refs is empty; promotion benchmark remains valid but overfit detection is weaker")
 
