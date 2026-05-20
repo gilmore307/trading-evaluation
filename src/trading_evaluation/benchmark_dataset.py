@@ -39,7 +39,7 @@ TASK_FIELDS = [
 
 COVERAGE_FIELDS = [
     "contract_id", "component_id", "target_symbol", "source_id", "required_task_count",
-    "available_task_count", "missing_task_count", "coverage_status", "notes",
+    "available_task_count", "deferred_task_count", "missing_task_count", "coverage_status", "notes",
 ]
 
 
@@ -103,6 +103,7 @@ def prepare_benchmark_dataset(
         "component_count": len(component_rows),
         "feed_task_count": len(task_rows),
         "available_feed_task_count": sum(1 for row in task_rows if row["coverage_status"] == "available"),
+        "deferred_feed_task_count": sum(1 for row in task_rows if row["coverage_status"] == "deferred"),
         "missing_feed_task_count": sum(1 for row in task_rows if row["coverage_status"] == "missing"),
         "component_manifest_ref": str(component_manifest_path),
         "feed_task_plan_ref": str(feed_task_plan_path),
@@ -123,6 +124,7 @@ def prepare_benchmark_dataset(
             "provider_dispatch_requires_separate_manager_provider_execution_gate",
             "option_contract_selection_required_before_thetadata_selected_contract_feeds",
             "sec_cik_mapping_required_before_sec_company_financial_task_keys",
+            "full_month_equity_liquidity_requires_narrow_event_windows_or_dedicated_aggregate_route",
             "crypto_historical_quote_order_book_context_remains_accepted_missing_data_stress",
         ],
     }
@@ -168,17 +170,23 @@ def _task_rows(contract: BenchmarkContract, *, task_key_root: Path, data_root: P
             for window in _component_months(component):
                 requirement_id = _requirement_id(contract.contract_id, component, source["source_id"], window["month"])
                 task_key_path = task_key_root / source["source_id"] / component.target_symbol / window["month"] / "task_key.json"
+                source_output_root = _coverage_output_root(data_root, source["source_id"], component.target_symbol, window["month"])
                 task_key = _task_key(
                     contract=contract,
                     component=component,
                     source=source,
                     window=window,
-                    output_root=task_key_path.parent,
+                    output_root=source_output_root,
                 )
                 task_key_path.parent.mkdir(parents=True, exist_ok=True)
                 task_key_path.write_text(json.dumps(task_key, indent=2, sort_keys=True) + "\n", encoding="utf-8")
                 receipt_path = _coverage_receipt_path(data_root, source["source_id"], component.target_symbol, window["month"])
-                coverage_status = "available" if _receipt_succeeded(receipt_path) else "missing"
+                if _receipt_succeeded(receipt_path):
+                    coverage_status = "available"
+                elif source.get("deferred_without_receipt") == "true":
+                    coverage_status = "deferred"
+                else:
+                    coverage_status = "missing"
                 rows.append(
                     {
                         "requirement_id": requirement_id,
@@ -208,8 +216,8 @@ def _component_sources(component: BenchmarkComponent) -> tuple[dict[str, str], .
             {
                 "source_id": "okx_crypto_market_data",
                 "feed": "04_feed_okx_crypto_market_data",
-                "timeframe": "1Min",
-                "notes": "crypto bars and trade-derived liquidity; quote/order-book context may remain missing",
+                "timeframe": "1Day",
+                "notes": "historical crypto daily candles; quote/order-book context remains missing by accepted stress policy",
             },
         )
     if component.asset_class in {"equity_single_name", "equity_etf"}:
@@ -224,7 +232,8 @@ def _component_sources(component: BenchmarkComponent) -> tuple[dict[str, str], .
                 "source_id": "alpaca_liquidity",
                 "feed": "02_feed_alpaca_liquidity",
                 "timeframe": "1Min",
-                "notes": "trade/quote-derived liquidity aggregate; raw trades and quotes remain transient",
+                "deferred_without_receipt": "true",
+                "notes": "deferred: full-month trade/quote-derived liquidity requires narrow event windows or a dedicated aggregate route; raw trades and quotes remain transient",
             },
             {
                 "source_id": "alpaca_news",
@@ -334,8 +343,16 @@ def _coverage_rows(contract: BenchmarkContract, task_rows: Iterable[Mapping[str,
     for component_id, source_id in sorted(grouped):
         source_rows = grouped[(component_id, source_id)]
         available = sum(1 for row in source_rows if row["coverage_status"] == "available")
+        deferred = sum(1 for row in source_rows if row["coverage_status"] == "deferred")
+        missing = sum(1 for row in source_rows if row["coverage_status"] == "missing")
         required = len(source_rows)
         component = component_by_id[component_id]
+        if available == required:
+            coverage_status = "complete"
+        elif available + deferred == required:
+            coverage_status = "deferred"
+        else:
+            coverage_status = "incomplete"
         rows.append(
             {
                 "contract_id": contract.contract_id,
@@ -344,8 +361,9 @@ def _coverage_rows(contract: BenchmarkContract, task_rows: Iterable[Mapping[str,
                 "source_id": source_id,
                 "required_task_count": required,
                 "available_task_count": available,
-                "missing_task_count": required - available,
-                "coverage_status": "complete" if available == required else "incomplete",
+                "deferred_task_count": deferred,
+                "missing_task_count": missing,
+                "coverage_status": coverage_status,
                 "notes": "local coverage scan only; missing rows require later provider dispatch or accepted stress exception",
             }
         )
@@ -353,7 +371,11 @@ def _coverage_rows(contract: BenchmarkContract, task_rows: Iterable[Mapping[str,
 
 
 def _coverage_receipt_path(data_root: Path, source_id: str, symbol: str, month: str) -> Path:
-    return data_root / "monthly_backfill" / source_id / symbol.upper() / month / "completion_receipt.json"
+    return _coverage_output_root(data_root, source_id, symbol, month) / "completion_receipt.json"
+
+
+def _coverage_output_root(data_root: Path, source_id: str, symbol: str, month: str) -> Path:
+    return data_root / "monthly_backfill" / source_id / symbol.upper() / month
 
 
 def _receipt_succeeded(path: Path) -> bool:

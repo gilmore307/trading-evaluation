@@ -91,6 +91,8 @@ class BenchmarkDatasetPreparationTests(unittest.TestCase):
             self.assertEqual(prepared.manifest["component_count"], 2)
             self.assertEqual(prepared.manifest["feed_task_count"], 4)
             self.assertEqual(prepared.manifest["available_feed_task_count"], 1)
+            self.assertEqual(prepared.manifest["deferred_feed_task_count"], 1)
+            self.assertEqual(prepared.manifest["missing_feed_task_count"], 2)
             self.assertFalse(prepared.manifest["safety"]["provider_calls_performed"])
             self.assertFalse(prepared.manifest["safety"]["task_keys_allow_live_provider_calls"])
 
@@ -98,12 +100,17 @@ class BenchmarkDatasetPreparationTests(unittest.TestCase):
                 task_rows = list(csv.DictReader(handle))
             self.assertEqual({row["source_id"] for row in task_rows}, {"alpaca_bars", "alpaca_liquidity", "alpaca_news", "okx_crypto_market_data"})
             self.assertIn("available", {row["coverage_status"] for row in task_rows})
+            self.assertIn("deferred", {row["coverage_status"] for row in task_rows})
             self.assertIn("missing", {row["coverage_status"] for row in task_rows})
 
             task_key_path = prepared.task_key_root / "alpaca_bars" / "XYZ" / "2018-01" / "task_key.json"
             task_key = json.loads(task_key_path.read_text(encoding="utf-8"))
             self.assertEqual(task_key["feed"], "01_feed_alpaca_bars")
             self.assertEqual(task_key["params"]["symbol"], "XYZ")
+            self.assertEqual(
+                task_key["output_root"],
+                str(data_root / "monthly_backfill" / "alpaca_bars" / "XYZ" / "2018-01"),
+            )
             self.assertFalse(task_key["manager_controls"]["allow_live_provider_calls"])
             self.assertTrue(task_key["manager_controls"]["provider_dispatch_gate_required"])
 
