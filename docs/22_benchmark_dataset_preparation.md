@@ -46,3 +46,14 @@ PYTHONPATH=src python3 scripts/evaluation/prepare_benchmark_dataset.py \
 ```
 
 The generated acquisition plan records feed parameters and target output roots only. Live provider calls require a separate one-shot benchmark acquisition gate, but they do not need manager task rows or reusable task keys because this dataset is a sealed one-time benchmark artifact.
+
+To plan or execute bounded one-shot acquisitions from the generated plan:
+
+```bash
+PYTHONPATH=src python3 scripts/evaluation/run_benchmark_acquisition.py \
+  --dataset-root /root/projects/trading-storage/storage/benchmark/primary_benchmark_candidate_20260519 \
+  --source-id gdelt_news \
+  --limit 10
+```
+
+Add `--execute` only when live provider acquisition should run. The runner writes one-shot task payloads and progress logs under the benchmark dataset root and still does not create manager request rows.
