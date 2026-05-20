@@ -19,6 +19,26 @@
 
 The current validator requires at least one benchmark component, chronological date ranges, asset class and theme bucket metadata, positive component weights, sufficient declared market-condition coverage, non-empty baseline refs, and explicit exclusion windows covering every component's target/window. Single-name equity and crypto components require a reviewed target-context ref so non-ETF targets still route through accepted target-context/proxy review. Controlled stress components may model critical data gaps such as crypto missing quote/order-book context, missing Layer 2 context, or intentionally missing target context only when `component_role` is `stress_edge_case` or `guardrail_stress`, `stress_exception_ref` is present, and aggregate stress weight stays within the accepted cap. When a benchmark component uses a target over a time window, same-target training folds that overlap that window are contaminated and must be skipped or blocked. `is_training_fold_blocked_by_benchmark` is the reusable helper for that target/window check.
 
+## Benchmark Dataset Preparation Manifest
+
+`benchmark_dataset_preparation_manifest` records the runtime preparation bundle for a benchmark contract under storage ownership.
+
+Required fields include:
+
+- `contract_id`
+- `preparation_status`
+- `freeze_status`
+- `source_contract_ref`
+- `shared_candidate_csv_ref`
+- `dataset_root`
+- `component_manifest_ref`
+- `feed_task_plan_ref`
+- `coverage_summary_ref`
+- `task_key_root`
+- safety booleans proving no provider calls, SQL mutation, model training, activation, broker execution, or account mutation occurred
+
+The preparation bundle may write files under `trading-storage/storage/benchmark/<contract_id>/`, but generated task keys remain fail-closed until a separate provider-dispatch gate enables live acquisition.
+
 ## Fold Settlement Run
 
 `fold_settlement_run` will summarize one completed fold against one accepted benchmark contract.

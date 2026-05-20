@@ -3,10 +3,11 @@
 ## Modules
 
 ```text
-src/trading_evaluation/benchmark.py    Benchmark contract parsing and validation.
-src/trading_evaluation/promotion.py    Promotion eligibility and readiness validation.
-scripts/evaluation/                   Thin executable wrappers over src.
-tests/                                Fixture-safe unit and CLI tests.
+src/trading_evaluation/benchmark.py           Benchmark contract parsing and validation.
+src/trading_evaluation/benchmark_dataset.py   Benchmark dataset preparation manifests and fail-closed task-key planning.
+src/trading_evaluation/promotion.py           Promotion eligibility and readiness validation.
+scripts/evaluation/                          Thin executable wrappers over src.
+tests/                                       Fixture-safe unit and CLI tests.
 ```
 
 Future implementation slices may add:
@@ -26,4 +27,4 @@ BenchmarkContract
   -> ExecutionShadowCycleSelection
 ```
 
-The implemented scaffold validates benchmark contracts and can build promotion readiness records from eligible evaluation decisions. It does not compute performance, query providers, mutate SQL, write storage artifacts, switch active model configs, execute brokers, construct orders, or mutate accounts.
+The implemented scaffold validates benchmark contracts, prepares storage-side benchmark dataset manifests, and can build promotion readiness records from eligible evaluation decisions. Dataset preparation writes local storage runtime artifacts and fail-closed task keys, but it does not dispatch providers, mutate SQL, freeze benchmark contracts, compute performance, switch active model configs, execute brokers, construct orders, or mutate accounts.

@@ -29,6 +29,7 @@ docs/
   06_memory.md
   20_benchmark_contracts.md
   21_primary_benchmark_candidate.md
+  22_benchmark_dataset_preparation.md
   30_fold_settlement.md
   40_promotion_eligibility.md
   50_promotion_readiness.md
@@ -39,6 +40,7 @@ docs/
 ```text
 frozen benchmark contract
   -> benchmark exclusion proof
+  -> benchmark dataset preparation manifest
   -> fold settlement run
   -> settlement metric rows/report refs
   -> fixed-rubric promotion reviewer advisory
