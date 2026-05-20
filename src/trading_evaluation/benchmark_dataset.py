@@ -10,9 +10,10 @@ from __future__ import annotations
 import csv
 import json
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+from zoneinfo import ZoneInfo
 
 from .benchmark import BenchmarkComponent, BenchmarkContract, validate_benchmark_contract
 
@@ -24,6 +25,8 @@ DEFAULT_OUTPUT_ROOT = Path("/root/projects/trading-storage/storage/benchmark")
 DEFAULT_DATA_ROOT = Path("/root/projects/trading-data/storage")
 DEFAULT_SOURCE_CONTRACT_REF = "trading-evaluation/benchmarks/primary_benchmark_candidate_20260519.json"
 DEFAULT_SHARED_CSV_REF = "trading-storage/main/shared/evaluation_primary_benchmark_candidate.csv"
+ET = ZoneInfo("America/New_York")
+UTC = timezone.utc
 
 COMPONENT_FIELDS = [
     "contract_id", "component_id", "target_symbol", "asset_class", "theme_bucket", "component_role",
@@ -121,7 +124,6 @@ def prepare_benchmark_dataset(
             "one_shot_provider_acquisition_requires_separate_gate",
             "option_contract_selection_required_before_thetadata_selected_contract_feeds",
             "sec_cik_mapping_required_before_sec_company_financial_acquisition",
-            "full_month_equity_liquidity_requires_narrow_event_windows_or_dedicated_aggregate_route",
             "crypto_historical_quote_order_book_context_remains_accepted_missing_data_stress",
         ],
     }
@@ -220,8 +222,7 @@ def _component_sources(component: BenchmarkComponent) -> tuple[dict[str, str], .
                 "source_id": "alpaca_liquidity",
                 "feed": "02_feed_alpaca_liquidity",
                 "timeframe": "1Min",
-                "deferred_without_receipt": "true",
-                "notes": "deferred: full-month trade/quote-derived liquidity requires narrow event windows or a dedicated aggregate route; raw trades and quotes remain transient",
+                "notes": "benchmark one-shot sampled trade/quote liquidity windows; raw trades and quotes remain transient",
             },
             {
                 "source_id": "alpaca_news",
@@ -246,13 +247,17 @@ def _feed_params(component: BenchmarkComponent, source: Mapping[str, str], windo
             "max_pages": 50,
         }
     if feed == "02_feed_alpaca_liquidity":
+        sample_windows = _liquidity_sample_windows(window)
         return {
             "symbol": component.target_symbol,
             "start": window["start_date"],
             "end": window["end_date_exclusive"],
             "timeframe": source["timeframe"],
-            "limit": 10000,
-            "max_pages": 250,
+            "limit": 1000,
+            "max_pages": 2,
+            "feed": "iex",
+            "sample_windows": sample_windows,
+            "benchmark_liquidity_sampling_policy": "three_five_minute_regular_session_windows_per_component_month",
         }
     if feed == "03_feed_alpaca_news":
         return {
@@ -292,6 +297,46 @@ def _component_months(component: BenchmarkComponent) -> list[dict[str, str]]:
             )
         current = next_month
     return windows
+
+
+def _liquidity_sample_windows(window: Mapping[str, str]) -> list[dict[str, str]]:
+    start_date = date.fromisoformat(window["start_date"])
+    end_date = date.fromisoformat(window["end_date_exclusive"])
+    last_date = end_date - timedelta(days=1)
+    early = _next_weekday(start_date)
+    midpoint = _next_weekday(start_date + ((last_date - start_date) // 2))
+    late = _previous_weekday(last_date)
+    anchors = [
+        ("open_sample", early, time(9, 35)),
+        ("midday_sample", midpoint, time(12, 0)),
+        ("close_sample", late, time(15, 50)),
+    ]
+    sample_windows: list[dict[str, str]] = []
+    for label, anchor_date, anchor_time in anchors:
+        start = datetime.combine(anchor_date, anchor_time, tzinfo=ET)
+        end = start + timedelta(minutes=5)
+        sample_windows.append(
+            {
+                "label": label,
+                "start": start.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+                "end": end.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+            }
+        )
+    return sample_windows
+
+
+def _next_weekday(value: date) -> date:
+    current = value
+    while current.weekday() >= 5:
+        current += timedelta(days=1)
+    return current
+
+
+def _previous_weekday(value: date) -> date:
+    current = value
+    while current.weekday() >= 5:
+        current -= timedelta(days=1)
+    return current
 
 
 def _next_month(value: date) -> date:

@@ -91,8 +91,8 @@ class BenchmarkDatasetPreparationTests(unittest.TestCase):
             self.assertEqual(prepared.manifest["component_count"], 2)
             self.assertEqual(prepared.manifest["feed_acquisition_count"], 4)
             self.assertEqual(prepared.manifest["available_feed_acquisition_count"], 1)
-            self.assertEqual(prepared.manifest["deferred_feed_acquisition_count"], 1)
-            self.assertEqual(prepared.manifest["missing_feed_acquisition_count"], 2)
+            self.assertEqual(prepared.manifest["deferred_feed_acquisition_count"], 0)
+            self.assertEqual(prepared.manifest["missing_feed_acquisition_count"], 3)
             self.assertFalse(prepared.manifest["safety"]["provider_calls_performed"])
             self.assertFalse(prepared.manifest["safety"]["manager_request_route_used"])
             self.assertFalse(prepared.manifest["safety"]["acquisition_requests_allow_live_provider_calls"])
@@ -101,13 +101,16 @@ class BenchmarkDatasetPreparationTests(unittest.TestCase):
                 acquisition_rows = list(csv.DictReader(handle))
             self.assertEqual({row["source_id"] for row in acquisition_rows}, {"alpaca_bars", "alpaca_liquidity", "alpaca_news", "okx_crypto_market_data"})
             self.assertIn("available", {row["coverage_status"] for row in acquisition_rows})
-            self.assertIn("deferred", {row["coverage_status"] for row in acquisition_rows})
             self.assertIn("missing", {row["coverage_status"] for row in acquisition_rows})
 
             bars_row = next(row for row in acquisition_rows if row["source_id"] == "alpaca_bars")
             self.assertEqual(bars_row["feed"], "01_feed_alpaca_bars")
             self.assertEqual(bars_row["output_root"], str(data_root / "monthly_backfill" / "alpaca_bars" / "XYZ" / "2018-01"))
             self.assertEqual(json.loads(bars_row["params_json"])["symbol"], "XYZ")
+            liquidity_row = next(row for row in acquisition_rows if row["source_id"] == "alpaca_liquidity")
+            liquidity_params = json.loads(liquidity_row["params_json"])
+            self.assertEqual(liquidity_params["benchmark_liquidity_sampling_policy"], "three_five_minute_regular_session_windows_per_component_month")
+            self.assertEqual(len(liquidity_params["sample_windows"]), 3)
             self.assertFalse((prepared.manifest_path.parent / "task_keys").exists())
 
     def test_prepare_benchmark_dataset_cli(self):
