@@ -169,7 +169,8 @@ def _acquisition_rows(contract: BenchmarkContract, *, data_root: Path) -> list[d
                 acquisition_id = _acquisition_id(contract.contract_id, component, source["source_id"], window["month"])
                 source_output_root = _coverage_output_root(data_root, source["source_id"], component.target_symbol, window["month"])
                 receipt_path = _coverage_receipt_path(data_root, source["source_id"], component.target_symbol, window["month"])
-                if _receipt_succeeded(receipt_path):
+                params = _feed_params(component, source, window)
+                if _receipt_succeeded(receipt_path, required_params=_required_receipt_params(source["source_id"], params)):
                     coverage_status = "available"
                 elif source.get("deferred_without_receipt") == "true":
                     coverage_status = "deferred"
@@ -193,7 +194,7 @@ def _acquisition_rows(contract: BenchmarkContract, *, data_root: Path) -> list[d
                         "expected_output_ref": _expected_output_ref(source["source_id"], component.target_symbol, window["month"]),
                         "coverage_status": coverage_status,
                         "coverage_receipt_path": str(receipt_path),
-                        "params_json": json.dumps(_feed_params(component, source, window), sort_keys=True),
+                        "params_json": json.dumps(params, sort_keys=True),
                         "notes": source["notes"],
                     }
                 )
@@ -222,7 +223,7 @@ def _component_sources(component: BenchmarkComponent) -> tuple[dict[str, str], .
                 "source_id": "alpaca_liquidity",
                 "feed": "02_feed_alpaca_liquidity",
                 "timeframe": "1Min",
-                "notes": "benchmark one-shot sampled trade/quote liquidity windows; raw trades and quotes remain transient",
+                "notes": "benchmark one-shot full IEX trade/quote liquidity acquisition by daily regular-session windows; raw trades and quotes remain transient",
             },
             {
                 "source_id": "alpaca_news",
@@ -247,17 +248,17 @@ def _feed_params(component: BenchmarkComponent, source: Mapping[str, str], windo
             "max_pages": 50,
         }
     if feed == "02_feed_alpaca_liquidity":
-        sample_windows = _liquidity_sample_windows(window)
+        acquisition_windows = _liquidity_acquisition_windows(window)
         return {
             "symbol": component.target_symbol,
             "start": window["start_date"],
             "end": window["end_date_exclusive"],
             "timeframe": source["timeframe"],
-            "limit": 1000,
-            "max_pages": 2,
-            "feed": "iex",
-            "sample_windows": sample_windows,
-            "benchmark_liquidity_sampling_policy": "three_five_minute_regular_session_windows_per_component_month",
+            "limit": 10000,
+            "max_pages": 500,
+            "acquisition_windows": acquisition_windows,
+            "benchmark_liquidity_acquisition_policy": "full_daily_regular_session_windows_per_component_month",
+            "fail_on_incomplete_pagination": True,
         }
     if feed == "03_feed_alpaca_news":
         return {
@@ -299,44 +300,24 @@ def _component_months(component: BenchmarkComponent) -> list[dict[str, str]]:
     return windows
 
 
-def _liquidity_sample_windows(window: Mapping[str, str]) -> list[dict[str, str]]:
+def _liquidity_acquisition_windows(window: Mapping[str, str]) -> list[dict[str, str]]:
     start_date = date.fromisoformat(window["start_date"])
     end_date = date.fromisoformat(window["end_date_exclusive"])
-    last_date = end_date - timedelta(days=1)
-    early = _next_weekday(start_date)
-    midpoint = _next_weekday(start_date + ((last_date - start_date) // 2))
-    late = _previous_weekday(last_date)
-    anchors = [
-        ("open_sample", early, time(9, 35)),
-        ("midday_sample", midpoint, time(12, 0)),
-        ("close_sample", late, time(15, 50)),
-    ]
-    sample_windows: list[dict[str, str]] = []
-    for label, anchor_date, anchor_time in anchors:
-        start = datetime.combine(anchor_date, anchor_time, tzinfo=ET)
-        end = start + timedelta(minutes=5)
-        sample_windows.append(
-            {
-                "label": label,
-                "start": start.astimezone(UTC).isoformat().replace("+00:00", "Z"),
-                "end": end.astimezone(UTC).isoformat().replace("+00:00", "Z"),
-            }
-        )
-    return sample_windows
-
-
-def _next_weekday(value: date) -> date:
-    current = value
-    while current.weekday() >= 5:
+    windows: list[dict[str, str]] = []
+    current = start_date
+    while current < end_date:
+        if current.weekday() < 5:
+            start = datetime.combine(current, time(9, 30), tzinfo=ET)
+            end = datetime.combine(current, time(16, 0), tzinfo=ET)
+            windows.append(
+                {
+                    "label": f"{current.isoformat()}_regular_session",
+                    "start": start.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+                    "end": end.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+                }
+            )
         current += timedelta(days=1)
-    return current
-
-
-def _previous_weekday(value: date) -> date:
-    current = value
-    while current.weekday() >= 5:
-        current -= timedelta(days=1)
-    return current
+    return windows
 
 
 def _next_month(value: date) -> date:
@@ -389,7 +370,20 @@ def _coverage_output_root(data_root: Path, source_id: str, symbol: str, month: s
     return data_root / "monthly_backfill" / source_id / symbol.upper() / month
 
 
-def _receipt_succeeded(path: Path) -> bool:
+def _required_receipt_params(source_id: str, plan_params: Mapping[str, Any]) -> dict[str, Any] | None:
+    if source_id == "alpaca_liquidity":
+        return {
+            "benchmark_liquidity_acquisition_policy": "full_daily_regular_session_windows_per_component_month",
+            "required_acquisition_window_labels": [
+                str(window.get("label"))
+                for window in plan_params.get("acquisition_windows", [])
+                if isinstance(window, Mapping) and window.get("label")
+            ],
+        }
+    return None
+
+
+def _receipt_succeeded(path: Path, *, required_params: Mapping[str, Any] | None = None) -> bool:
     if not path.exists():
         return False
     try:
@@ -397,7 +391,39 @@ def _receipt_succeeded(path: Path) -> bool:
     except json.JSONDecodeError:
         return False
     runs = payload.get("runs") if isinstance(payload, Mapping) else None
-    return isinstance(runs, list) and any(isinstance(run, Mapping) and run.get("status") == "succeeded" for run in runs)
+    if not isinstance(runs, list):
+        return False
+    required_labels = set(required_params.get("required_acquisition_window_labels", [])) if required_params else set()
+    observed_labels: set[str] = set()
+    for run in runs:
+        if not isinstance(run, Mapping) or run.get("status") != "succeeded":
+            continue
+        if not required_params:
+            return True
+        output_dir = run.get("output_dir")
+        if not output_dir:
+            continue
+        manifest_path = Path(str(output_dir)) / "request_manifest.json"
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        params = manifest.get("params") if isinstance(manifest, Mapping) else None
+        if not isinstance(params, Mapping):
+            continue
+        scalar_requirements = {
+            key: value
+            for key, value in required_params.items()
+            if key != "required_acquisition_window_labels"
+        }
+        if not all(params.get(key) == value for key, value in scalar_requirements.items()):
+            continue
+        if not required_labels:
+            return True
+        for window in params.get("acquisition_windows", []):
+            if isinstance(window, Mapping) and window.get("label"):
+                observed_labels.add(str(window["label"]))
+    return bool(required_labels) and required_labels.issubset(observed_labels)
 
 
 def _expected_output_ref(source_id: str, symbol: str, month: str) -> str:
