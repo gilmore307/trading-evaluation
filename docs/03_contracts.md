@@ -38,6 +38,10 @@ Required fields include:
 
 The preparation bundle may write files under `trading-storage/storage/benchmark/<contract_id>/`, but it does not generate manager task/request rows or reusable task keys. Live provider acquisition for the sealed benchmark is a one-shot gated action that records receipts under the source storage roots.
 
+After accepted acquisition coverage, the benchmark contract references one frozen reusable data snapshot. All benchmark replay and downstream evaluation artifacts for that contract must consume that snapshot. Candidate-specific data download, source reinterpretation, or training-flow feature generation is not allowed for benchmark judgment.
+
+Benchmark replay uses the realtime execution route with a historical clock. It consumes point-in-time market, event, liquidity, and account-context inputs from the frozen snapshot, then requests option-chain snapshots only when replayed model decisions create buy or option-expression points.
+
 ## Fold Settlement Run
 
 `fold_settlement_run` will summarize one completed fold against one accepted benchmark contract.

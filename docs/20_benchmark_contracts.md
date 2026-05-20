@@ -20,6 +20,9 @@ Required properties:
 - no same-target window overlap with training-used folds.
 - any fold for a benchmark target that intersects a benchmark component window must be skipped or blocked for candidate training.
 - fixed data snapshot, cost model, slippage/fee assumptions, and baseline ladder.
+- benchmark acquisition and event/source normalization are one-time construction phases that produce a frozen reusable data snapshot for the contract.
+- all benchmark replay, settlement, promotion eligibility, guardrail, and regression checks must reuse that frozen data snapshot instead of rebuilding data per model candidate.
+- benchmark evaluation must run through the realtime execution decision path under a historical clock, not through the model training pipeline.
 - reviewed target-context refs for single-name equity and crypto components so non-ETF targets still use the accepted target/proxy mapping route.
 - stress-exception refs for components that deliberately violate normal data completeness assumptions.
 

@@ -46,6 +46,16 @@ PYTHONPATH=src python3 scripts/evaluation/prepare_benchmark_dataset.py \
 
 The generated acquisition plan records feed parameters and target output roots only. Live provider calls require a separate one-shot benchmark acquisition gate, but they do not need manager task rows or reusable task keys because this dataset is a sealed one-time benchmark artifact.
 
+## Reusable Frozen Snapshot
+
+Benchmark data acquisition, event evidence collection, and source normalization are one-time dataset construction phases. Once the acquisition plan reaches accepted coverage and the benchmark is frozen, storage records one reusable benchmark data snapshot for the contract.
+
+All benchmark replay, fold settlement, promotion eligibility comparison, guardrail replay, and later regression checks must reference that frozen snapshot. They must not re-download, re-sample, reinterpret, or rebuild benchmark data per model candidate. If the benchmark dataset is wrong or incomplete, the fix is a new reviewed benchmark data snapshot or a new benchmark contract, not candidate-specific data preparation.
+
+Benchmark evaluation uses the realtime execution decision path under a historical clock. The runner should feed the frozen point-in-time market, event, liquidity, and account-context inputs through the same route used for live/shadow decision making. It must not use the model training pipeline or any training feature-generation route as the benchmark execution path.
+
+ThetaData option-chain snapshots remain replay-triggered. During historical realtime replay, a model buy or option-expression decision creates the point-in-time option snapshot request; selected-contract tracking expands from the concrete expiration/right/strike result. This keeps the benchmark close to live behavior while preserving one frozen underlying/event/liquidity data substrate.
+
 To plan or execute bounded one-shot acquisitions from the generated plan:
 
 ```bash
