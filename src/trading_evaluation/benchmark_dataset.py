@@ -223,7 +223,7 @@ def _component_sources(component: BenchmarkComponent) -> tuple[dict[str, str], .
                 "source_id": "alpaca_liquidity",
                 "feed": "02_feed_alpaca_liquidity",
                 "timeframe": "1Min",
-                "notes": "benchmark one-shot full IEX trade/quote liquidity acquisition by daily regular-session windows; raw trades and quotes remain transient",
+                "notes": "benchmark one-shot full trade/quote liquidity acquisition by daily regular-session windows; raw trades and quotes remain transient",
             },
             {
                 "source_id": "alpaca_news",
