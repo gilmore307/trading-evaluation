@@ -2,14 +2,14 @@
 
 Promotion readiness is evaluation-owned. Runtime activation is execution-owned.
 
-`trading-evaluation` may publish `promotion_readiness_record` after a pinned Layer 1-9 candidate bundle has passed frozen benchmark settlement and promotion eligibility checks. This admits the bundle to execution shadow review; it does not switch active configs.
+`trading-evaluation` may publish `promotion_readiness_record` after a pinned Layer 1-10 candidate bundle has passed frozen benchmark settlement and promotion eligibility checks. This admits the bundle to execution shadow review; it does not switch active configs.
 
 ## Required Inputs
 
 - accepted `promotion_eligibility_decision` with `decision_status = eligible`;
 - accepted benchmark contract reference;
 - fold settlement run and metric references;
-- pinned Layer 1-9 candidate model/config refs;
+- pinned Layer 1-10 candidate model/config refs;
 - rollback ref;
 - execution shadow scope.
 
