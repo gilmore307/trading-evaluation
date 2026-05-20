@@ -30,6 +30,18 @@ VALID_CONTRACT = {
             "weight": 0.9,
             "market_condition_tags": ["trend_up", "drawdown", "range_bound"],
             "event_coverage_tags": ["earnings_crossing", "product_cycle_repricing"],
+            "sector_coverage_tags": [
+                "consumer_discretionary",
+                "consumer_staples",
+                "entertainment_media",
+                "semiconductors",
+                "storage_memory",
+                "healthcare",
+                "energy",
+                "financials",
+                "retail",
+                "restaurants",
+            ],
             "target_context_ref": "target-context-review://XYZ",
         },
         {
@@ -43,6 +55,7 @@ VALID_CONTRACT = {
             "weight": 0.1,
             "market_condition_tags": ["high_volatility", "event_shock"],
             "event_coverage_tags": ["crypto_cycle_event"],
+            "sector_coverage_tags": ["crypto"],
             "target_context_ref": "target-context-review://QRS",
         },
     ],
@@ -273,6 +286,20 @@ class BenchmarkContractTests(unittest.TestCase):
         self.assertEqual(result.validation_status, "failed")
         self.assertIn("earnings_crossing component weight must be at least 10% of the benchmark panel", result.errors)
         self.assertIn("event-driven component weight must be at least 25% of the benchmark panel", result.errors)
+
+    def test_sector_coverage_policy_is_enforced(self):
+        payload = dict(VALID_CONTRACT)
+        payload["benchmark_components"] = [
+            dict(VALID_CONTRACT["benchmark_components"][0], sector_coverage_tags=["semiconductors"], weight=0.90),
+            dict(VALID_CONTRACT["benchmark_components"][1], sector_coverage_tags=["crypto"], weight=0.10),
+        ]
+        result = validate_benchmark_contract(payload)
+        self.assertEqual(result.validation_status, "failed")
+        self.assertIn("benchmark must cover at least 10 distinct sector_coverage_tags", result.errors)
+        self.assertIn(
+            "benchmark must include required sector_coverage_tags: consumer_discretionary, consumer_staples, entertainment_media",
+            result.errors,
+        )
 
 
 if __name__ == "__main__":

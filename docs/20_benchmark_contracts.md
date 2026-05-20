@@ -10,6 +10,7 @@ Required properties:
 - fixed component weights for composite scoring.
 - component asset class and theme bucket metadata.
 - component role metadata separating primary judgment from controlled stress-edge cases.
+- explicit sector coverage metadata, including consumer and entertainment/media coverage.
 - enough length to reduce accident and one-off event bias.
 - diverse market conditions: trend, drawdown, volatility regime changes, event shocks, and transition periods.
 - explicit event coverage metadata for earnings-crossing windows, policy/macro shocks, liquidity or squeeze events, product-cycle repricing, and crypto-cycle events.
@@ -26,6 +27,8 @@ Suggested composition:
 
 - at least 55% single-name optionable equity components.
 - no more than 30% ETF components; ETFs are background anchors, not the main benchmark surface.
+- at least 10 distinct sector coverage tags.
+- consumer discretionary, consumer staples, and entertainment/media coverage.
 - at least 10% earnings-crossing component weight.
 - at least 25% event-driven component weight.
 - substantial then-hot thematic single-name components from storage, optical modules, rare earth, nuclear, data center, AI, healthcare, meme/option-stress, or similar period-specific leadership themes.

@@ -21,6 +21,18 @@
         "earnings_crossing",
         "product_cycle_repricing"
       ],
+      "sector_coverage_tags": [
+        "consumer_discretionary",
+        "consumer_staples",
+        "entertainment_media",
+        "semiconductors",
+        "storage_memory",
+        "healthcare",
+        "energy",
+        "financials",
+        "retail",
+        "restaurants"
+      ],
       "start_date": "2018-01-01",
       "target_symbol": "XYZ",
       "target_context_ref": "target-context-review://XYZ",
@@ -38,6 +50,9 @@
       ],
       "event_coverage_tags": [
         "crypto_cycle_event"
+      ],
+      "sector_coverage_tags": [
+        "crypto"
       ],
       "start_date": "2018-01-01",
       "target_symbol": "QRS",
