@@ -21,7 +21,7 @@ BENCHMARK_REPLAY_WINDOW_MANIFEST_CONTRACT = "benchmark_replay_window_manifest"
 BENCHMARK_FEED_ACQUISITION_PLAN_CONTRACT = "benchmark_feed_acquisition_plan"
 BENCHMARK_COVERAGE_SUMMARY_CONTRACT = "benchmark_coverage_summary"
 DEFAULT_OUTPUT_ROOT = Path("/root/projects/trading-storage/storage/benchmark")
-DEFAULT_DATA_ROOT = Path("/root/projects/trading-data/storage")
+DEFAULT_DATA_ROOT = Path("/root/projects/trading-storage/storage/data")
 DEFAULT_SOURCE_CONTRACT_REF = "trading-evaluation/benchmarks/promotion_benchmark_candidate_policy_replay.json"
 
 REPLAY_WINDOW_FIELDS = [

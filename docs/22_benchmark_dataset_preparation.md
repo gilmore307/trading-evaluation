@@ -15,7 +15,7 @@ This step is not a benchmark freeze and does not use the manager task/request ro
 
 - source contract: pending accepted candidate-policy replay benchmark under `trading-evaluation/benchmarks/`
 - canonical replay window: `2021-01-01` through `2026-01-01` end-exclusive
-- local coverage scan root: `trading-data/storage`
+- local coverage scan root: `trading-storage/storage/data`
 - runtime output root: `trading-storage/storage/benchmark`
 
 ## Feed Requirements
@@ -37,7 +37,7 @@ Candidate symbols are not preselected. The candidate universe materializes point
 PYTHONPATH=src python3 scripts/evaluation/prepare_benchmark_dataset.py \
   --contract benchmarks/promotion_benchmark_candidate_policy_replay.json \
   --output-root /root/projects/trading-storage/storage/benchmark \
-  --data-root /root/projects/trading-data/storage
+  --data-root /root/projects/trading-storage/storage/data
 ```
 
 The generated acquisition plan records feed parameters and target output roots only. Live provider calls require a separate one-shot benchmark acquisition gate, but they do not need manager task rows or reusable task keys because this dataset is a sealed one-time benchmark artifact.

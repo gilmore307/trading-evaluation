@@ -23,7 +23,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--data-root",
         type=Path,
-        default=Path("/root/projects/trading-data/storage"),
+        default=Path("/root/projects/trading-storage/storage/data"),
         help="Trading-data storage root used for local coverage scan.",
     )
     parser.add_argument(
