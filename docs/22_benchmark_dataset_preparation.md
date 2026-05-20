@@ -14,6 +14,7 @@ This step is not a benchmark freeze and does not use the manager task/request ro
 ## Current Inputs
 
 - source contract: pending accepted candidate-policy replay benchmark under `trading-evaluation/benchmarks/`
+- canonical replay window: `2021-01-01` through `2026-01-01` end-exclusive
 - local coverage scan root: `trading-data/storage`
 - runtime output root: `trading-storage/storage/benchmark`
 

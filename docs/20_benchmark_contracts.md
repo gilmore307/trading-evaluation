@@ -7,7 +7,7 @@ The promotion benchmark must be selected once and then frozen. For Layer 3 and l
 Required properties:
 
 - one benchmark contract with `benchmark_mode = candidate_policy_replay`.
-- one continuous replay window; about five years and 1260 expected trading days are preferred when coverage is complete, while two years and 504 expected trading days are the minimum acceptable holdout.
+- the canonical fixed replay window `2021-01-01` through `2026-01-01` end-exclusive, covering the full 2021-2025 calendar years and 1255 expected NYSE trading days.
 - a frozen candidate-universe policy, historical data snapshot, cost model, baseline ladder, selection metrics, and guardrails.
 - candidate policy inputs covering current Layer 2 selected/watch sectors, reviewed sector constituents or proxies, current market-wide hot/liquid names, quality filters, and control candidates when contrast is required.
 - the model must generate candidates, rank/select targets, and run through the realtime decision route under a historical clock.
@@ -15,7 +15,7 @@ Required properties:
 - metrics must evaluate realized replay performance after cost, risk, drawdown, turnover, selection quality, and guardrails.
 - metadata for candidate source, market state, Layer 2 sector source, event state, data availability, and model decision provenance.
 - explicit sector coverage metadata, including consumer and entertainment/media coverage.
-- enough length to reduce accident and one-off event bias.
+- enough length to reduce accident and one-off event bias; the canonical five-calendar-year window is fixed for all ordinary promotion comparisons.
 - diverse market conditions: trend, drawdown, volatility regime changes, event shocks, and transition periods.
 - explicit event coverage metadata for earnings-crossing windows, policy/macro shocks, liquidity or squeeze events, product-cycle repricing, and crypto-cycle events.
 - deliberate point-in-time admission of then-hot thematic single-name candidates through the candidate policy, including names outside the selected ETF universe when target-context review exists.
@@ -38,7 +38,7 @@ Required replay behavior:
 
 Suggested replay coverage:
 
-- roughly five recent years with completed data when feasible, with enough different market states to avoid a one-regime benchmark.
+- the full 2021-2025 period, with enough different market states to avoid a one-regime benchmark.
 - consumer discretionary, consumer staples, entertainment/media, technology/AI, energy, healthcare, financials, broad-market, and crypto context should be reachable through the candidate policy when point-in-time conditions support them.
 - event-heavy periods, earnings periods, liquidity stress, strong trend, drawdown, rotation, and high-volatility states should appear naturally in the replay window.
 
@@ -50,6 +50,6 @@ Guardrail benchmarks may catch overfit or pathological candidates. They should n
 
 ## Current Selection Status
 
-The first promotion benchmark is not frozen yet. The prior fixed target/window artifact was deleted because it preselected final targets and is no longer applicable.
+The canonical promotion replay window is fixed as `2021-01-01` through `2026-01-01` end-exclusive. The full benchmark is not frozen until the reusable data snapshot, cost model, baselines, guardrails, and selection metrics are accepted. The prior fixed target/window artifact was deleted because it preselected final targets and is no longer applicable.
 
 Do not use fixed target/window panels for training, tuning, prompt iteration, model selection, or promotion. Full promotion judgment requires an accepted candidate-policy replay benchmark.

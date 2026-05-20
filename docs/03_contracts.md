@@ -19,7 +19,7 @@
 - `selection_metric_refs`
 - `excluded_training_windows` covering the full replay window
 
-The current validator requires a candidate-policy replay benchmark, chronological date ranges, at least two calendar years, at least 504 expected trading days, sufficient declared market-condition coverage, non-empty candidate policy, replay route, data snapshot, cost model, baseline refs, guardrail refs, selection metric refs, and explicit exclusion windows covering the full replay window. About five years and 1260 expected trading days are preferred when coverage is complete; shorter accepted windows emit warnings. Fixed target fields and `benchmark_components` are rejected. `is_training_fold_blocked_by_benchmark` is the reusable helper for blocking folds that overlap the sealed replay window.
+The current validator requires a candidate-policy replay benchmark over the canonical fixed window `2021-01-01` through `2026-01-01` end-exclusive, with at least 1255 expected trading days, sufficient declared market-condition coverage, non-empty candidate policy, replay route, data snapshot, cost model, baseline refs, guardrail refs, selection metric refs, and explicit exclusion windows covering the full replay window. Fixed target fields and `benchmark_components` are rejected. `is_training_fold_blocked_by_benchmark` is the reusable helper for blocking folds that overlap the sealed replay window.
 
 ## Benchmark Dataset Preparation Manifest
 

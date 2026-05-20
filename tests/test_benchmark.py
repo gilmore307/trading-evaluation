@@ -13,7 +13,7 @@ VALID_CONTRACT = {
     "benchmark_mode": "candidate_policy_replay",
     "start_date": "2021-01-01",
     "end_date": "2026-01-01",
-    "min_trading_days": 1260,
+    "min_trading_days": 1255,
     "market_condition_tags": ["trend_up", "drawdown", "high_volatility", "event_shock"],
     "candidate_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/default",
     "replay_route_ref": "trading-execution://historical_clock/realtime_decision_path",
@@ -62,14 +62,14 @@ class BenchmarkContractTests(unittest.TestCase):
         )
         self.assertIn("benchmark_components are obsolete for promotion benchmarks; use candidate_policy_ref", result.errors)
 
-    def test_minimum_replay_window_is_required(self):
+    def test_canonical_replay_window_is_required(self):
         payload = dict(VALID_CONTRACT, start_date="2024-01-02", end_date="2024-12-31", min_trading_days=251)
         result = validate_benchmark_contract(payload)
         self.assertEqual(result.validation_status, "failed")
-        self.assertIn("benchmark replay window must cover at least the minimum two calendar years", result.errors)
-        self.assertIn("min_trading_days must be at least the minimum two trading years", result.errors)
+        self.assertIn("benchmark replay window must be the canonical 2021-01-01 to 2026-01-01 end-exclusive window", result.errors)
+        self.assertIn("min_trading_days must be at least 1255 for the canonical benchmark window", result.errors)
 
-    def test_two_year_replay_window_passes_with_preferred_coverage_warning(self):
+    def test_two_year_replay_window_is_rejected(self):
         payload = dict(
             VALID_CONTRACT,
             start_date="2024-01-02",
@@ -84,9 +84,9 @@ class BenchmarkContractTests(unittest.TestCase):
             ],
         )
         result = validate_benchmark_contract(payload)
-        self.assertEqual(result.validation_status, "passed")
-        self.assertIn("benchmark replay window is below the preferred five-year coverage target", result.warnings)
-        self.assertIn("min_trading_days is below the preferred five trading years", result.warnings)
+        self.assertEqual(result.validation_status, "failed")
+        self.assertIn("benchmark replay window must be the canonical 2021-01-01 to 2026-01-01 end-exclusive window", result.errors)
+        self.assertIn("min_trading_days must be at least 1255 for the canonical benchmark window", result.errors)
 
     def test_candidate_policy_and_replay_route_are_required(self):
         payload = dict(VALID_CONTRACT, candidate_policy_ref="", replay_route_ref="", selection_metric_refs=[])

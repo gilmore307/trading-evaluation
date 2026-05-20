@@ -7,10 +7,9 @@ from datetime import date
 from typing import Any, Mapping, Sequence
 
 EXPECTED_BENCHMARK_MODE = "candidate_policy_replay"
-MIN_REPLAY_CALENDAR_DAYS = 365 * 2
-MIN_REPLAY_TRADING_DAYS = 504
-PREFERRED_REPLAY_CALENDAR_DAYS = 365 * 5
-PREFERRED_REPLAY_TRADING_DAYS = 1260
+CANONICAL_REPLAY_START_DATE = date(2021, 1, 1)
+CANONICAL_REPLAY_END_DATE = date(2026, 1, 1)
+CANONICAL_REPLAY_EXPECTED_TRADING_DAYS = 1255
 REQUIRED_MARKET_CONDITION_TAGS = 4
 
 
@@ -139,14 +138,10 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
         errors.append(f"benchmark_mode must be {EXPECTED_BENCHMARK_MODE}")
     if contract.end_date <= contract.start_date:
         errors.append("end_date must be after start_date")
-    elif (contract.end_date - contract.start_date).days < MIN_REPLAY_CALENDAR_DAYS:
-        errors.append("benchmark replay window must cover at least the minimum two calendar years")
-    elif (contract.end_date - contract.start_date).days < PREFERRED_REPLAY_CALENDAR_DAYS:
-        warnings.append("benchmark replay window is below the preferred five-year coverage target")
-    if contract.min_trading_days < MIN_REPLAY_TRADING_DAYS:
-        errors.append("min_trading_days must be at least the minimum two trading years")
-    elif contract.min_trading_days < PREFERRED_REPLAY_TRADING_DAYS:
-        warnings.append("min_trading_days is below the preferred five trading years")
+    if contract.start_date != CANONICAL_REPLAY_START_DATE or contract.end_date != CANONICAL_REPLAY_END_DATE:
+        errors.append("benchmark replay window must be the canonical 2021-01-01 to 2026-01-01 end-exclusive window")
+    if contract.min_trading_days < CANONICAL_REPLAY_EXPECTED_TRADING_DAYS:
+        errors.append("min_trading_days must be at least 1255 for the canonical benchmark window")
     if len(set(contract.market_condition_tags)) < REQUIRED_MARKET_CONDITION_TAGS:
         errors.append("market_condition_tags must cover at least four distinct market conditions")
     if not contract.candidate_policy_ref:

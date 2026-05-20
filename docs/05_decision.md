@@ -28,6 +28,6 @@ Status: Accepted
 Date: 2026-05-20
 Status: Accepted
 
-For Layer 3 and later target-selection models, promotion benchmarking must give the candidate model a fixed historical-clock replay. About five years is preferred when data coverage is complete; two years is only the minimum acceptable holdout. The benchmark fixes the replay window, source snapshot, cost model, baseline ladder, guardrails, Layer 2 sector-selection inputs, sector constituent/proxy rules, hot/liquid-name admission rules, quality filters, controls, and scoring metrics.
+For Layer 3 and later target-selection models, promotion benchmarking must give the candidate model a fixed historical-clock replay over `2021-01-01` through `2026-01-01` end-exclusive. This covers the full 2021-2025 calendar years and 1255 expected NYSE trading days. The benchmark fixes the replay window, source snapshot, cost model, baseline ladder, guardrails, Layer 2 sector-selection inputs, sector constituent/proxy rules, hot/liquid-name admission rules, quality filters, controls, and scoring metrics.
 
 It must not preselect the final tickers the model is supposed to choose. The model must generate candidates from the accepted policy, rank/select targets, run through the realtime decision route under the historical clock, and be judged by final realized replay performance plus slice diagnostics. Fixed target/window panels are not applicable to promotion benchmark judgment.

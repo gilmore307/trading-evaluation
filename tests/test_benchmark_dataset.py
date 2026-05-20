@@ -14,7 +14,7 @@ VALID_DATASET_CONTRACT = {
     "benchmark_mode": "candidate_policy_replay",
     "start_date": "2021-01-01",
     "end_date": "2026-01-01",
-    "min_trading_days": 1260,
+    "min_trading_days": 1255,
     "market_condition_tags": ["trend_up", "drawdown", "high_volatility", "event_shock"],
     "candidate_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/default",
     "replay_route_ref": "trading-execution://historical_clock/realtime_decision_path",

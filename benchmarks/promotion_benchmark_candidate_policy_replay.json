@@ -5,14 +5,14 @@
   ],
   "benchmark_mode": "candidate_policy_replay",
   "candidate_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/default",
-  "contract_id": "promotion_benchmark_replay_fixture",
-  "cost_model_ref": "storage://benchmark/promotion_replay/cost_model/pending_review",
-  "data_snapshot_ref": "storage://benchmark/promotion_replay/data_snapshot/pending_materialization",
+  "contract_id": "promotion_benchmark_candidate_policy_replay",
+  "cost_model_ref": "storage://benchmark/promotion_benchmark_candidate_policy_replay/cost_model/pending_review",
+  "data_snapshot_ref": "storage://benchmark/promotion_benchmark_candidate_policy_replay/data_snapshot/pending_materialization",
   "end_date": "2026-01-01",
   "excluded_training_windows": [
     {
       "end_date": "2026-01-01",
-      "reason": "promotion benchmark replay holdout",
+      "reason": "canonical promotion benchmark replay holdout",
       "start_date": "2021-01-01"
     }
   ],
