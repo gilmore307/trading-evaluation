@@ -27,6 +27,37 @@ DEFAULT_SOURCE_CONTRACT_REF = "trading-evaluation/benchmarks/primary_benchmark_c
 DEFAULT_SHARED_CSV_REF = "trading-storage/main/shared/evaluation_primary_benchmark_candidate.csv"
 ET = ZoneInfo("America/New_York")
 UTC = timezone.utc
+BENCHMARK_TARGET_CIK_BY_SYMBOL = {
+    "AAOI": "0001158114",
+    "AMD": "0000002488",
+    "CCJ": "0001009001",
+    "CEG": "0001868275",
+    "CMG": "0001058090",
+    "COIN": "0001679788",
+    "COST": "0000909832",
+    "DIS": "0001744489",
+    "ENPH": "0001463101",
+    "FSLR": "0001274494",
+    "GME": "0001326380",
+    "HD": "0000354950",
+    "LITE": "0001633978",
+    "LLY": "0000059478",
+    "META": "0001326801",
+    "MP": "0001801368",
+    "MRNA": "0001682852",
+    "MU": "0000723125",
+    "NFLX": "0001065280",
+    "NVDA": "0001045810",
+    "OXY": "0000797468",
+    "RBLX": "0001315098",
+    "RCL": "0000884887",
+    "SMCI": "0001375365",
+    "TGT": "0000027419",
+    "TSLA": "0001318605",
+    "VRT": "0001674101",
+    "WDC": "0000106040",
+    "WMT": "0000104169",
+}
 
 COMPONENT_FIELDS = [
     "contract_id", "component_id", "target_symbol", "asset_class", "theme_bucket", "component_role",
@@ -122,8 +153,7 @@ def prepare_benchmark_dataset(
         },
         "known_deferred_requirements": [
             "one_shot_provider_acquisition_requires_separate_gate",
-            "option_contract_selection_required_before_thetadata_selected_contract_feeds",
-            "sec_cik_mapping_required_before_sec_company_financial_acquisition",
+            "thetadata_option_primary_tracking_and_event_timeline_expand_after_chain_snapshot_contract_selection",
             "crypto_historical_quote_order_book_context_remains_accepted_missing_data_stress",
         ],
     }
@@ -166,38 +196,57 @@ def _acquisition_rows(contract: BenchmarkContract, *, data_root: Path) -> list[d
     for component in contract.benchmark_components:
         for source in _component_sources(component):
             for window in _component_months(component):
-                acquisition_id = _acquisition_id(contract.contract_id, component, source["source_id"], window["month"])
-                source_output_root = _coverage_output_root(data_root, source["source_id"], component.target_symbol, window["month"])
-                receipt_path = _coverage_receipt_path(data_root, source["source_id"], component.target_symbol, window["month"])
-                params = _feed_params(component, source, window)
-                if _receipt_succeeded(receipt_path, required_params=_required_receipt_params(source["source_id"], params)):
-                    coverage_status = "available"
-                elif source.get("deferred_without_receipt") == "true":
-                    coverage_status = "deferred"
-                else:
-                    coverage_status = "missing"
-                rows.append(
-                    {
-                        "acquisition_id": acquisition_id,
-                        "contract_id": contract.contract_id,
-                        "component_id": component.component_id,
-                        "target_symbol": component.target_symbol,
-                        "asset_class": component.asset_class,
-                        "source_id": source["source_id"],
-                        "feed": source["feed"],
-                        "month": window["month"],
-                        "start_date": window["start_date"],
-                        "end_date_exclusive": window["end_date_exclusive"],
-                        "timeframe": source["timeframe"],
-                        "acquisition_mode": "one_shot_benchmark_acquisition",
-                        "output_root": str(source_output_root),
-                        "expected_output_ref": _expected_output_ref(source["source_id"], component.target_symbol, window["month"]),
-                        "coverage_status": coverage_status,
-                        "coverage_receipt_path": str(receipt_path),
-                        "params_json": json.dumps(params, sort_keys=True),
-                        "notes": source["notes"],
-                    }
-                )
+                for source_window in _source_windows(source, window):
+                    row_month = source_window["month"]
+                    acquisition_id = _acquisition_id(
+                        contract.contract_id,
+                        component,
+                        source["source_id"],
+                        row_month,
+                        suffix=source_window.get("label"),
+                    )
+                    source_output_root = _coverage_output_root(
+                        data_root,
+                        source["source_id"],
+                        component.target_symbol,
+                        row_month,
+                        suffix=source_window.get("output_suffix"),
+                    )
+                    receipt_path = source_output_root / "completion_receipt.json"
+                    params = _feed_params(component, source, source_window)
+                    if _receipt_succeeded(receipt_path, required_params=_required_receipt_params(source["source_id"], params)):
+                        coverage_status = "available"
+                    elif source.get("deferred_without_receipt") == "true":
+                        coverage_status = "deferred"
+                    else:
+                        coverage_status = "missing"
+                    rows.append(
+                        {
+                            "acquisition_id": acquisition_id,
+                            "contract_id": contract.contract_id,
+                            "component_id": component.component_id,
+                            "target_symbol": component.target_symbol,
+                            "asset_class": component.asset_class,
+                            "source_id": source["source_id"],
+                            "feed": source["feed"],
+                            "month": row_month,
+                            "start_date": source_window["start_date"],
+                            "end_date_exclusive": source_window["end_date_exclusive"],
+                            "timeframe": source["timeframe"],
+                            "acquisition_mode": "one_shot_benchmark_acquisition",
+                            "output_root": str(source_output_root),
+                            "expected_output_ref": _expected_output_ref(
+                                source["source_id"],
+                                component.target_symbol,
+                                row_month,
+                                suffix=source_window.get("output_suffix"),
+                            ),
+                            "coverage_status": coverage_status,
+                            "coverage_receipt_path": str(receipt_path),
+                            "params_json": json.dumps(params, sort_keys=True),
+                            "notes": source["notes"],
+                        }
+                    )
     return rows
 
 
@@ -230,6 +279,37 @@ def _component_sources(component: BenchmarkComponent) -> tuple[dict[str, str], .
                 "feed": "03_feed_alpaca_news",
                 "timeframe": "event_time",
                 "notes": "symbol-scoped event/news evidence for event coverage review",
+            },
+            {
+                "source_id": "gdelt_news",
+                "feed": "05_feed_gdelt_news",
+                "timeframe": "event_time",
+                "notes": "broad market, sector, theme, and symbol news evidence for event-layer review",
+            },
+            {
+                "source_id": "trading_economics_calendar_web",
+                "feed": "07_feed_trading_economics_calendar_web",
+                "timeframe": "event_time",
+                "notes": "high-importance U.S. macro calendar event evidence for event-layer review",
+            },
+            *(
+                (
+                    {
+                        "source_id": "sec_company_financials",
+                        "feed": "08_feed_sec_company_financials",
+                        "timeframe": "filing_time",
+                        "notes": "official SEC companyfacts evidence for earnings and guidance event review",
+                    },
+                )
+                if _target_cik(component.target_symbol)
+                else ()
+            ),
+            {
+                "source_id": "thetadata_option_selection_snapshot",
+                "feed": "09_feed_thetadata_option_selection_snapshot",
+                "timeframe": "snapshot_time",
+                "notes": "daily open, midday, and close option-chain snapshots for option-layer contract selection",
+                "window_kind": "option_snapshot_times",
             },
         )
     return ()
@@ -268,6 +348,41 @@ def _feed_params(component: BenchmarkComponent, source: Mapping[str, str], windo
             "limit": 50,
             "max_pages": 20,
         }
+    if feed == "05_feed_gdelt_news":
+        return {
+            "start_date": window["start_date"],
+            "end_date": window["end_date_exclusive"],
+            "topic_categories": ["politics", "economy", "war", "technology"],
+            "focus": "us_market",
+            "impact_scope": "market;sector;industry;theme;symbol",
+            "max_rows": 1000,
+            "dry_run": False,
+            "query_terms": _event_query_terms(component),
+        }
+    if feed == "07_feed_trading_economics_calendar_web":
+        return {
+            "start_date": window["start_date"],
+            "end_date": window["end_date_exclusive"],
+            "country": "United States",
+            "importance": "3",
+            "allow_live_fetch": True,
+            "persist_failure_diagnostics": True,
+        }
+    if feed == "08_feed_sec_company_financials":
+        return {
+            "data_kind": "sec_company_fact",
+            "cik": _target_cik(component.target_symbol),
+            "taxonomy": "us-gaap",
+            "benchmark_window_start": window["start_date"],
+            "benchmark_window_end_exclusive": window["end_date_exclusive"],
+        }
+    if feed == "09_feed_thetadata_option_selection_snapshot":
+        return {
+            "underlying": component.target_symbol,
+            "snapshot_time": window["snapshot_time"],
+            "benchmark_window_start": window["start_date"],
+            "benchmark_window_end_exclusive": window["end_date_exclusive"],
+        }
     if feed == "04_feed_okx_crypto_market_data":
         return {
             "instId": component.target_symbol,
@@ -278,6 +393,48 @@ def _feed_params(component: BenchmarkComponent, source: Mapping[str, str], windo
             "historical_window_status": "prepared_requirement_current_okx_feed_does_not_persist_quote_order_book_context",
         }
     return {}
+
+
+def _source_windows(source: Mapping[str, str], window: Mapping[str, str]) -> list[dict[str, str]]:
+    if source.get("window_kind") != "option_snapshot_times":
+        return [dict(window)]
+    rows: list[dict[str, str]] = []
+    start_date = date.fromisoformat(window["start_date"])
+    end_date = date.fromisoformat(window["end_date_exclusive"])
+    current = start_date
+    while current < end_date:
+        if current.weekday() < 5:
+            for snapshot_time in (time(9, 35), time(12, 0), time(15, 55)):
+                snapshot = datetime.combine(current, snapshot_time, tzinfo=ET)
+                label = f"{current.isoformat()}_{snapshot_time.strftime('%H%M')}_et"
+                rows.append(
+                    {
+                        **window,
+                        "label": label,
+                        "output_suffix": label,
+                        "snapshot_time": snapshot.isoformat(),
+                    }
+                )
+        current += timedelta(days=1)
+    return rows
+
+
+def _event_query_terms(component: BenchmarkComponent) -> list[str]:
+    terms = [component.target_symbol, *component.sector_coverage_tags, *component.event_coverage_tags]
+    common = ["earnings", "guidance", "revenue", "federal reserve", "inflation", "rates", "liquidity"]
+    seen: set[str] = set()
+    output: list[str] = []
+    for term in [*terms, *common]:
+        clean = str(term).replace("_", " ").strip()
+        key = clean.lower()
+        if clean and key not in seen:
+            seen.add(key)
+            output.append(clean)
+    return output
+
+
+def _target_cik(symbol: str) -> str | None:
+    return BENCHMARK_TARGET_CIK_BY_SYMBOL.get(symbol.upper())
 
 
 def _component_months(component: BenchmarkComponent) -> list[dict[str, str]]:
@@ -373,8 +530,9 @@ def _coverage_receipt_path(data_root: Path, source_id: str, symbol: str, month: 
     return _coverage_output_root(data_root, source_id, symbol, month) / "completion_receipt.json"
 
 
-def _coverage_output_root(data_root: Path, source_id: str, symbol: str, month: str) -> Path:
-    return data_root / "monthly_backfill" / source_id / symbol.upper() / month
+def _coverage_output_root(data_root: Path, source_id: str, symbol: str, month: str, *, suffix: str | None = None) -> Path:
+    root = data_root / "monthly_backfill" / source_id / symbol.upper() / month
+    return root / suffix if suffix else root
 
 
 def _required_receipt_params(source_id: str, plan_params: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -433,11 +591,19 @@ def _receipt_succeeded(path: Path, *, required_params: Mapping[str, Any] | None 
     return bool(required_labels) and required_labels.issubset(observed_labels)
 
 
-def _expected_output_ref(source_id: str, symbol: str, month: str) -> str:
-    return f"storage://trading-data/monthly_backfill/{source_id}/{symbol.upper()}/{month}/"
+def _expected_output_ref(source_id: str, symbol: str, month: str, *, suffix: str | None = None) -> str:
+    base = f"storage://trading-data/monthly_backfill/{source_id}/{symbol.upper()}/{month}/"
+    return f"{base}{suffix}/" if suffix else base
 
 
-def _acquisition_id(contract_id: str, component: BenchmarkComponent, source_id: str, month: str) -> str:
+def _acquisition_id(
+    contract_id: str,
+    component: BenchmarkComponent,
+    source_id: str,
+    month: str,
+    *,
+    suffix: str | None = None,
+) -> str:
     return "bmkacq_" + "_".join(
         [
             _path_token(contract_id),
@@ -445,6 +611,7 @@ def _acquisition_id(contract_id: str, component: BenchmarkComponent, source_id: 
             _path_token(source_id),
             component.target_symbol.lower().replace("-", "_"),
             month.replace("-", "_"),
+            *([_path_token(suffix)] if suffix else []),
         ]
     )
 

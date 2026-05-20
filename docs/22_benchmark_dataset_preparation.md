@@ -25,12 +25,16 @@ Equity single-name and ETF components prepare one-shot acquisition requirements 
 - `01_feed_alpaca_bars`
 - `02_feed_alpaca_liquidity` through full trades/quotes over each hourly regular-session window in the component month
 - `03_feed_alpaca_news`
+- `05_feed_gdelt_news` for broad market, sector, theme, and symbol event evidence
+- `07_feed_trading_economics_calendar_web` for high-importance U.S. macro event evidence
+- `08_feed_sec_company_financials` for mapped single-name SEC companyfacts evidence
+- `09_feed_thetadata_option_selection_snapshot` for daily open, midday, and close option-chain snapshots
 
 Crypto components prepare one-shot acquisition requirements for:
 
 - `04_feed_okx_crypto_market_data`
 
-ThetaData selected-contract feeds are deliberately deferred until option contract selection exists for each component window. SEC company-financial acquisition is deferred until target-context review supplies CIK mappings. These are recorded in `known_deferred_requirements` instead of being guessed.
+ThetaData selected-contract feeds (`10_feed_thetadata_option_primary_tracking` and `11_feed_thetadata_option_event_timeline`) are expanded only after the option-chain snapshots have produced concrete expiration/right/strike selections. They are not guessed in the initial bundle.
 
 ## Command
 
