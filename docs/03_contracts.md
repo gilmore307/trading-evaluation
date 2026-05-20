@@ -5,19 +5,21 @@
 `evaluation_benchmark_contract` defines the frozen evaluation surface:
 
 - `contract_id`
-- `benchmark_components` with anonymous component id, target symbol, asset class, theme bucket, component role, start/end window, weight, market-condition tags, data-availability tags, target-context ref where required, and stress-exception ref where required
+- `benchmark_mode = candidate_policy_replay`
 - `start_date`
 - `end_date`
 - `min_trading_days`
 - `market_condition_tags`
+- `candidate_policy_ref`
+- `replay_route_ref`
 - `data_snapshot_ref`
 - `cost_model_ref`
 - `baseline_refs`
-- `training_universe_symbols`
-- `excluded_training_windows` keyed by target/window
 - `guardrail_refs`
+- `selection_metric_refs`
+- `excluded_training_windows` covering the full two-year replay window
 
-The current validator requires at least one benchmark component, chronological date ranges, asset class and theme bucket metadata, positive component weights, sufficient declared market-condition coverage, non-empty baseline refs, and explicit exclusion windows covering every component's target/window. Single-name equity and crypto components require a reviewed target-context ref so non-ETF targets still route through accepted target-context/proxy review. Controlled stress components may model critical data gaps such as crypto missing quote/order-book context, missing Layer 2 context, or intentionally missing target context only when `component_role` is `stress_edge_case` or `guardrail_stress`, `stress_exception_ref` is present, and aggregate stress weight stays within the accepted cap. When a benchmark component uses a target over a time window, same-target training folds that overlap that window are contaminated and must be skipped or blocked. `is_training_fold_blocked_by_benchmark` is the reusable helper for that target/window check.
+The current validator requires a candidate-policy replay benchmark, chronological date ranges, at least two calendar years, at least 504 expected trading days, sufficient declared market-condition coverage, non-empty candidate policy, replay route, data snapshot, cost model, baseline refs, guardrail refs, selection metric refs, and explicit exclusion windows covering the full replay window. Fixed target fields and `benchmark_components` are rejected. `is_training_fold_blocked_by_benchmark` is the reusable helper for blocking folds that overlap the sealed replay window.
 
 ## Benchmark Dataset Preparation Manifest
 
@@ -29,9 +31,10 @@ Required fields include:
 - `preparation_status`
 - `freeze_status`
 - `source_contract_ref`
-- `shared_candidate_csv_ref`
 - `dataset_root`
-- `component_manifest_ref`
+- `candidate_policy_ref`
+- `replay_route_ref`
+- `replay_window_manifest_ref`
 - `feed_acquisition_plan_ref`
 - `coverage_summary_ref`
 - safety booleans proving no provider calls, SQL mutation, model training, activation, broker execution, or account mutation occurred

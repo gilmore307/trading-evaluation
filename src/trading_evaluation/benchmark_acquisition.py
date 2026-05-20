@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 DEFAULT_DATA_ROOT = Path("/root/projects/trading-data")
-DEFAULT_DATASET_ROOT = Path("/root/projects/trading-storage/storage/benchmark/primary_benchmark_candidate_20260519")
+DEFAULT_DATASET_ROOT = Path("/root/projects/trading-storage/storage/benchmark/promotion_benchmark_candidate_policy_replay")
 DEFAULT_RUN_ID = "benchmark_one_shot_acquisition"
 
 MODULE_BY_FEED = {
@@ -51,7 +51,6 @@ class AcquisitionItem:
     acquisition_id: str
     feed: str
     source_id: str
-    target_symbol: str
     month: str
     coverage_status: str
     output_root: str
@@ -63,7 +62,6 @@ class RunnerItemResult:
     acquisition_id: str
     source_id: str
     feed: str
-    target_symbol: str
     month: str
     task_key_path: str
     command: list[str]
@@ -107,7 +105,6 @@ def load_plan(plan_path: Path) -> list[AcquisitionItem]:
                     acquisition_id=str(row["acquisition_id"]),
                     feed=str(row["feed"]),
                     source_id=str(row["source_id"]),
-                    target_symbol=str(row["target_symbol"]),
                     month=str(row["month"]),
                     coverage_status=str(row["coverage_status"]),
                     output_root=str(row["output_root"]),
@@ -204,7 +201,7 @@ def run_acquisition(
     for item in items:
         module = MODULE_BY_FEED.get(item.feed)
         if module is None:
-            result = RunnerItemResult(item.acquisition_id, item.source_id, item.feed, item.target_symbol, item.month, "", [], execute, None, "unsupported_feed")
+            result = RunnerItemResult(item.acquisition_id, item.source_id, item.feed, item.month, "", [], execute, None, "unsupported_feed")
             results.append(result)
             _append_progress(progress_log_path, result)
             if stop_on_failure:
@@ -222,7 +219,7 @@ def run_acquisition(
             completed = subprocess.run(command, cwd=data_root, env=env)
             return_code = completed.returncode
             status = "succeeded" if return_code == 0 else "failed"
-        result = RunnerItemResult(item.acquisition_id, item.source_id, item.feed, item.target_symbol, item.month, str(task_key_path), command, execute, return_code, status)
+        result = RunnerItemResult(item.acquisition_id, item.source_id, item.feed, item.month, str(task_key_path), command, execute, return_code, status)
         results.append(result)
         _append_progress(progress_log_path, result)
         if execute and return_code != 0 and stop_on_failure:

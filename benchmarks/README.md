@@ -1,9 +1,7 @@
-# Benchmark Candidates
+# Benchmark Contracts
 
-This directory stores reviewable benchmark contract candidates.
+This directory stores reviewable promotion benchmark contracts.
 
-Candidate files are not frozen production benchmarks until an accepted decision
-promotes one contract to the primary benchmark. Candidate contracts must still
-pass the benchmark validator so component windows, weights, metadata, stress
-exceptions, and training-exclusion windows stay mechanically checkable.
-
+Accepted promotion benchmarks must use two-year candidate-policy replay. They
+must not preselect final target tickers or carry fixed target/window component
+panels. Candidate contracts must pass the benchmark validator before freeze.

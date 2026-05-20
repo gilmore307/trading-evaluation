@@ -1,8 +1,8 @@
 """Benchmark dataset preparation manifests.
 
-This module turns an accepted benchmark contract into concrete storage-side
-preparation artifacts. It does not call providers, mutate SQL, freeze the
-benchmark, select option contracts, or write active model state.
+This module turns an accepted candidate-policy replay benchmark contract into
+concrete storage-side preparation artifacts. It does not call providers, mutate
+SQL, freeze the benchmark, select option contracts, or write active model state.
 """
 
 from __future__ import annotations
@@ -10,70 +10,59 @@ from __future__ import annotations
 import csv
 import json
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
-from zoneinfo import ZoneInfo
 
-from .benchmark import BenchmarkComponent, BenchmarkContract, validate_benchmark_contract
+from .benchmark import BenchmarkContract, validate_benchmark_contract
 
 BENCHMARK_DATASET_PREPARATION_MANIFEST_CONTRACT = "benchmark_dataset_preparation_manifest"
-BENCHMARK_COMPONENT_MANIFEST_CONTRACT = "benchmark_component_manifest"
+BENCHMARK_REPLAY_WINDOW_MANIFEST_CONTRACT = "benchmark_replay_window_manifest"
 BENCHMARK_FEED_ACQUISITION_PLAN_CONTRACT = "benchmark_feed_acquisition_plan"
 BENCHMARK_COVERAGE_SUMMARY_CONTRACT = "benchmark_coverage_summary"
 DEFAULT_OUTPUT_ROOT = Path("/root/projects/trading-storage/storage/benchmark")
 DEFAULT_DATA_ROOT = Path("/root/projects/trading-data/storage")
-DEFAULT_SOURCE_CONTRACT_REF = "trading-evaluation/benchmarks/primary_benchmark_candidate_20260519.json"
-DEFAULT_SHARED_CSV_REF = "trading-storage/main/shared/evaluation_primary_benchmark_candidate.csv"
-ET = ZoneInfo("America/New_York")
-UTC = timezone.utc
-BENCHMARK_TARGET_CIK_BY_SYMBOL = {
-    "AAOI": "0001158114",
-    "AMD": "0000002488",
-    "CCJ": "0001009001",
-    "CEG": "0001868275",
-    "CMG": "0001058090",
-    "COIN": "0001679788",
-    "COST": "0000909832",
-    "DIS": "0001744489",
-    "ENPH": "0001463101",
-    "FSLR": "0001274494",
-    "GME": "0001326380",
-    "HD": "0000354950",
-    "LITE": "0001633978",
-    "LLY": "0000059478",
-    "META": "0001326801",
-    "MP": "0001801368",
-    "MRNA": "0001682852",
-    "MU": "0000723125",
-    "NFLX": "0001065280",
-    "NVDA": "0001045810",
-    "OXY": "0000797468",
-    "RBLX": "0001315098",
-    "RCL": "0000884887",
-    "SMCI": "0001375365",
-    "TGT": "0000027419",
-    "TSLA": "0001318605",
-    "VRT": "0001674101",
-    "WDC": "0000106040",
-    "WMT": "0000104169",
-}
+DEFAULT_SOURCE_CONTRACT_REF = "trading-evaluation/benchmarks/promotion_benchmark_candidate_policy_replay.json"
 
-COMPONENT_FIELDS = [
-    "contract_id", "component_id", "target_symbol", "asset_class", "theme_bucket", "component_role",
-    "start_date", "end_date", "weight", "market_condition_tags", "data_availability_tags",
-    "event_coverage_tags", "sector_coverage_tags", "target_context_ref", "stress_exception_ref",
+REPLAY_WINDOW_FIELDS = [
+    "contract_id",
+    "benchmark_mode",
+    "start_date",
+    "end_date",
+    "min_trading_days",
+    "candidate_policy_ref",
+    "replay_route_ref",
+    "market_condition_tags",
+    "selection_metric_refs",
 ]
 
 ACQUISITION_FIELDS = [
-    "acquisition_id", "contract_id", "component_id", "target_symbol", "asset_class", "source_id", "feed",
-    "month", "start_date", "end_date_exclusive", "timeframe", "acquisition_mode", "output_root",
-    "expected_output_ref", "coverage_status", "coverage_receipt_path", "params_json", "notes",
+    "acquisition_id",
+    "contract_id",
+    "source_id",
+    "feed",
+    "month",
+    "start_date",
+    "end_date_exclusive",
+    "timeframe",
+    "acquisition_mode",
+    "output_root",
+    "expected_output_ref",
+    "coverage_status",
+    "coverage_receipt_path",
+    "params_json",
+    "notes",
 ]
 
 COVERAGE_FIELDS = [
-    "contract_id", "component_id", "target_symbol", "source_id", "required_acquisition_count",
-    "available_acquisition_count", "deferred_acquisition_count", "missing_acquisition_count", "coverage_status", "notes",
+    "contract_id",
+    "source_id",
+    "required_acquisition_count",
+    "available_acquisition_count",
+    "deferred_acquisition_count",
+    "missing_acquisition_count",
+    "coverage_status",
+    "notes",
 ]
 
 
@@ -82,11 +71,10 @@ class PreparedBenchmarkDataset:
     """Paths and summary for a prepared benchmark dataset manifest."""
 
     manifest_path: Path
-    component_manifest_path: Path
+    replay_window_manifest_path: Path
     feed_acquisition_plan_path: Path
     coverage_summary_path: Path
     manifest: dict[str, Any]
-
 
 def prepare_benchmark_dataset(
     payload: Mapping[str, Any],
@@ -94,7 +82,6 @@ def prepare_benchmark_dataset(
     output_root: Path = DEFAULT_OUTPUT_ROOT,
     data_root: Path = DEFAULT_DATA_ROOT,
     source_contract_ref: str = DEFAULT_SOURCE_CONTRACT_REF,
-    shared_candidate_csv_ref: str = DEFAULT_SHARED_CSV_REF,
     prepared_at_utc: str | None = None,
 ) -> PreparedBenchmarkDataset:
     """Write a benchmark dataset preparation bundle."""
@@ -108,38 +95,40 @@ def prepare_benchmark_dataset(
     dataset_root = output_root / contract.contract_id
     dataset_root.mkdir(parents=True, exist_ok=True)
 
-    component_rows = _component_rows(contract)
+    replay_window_rows = _replay_window_rows(contract)
     acquisition_rows = _acquisition_rows(contract, data_root=data_root)
     coverage_rows = _coverage_rows(contract, acquisition_rows)
 
-    component_manifest_path = dataset_root / "component_manifest.csv"
+    replay_window_manifest_path = dataset_root / "replay_window_manifest.csv"
     feed_acquisition_plan_path = dataset_root / "feed_acquisition_plan.csv"
     coverage_summary_path = dataset_root / "coverage_summary.csv"
     manifest_path = dataset_root / "dataset_manifest.json"
 
-    _write_csv(component_manifest_path, COMPONENT_FIELDS, component_rows)
+    _write_csv(replay_window_manifest_path, REPLAY_WINDOW_FIELDS, replay_window_rows)
     _write_csv(feed_acquisition_plan_path, ACQUISITION_FIELDS, acquisition_rows)
     _write_csv(coverage_summary_path, COVERAGE_FIELDS, coverage_rows)
 
     manifest = {
         "contract_type": BENCHMARK_DATASET_PREPARATION_MANIFEST_CONTRACT,
         "contract_id": contract.contract_id,
-        "preparation_status": "prepared_one_shot_acquisition_bundle",
+        "benchmark_mode": contract.benchmark_mode,
+        "preparation_status": "prepared_candidate_policy_replay_acquisition_bundle",
         "freeze_status": "not_frozen",
         "prepared_at_utc": prepared_at,
         "source_contract_ref": source_contract_ref,
-        "shared_candidate_csv_ref": shared_candidate_csv_ref,
+        "candidate_policy_ref": contract.candidate_policy_ref,
+        "replay_route_ref": contract.replay_route_ref,
         "dataset_root": str(dataset_root),
         "storage_ref": f"storage://trading-storage/benchmark/{contract.contract_id}/",
-        "component_count": len(component_rows),
+        "replay_window_count": len(replay_window_rows),
         "feed_acquisition_count": len(acquisition_rows),
         "available_feed_acquisition_count": sum(1 for row in acquisition_rows if row["coverage_status"] == "available"),
         "deferred_feed_acquisition_count": sum(1 for row in acquisition_rows if row["coverage_status"] == "deferred"),
         "missing_feed_acquisition_count": sum(1 for row in acquisition_rows if row["coverage_status"] == "missing"),
-        "component_manifest_ref": str(component_manifest_path),
+        "replay_window_manifest_ref": str(replay_window_manifest_path),
         "feed_acquisition_plan_ref": str(feed_acquisition_plan_path),
         "coverage_summary_ref": str(coverage_summary_path),
-        "artifact_refs": [str(component_manifest_path), str(feed_acquisition_plan_path), str(coverage_summary_path)],
+        "artifact_refs": [str(replay_window_manifest_path), str(feed_acquisition_plan_path), str(coverage_summary_path)],
         "safety": {
             "provider_calls_performed": False,
             "sql_mutation_performed": False,
@@ -153,265 +142,132 @@ def prepare_benchmark_dataset(
         },
         "known_deferred_requirements": [
             "one_shot_provider_acquisition_requires_separate_gate",
+            "candidate_universe_materializes_point_in_time_during_replay",
             "thetadata_option_selection_snapshot_expands_from_model_buy_point_decisions",
             "thetadata_option_primary_tracking_and_event_timeline_expand_after_snapshot_contract_selection",
-            "crypto_historical_quote_order_book_context_remains_accepted_missing_data_stress",
         ],
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     return PreparedBenchmarkDataset(
         manifest_path=manifest_path,
-        component_manifest_path=component_manifest_path,
+        replay_window_manifest_path=replay_window_manifest_path,
         feed_acquisition_plan_path=feed_acquisition_plan_path,
         coverage_summary_path=coverage_summary_path,
         manifest=manifest,
     )
 
 
-def _component_rows(contract: BenchmarkContract) -> list[dict[str, Any]]:
+def _replay_window_rows(contract: BenchmarkContract) -> list[dict[str, Any]]:
     return [
         {
             "contract_id": contract.contract_id,
-            "component_id": component.component_id,
-            "target_symbol": component.target_symbol,
-            "asset_class": component.asset_class,
-            "theme_bucket": component.theme_bucket,
-            "component_role": component.component_role,
-            "start_date": component.start_date.isoformat(),
-            "end_date": component.end_date.isoformat(),
-            "weight": _format_weight(component.weight),
-            "market_condition_tags": _join(component.market_condition_tags),
-            "data_availability_tags": _join(component.data_availability_tags),
-            "event_coverage_tags": _join(component.event_coverage_tags),
-            "sector_coverage_tags": _join(component.sector_coverage_tags),
-            "target_context_ref": component.target_context_ref,
-            "stress_exception_ref": component.stress_exception_ref,
+            "benchmark_mode": contract.benchmark_mode,
+            "start_date": contract.start_date.isoformat(),
+            "end_date": contract.end_date.isoformat(),
+            "min_trading_days": contract.min_trading_days,
+            "candidate_policy_ref": contract.candidate_policy_ref,
+            "replay_route_ref": contract.replay_route_ref,
+            "market_condition_tags": _join(contract.market_condition_tags),
+            "selection_metric_refs": _join(contract.selection_metric_refs),
         }
-        for component in contract.benchmark_components
     ]
 
 
 def _acquisition_rows(contract: BenchmarkContract, *, data_root: Path) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
-    for component in contract.benchmark_components:
-        for source in _component_sources(component):
-            for window in _component_months(component):
-                for source_window in _source_windows(source, window):
-                    row_month = source_window["month"]
-                    acquisition_id = _acquisition_id(
-                        contract.contract_id,
-                        component,
-                        source["source_id"],
-                        row_month,
-                        suffix=source_window.get("label"),
-                    )
-                    source_output_root = _coverage_output_root(
-                        data_root,
-                        source["source_id"],
-                        component.target_symbol,
-                        row_month,
-                        suffix=source_window.get("output_suffix"),
-                    )
-                    receipt_path = source_output_root / "completion_receipt.json"
-                    params = _feed_params(component, source, source_window)
-                    if _receipt_succeeded(receipt_path, required_params=_required_receipt_params(source["source_id"], params)):
-                        coverage_status = "available"
-                    elif source.get("deferred_without_receipt") == "true":
-                        coverage_status = "deferred"
-                    else:
-                        coverage_status = "missing"
-                    rows.append(
-                        {
-                            "acquisition_id": acquisition_id,
-                            "contract_id": contract.contract_id,
-                            "component_id": component.component_id,
-                            "target_symbol": component.target_symbol,
-                            "asset_class": component.asset_class,
-                            "source_id": source["source_id"],
-                            "feed": source["feed"],
-                            "month": row_month,
-                            "start_date": source_window["start_date"],
-                            "end_date_exclusive": source_window["end_date_exclusive"],
-                            "timeframe": source["timeframe"],
-                            "acquisition_mode": "one_shot_benchmark_acquisition",
-                            "output_root": str(source_output_root),
-                            "expected_output_ref": _expected_output_ref(
-                                source["source_id"],
-                                component.target_symbol,
-                                row_month,
-                                suffix=source_window.get("output_suffix"),
-                            ),
-                            "coverage_status": coverage_status,
-                            "coverage_receipt_path": str(receipt_path),
-                            "params_json": json.dumps(params, sort_keys=True),
-                            "notes": source["notes"],
-                        }
-                    )
+    for source in _replay_sources():
+        for window in _replay_months(contract):
+            month = window["month"]
+            acquisition_id = _acquisition_id(contract.contract_id, source["source_id"], month)
+            source_output_root = _coverage_output_root(data_root, source["source_id"], contract.contract_id, month)
+            receipt_path = source_output_root / "completion_receipt.json"
+            params = _feed_params(contract, source, window)
+            coverage_status = "available" if _receipt_succeeded(receipt_path) else "missing"
+            rows.append(
+                {
+                    "acquisition_id": acquisition_id,
+                    "contract_id": contract.contract_id,
+                    "source_id": source["source_id"],
+                    "feed": source["feed"],
+                    "month": month,
+                    "start_date": window["start_date"],
+                    "end_date_exclusive": window["end_date_exclusive"],
+                    "timeframe": source["timeframe"],
+                    "acquisition_mode": "one_shot_candidate_policy_replay_acquisition",
+                    "output_root": str(source_output_root),
+                    "expected_output_ref": _expected_output_ref(source["source_id"], contract.contract_id, month),
+                    "coverage_status": coverage_status,
+                    "coverage_receipt_path": str(receipt_path),
+                    "params_json": json.dumps(params, sort_keys=True),
+                    "notes": source["notes"],
+                }
+            )
     return rows
 
 
-def _component_sources(component: BenchmarkComponent) -> tuple[dict[str, str], ...]:
-    if component.asset_class.startswith("crypto"):
-        return (
-            {
-                "source_id": "okx_crypto_market_data",
-                "feed": "04_feed_okx_crypto_market_data",
-                "timeframe": "1Day",
-                "notes": "historical crypto daily candles; quote/order-book context remains missing by accepted stress policy",
-            },
-        )
-    if component.asset_class in {"equity_single_name", "equity_etf"}:
-        return (
-            {
-                "source_id": "alpaca_bars",
-                "feed": "01_feed_alpaca_bars",
-                "timeframe": "1Day",
-                "notes": "daily underlying OHLCV for component window",
-            },
-            {
-                "source_id": "alpaca_liquidity",
-                "feed": "02_feed_alpaca_liquidity",
-                "timeframe": "1Min",
-                "notes": "benchmark one-shot full trade/quote liquidity acquisition by hourly regular-session windows; raw trades and quotes remain transient",
-            },
-            {
-                "source_id": "alpaca_news",
-                "feed": "03_feed_alpaca_news",
-                "timeframe": "event_time",
-                "notes": "symbol-scoped event/news evidence for event coverage review",
-            },
-            {
-                "source_id": "gdelt_news",
-                "feed": "05_feed_gdelt_news",
-                "timeframe": "event_time",
-                "notes": "broad market, sector, theme, and symbol news evidence for event-layer review",
-            },
-            {
-                "source_id": "trading_economics_calendar_web",
-                "feed": "07_feed_trading_economics_calendar_web",
-                "timeframe": "event_time",
-                "notes": "high-importance U.S. macro calendar event evidence for event-layer review",
-            },
-            *(
-                (
-                    {
-                        "source_id": "sec_company_financials",
-                        "feed": "08_feed_sec_company_financials",
-                        "timeframe": "filing_time",
-                        "notes": "official SEC companyfacts evidence for earnings and guidance event review",
-                    },
-                )
-                if _target_cik(component.target_symbol)
-                else ()
-            ),
-        )
-    return ()
+def _replay_sources() -> tuple[dict[str, str], ...]:
+    return (
+        {
+            "source_id": "alpaca_bars",
+            "feed": "01_feed_alpaca_bars",
+            "timeframe": "1Day",
+            "notes": "candidate-policy replay equity and ETF daily OHLCV surface",
+        },
+        {
+            "source_id": "alpaca_liquidity",
+            "feed": "02_feed_alpaca_liquidity",
+            "timeframe": "1Min",
+            "notes": "candidate-policy replay liquidity and spread surface for admitted candidates",
+        },
+        {
+            "source_id": "alpaca_news",
+            "feed": "03_feed_alpaca_news",
+            "timeframe": "event_time",
+            "notes": "candidate-policy replay symbol-scoped news evidence after point-in-time candidate admission",
+        },
+        {
+            "source_id": "gdelt_news",
+            "feed": "05_feed_gdelt_news",
+            "timeframe": "event_time",
+            "notes": "broad market, sector, theme, and candidate news evidence for replay",
+        },
+        {
+            "source_id": "trading_economics_calendar_web",
+            "feed": "07_feed_trading_economics_calendar_web",
+            "timeframe": "event_time",
+            "notes": "high-importance U.S. macro calendar event evidence for replay",
+        },
+        {
+            "source_id": "okx_crypto_market_data",
+            "feed": "04_feed_okx_crypto_market_data",
+            "timeframe": "1Day",
+            "notes": "candidate-policy replay crypto daily market data surface",
+        },
+    )
 
 
-def _feed_params(component: BenchmarkComponent, source: Mapping[str, str], window: Mapping[str, str]) -> dict[str, Any]:
-    feed = source["feed"]
-    if feed == "01_feed_alpaca_bars":
-        return {
-            "symbol": component.target_symbol,
-            "start": window["start_date"],
-            "end": window["end_date_exclusive"],
-            "timeframe": source["timeframe"],
-            "adjustment": "raw",
-            "limit": 10000,
-            "max_pages": 50,
-        }
-    if feed == "02_feed_alpaca_liquidity":
-        acquisition_windows = _liquidity_acquisition_windows(window)
-        return {
-            "symbol": component.target_symbol,
-            "start": window["start_date"],
-            "end": window["end_date_exclusive"],
-            "timeframe": source["timeframe"],
-            "limit": 10000,
-            "max_pages": 500,
-            "acquisition_windows": acquisition_windows,
-            "benchmark_liquidity_acquisition_policy": "full_hourly_regular_session_windows_per_component_month",
-            "fail_on_incomplete_pagination": True,
-        }
-    if feed == "03_feed_alpaca_news":
-        return {
-            "symbols": [component.target_symbol],
-            "start": window["start_date"],
-            "end": window["end_date_exclusive"],
-            "limit": 50,
-            "max_pages": 20,
-        }
-    if feed == "05_feed_gdelt_news":
-        return {
-            "start_date": window["start_date"],
-            "end_date": window["end_date_exclusive"],
-            "topic_categories": ["politics", "economy", "war", "technology"],
-            "focus": "us_market",
-            "impact_scope": "market;sector;industry;theme;symbol",
-            "max_rows": 1000,
-            "dry_run": False,
-            "query_terms": _event_query_terms(component),
-        }
-    if feed == "07_feed_trading_economics_calendar_web":
-        return {
-            "start_date": window["start_date"],
-            "end_date": window["end_date_exclusive"],
-            "country": "United States",
-            "importance": "3",
-            "allow_live_fetch": True,
-            "persist_failure_diagnostics": True,
-        }
-    if feed == "08_feed_sec_company_financials":
-        return {
-            "data_kind": "sec_company_fact",
-            "cik": _target_cik(component.target_symbol),
-            "taxonomy": "us-gaap",
-            "benchmark_window_start": window["start_date"],
-            "benchmark_window_end_exclusive": window["end_date_exclusive"],
-        }
-    if feed == "04_feed_okx_crypto_market_data":
-        return {
-            "instId": component.target_symbol,
-            "timeframe": source["timeframe"],
-            "limit": 300,
-            "benchmark_window_start": window["start_date"],
-            "benchmark_window_end_exclusive": window["end_date_exclusive"],
-            "historical_window_status": "prepared_requirement_current_okx_feed_does_not_persist_quote_order_book_context",
-        }
-    return {}
+def _feed_params(contract: BenchmarkContract, source: Mapping[str, str], window: Mapping[str, str]) -> dict[str, Any]:
+    return {
+        "contract_id": contract.contract_id,
+        "candidate_policy_ref": contract.candidate_policy_ref,
+        "replay_route_ref": contract.replay_route_ref,
+        "start": window["start_date"],
+        "end": window["end_date_exclusive"],
+        "timeframe": source["timeframe"],
+        "benchmark_acquisition_policy": "candidate_policy_replay_monthly_surface",
+        "source_id": source["source_id"],
+    }
 
 
-def _source_windows(source: Mapping[str, str], window: Mapping[str, str]) -> list[dict[str, str]]:
-    return [dict(window)]
-
-
-def _event_query_terms(component: BenchmarkComponent) -> list[str]:
-    terms = [component.target_symbol, *component.sector_coverage_tags, *component.event_coverage_tags]
-    common = ["earnings", "guidance", "revenue", "federal reserve", "inflation", "rates", "liquidity"]
-    seen: set[str] = set()
-    output: list[str] = []
-    for term in [*terms, *common]:
-        clean = str(term).replace("_", " ").strip()
-        key = clean.lower()
-        if clean and key not in seen:
-            seen.add(key)
-            output.append(clean)
-    return output
-
-
-def _target_cik(symbol: str) -> str | None:
-    return BENCHMARK_TARGET_CIK_BY_SYMBOL.get(symbol.upper())
-
-
-def _component_months(component: BenchmarkComponent) -> list[dict[str, str]]:
-    current = date(component.start_date.year, component.start_date.month, 1)
-    end_month = date(component.end_date.year, component.end_date.month, 1)
+def _replay_months(contract: BenchmarkContract) -> list[dict[str, str]]:
+    current = date(contract.start_date.year, contract.start_date.month, 1)
+    end_month = date(contract.end_date.year, contract.end_date.month, 1)
     windows: list[dict[str, str]] = []
     while current <= end_month:
         next_month = _next_month(current)
-        start = max(component.start_date, current)
-        end = min(component.end_date, next_month)
+        start = max(contract.start_date, current)
+        end = min(contract.end_date, next_month)
         if end > start:
             windows.append(
                 {
@@ -424,33 +280,6 @@ def _component_months(component: BenchmarkComponent) -> list[dict[str, str]]:
     return windows
 
 
-def _liquidity_acquisition_windows(window: Mapping[str, str]) -> list[dict[str, str]]:
-    start_date = date.fromisoformat(window["start_date"])
-    end_date = date.fromisoformat(window["end_date_exclusive"])
-    windows: list[dict[str, str]] = []
-    current = start_date
-    while current < end_date:
-        if current.weekday() < 5:
-            session_start = datetime.combine(current, time(9, 30), tzinfo=ET)
-            session_end = datetime.combine(current, time(16, 0), tzinfo=ET)
-            chunk_start = session_start
-            while chunk_start < session_end:
-                chunk_end = min(chunk_start + timedelta(hours=1), session_end)
-                windows.append(
-                    {
-                        "label": (
-                            f"{current.isoformat()}_"
-                            f"{chunk_start.strftime('%H%M')}_{chunk_end.strftime('%H%M')}_et"
-                        ),
-                        "start": chunk_start.astimezone(UTC).isoformat().replace("+00:00", "Z"),
-                        "end": chunk_end.astimezone(UTC).isoformat().replace("+00:00", "Z"),
-                    }
-                )
-                chunk_start = chunk_end
-        current += timedelta(days=1)
-    return windows
-
-
 def _next_month(value: date) -> date:
     if value.month == 12:
         return date(value.year + 1, 1, 1)
@@ -458,18 +287,16 @@ def _next_month(value: date) -> date:
 
 
 def _coverage_rows(contract: BenchmarkContract, acquisition_rows: Iterable[Mapping[str, str]]) -> list[dict[str, Any]]:
-    grouped: dict[tuple[str, str], list[Mapping[str, str]]] = {}
+    grouped: dict[str, list[Mapping[str, str]]] = {}
     for row in acquisition_rows:
-        grouped.setdefault((row["component_id"], row["source_id"]), []).append(row)
+        grouped.setdefault(row["source_id"], []).append(row)
     rows: list[dict[str, Any]] = []
-    component_by_id = {component.component_id: component for component in contract.benchmark_components}
-    for component_id, source_id in sorted(grouped):
-        source_rows = grouped[(component_id, source_id)]
+    for source_id in sorted(grouped):
+        source_rows = grouped[source_id]
         available = sum(1 for row in source_rows if row["coverage_status"] == "available")
         deferred = sum(1 for row in source_rows if row["coverage_status"] == "deferred")
         missing = sum(1 for row in source_rows if row["coverage_status"] == "missing")
         required = len(source_rows)
-        component = component_by_id[component_id]
         if available == required:
             coverage_status = "complete"
         elif available + deferred == required:
@@ -479,43 +306,23 @@ def _coverage_rows(contract: BenchmarkContract, acquisition_rows: Iterable[Mappi
         rows.append(
             {
                 "contract_id": contract.contract_id,
-                "component_id": component_id,
-                "target_symbol": component.target_symbol,
                 "source_id": source_id,
                 "required_acquisition_count": required,
                 "available_acquisition_count": available,
                 "deferred_acquisition_count": deferred,
                 "missing_acquisition_count": missing,
                 "coverage_status": coverage_status,
-                "notes": "local coverage scan only; missing rows require one-shot provider acquisition or accepted stress exception",
+                "notes": "local coverage scan only; missing rows require one-shot provider acquisition",
             }
         )
     return rows
 
 
-def _coverage_receipt_path(data_root: Path, source_id: str, symbol: str, month: str) -> Path:
-    return _coverage_output_root(data_root, source_id, symbol, month) / "completion_receipt.json"
+def _coverage_output_root(data_root: Path, source_id: str, contract_id: str, month: str) -> Path:
+    return data_root / "benchmark_replay" / source_id / contract_id / month
 
 
-def _coverage_output_root(data_root: Path, source_id: str, symbol: str, month: str, *, suffix: str | None = None) -> Path:
-    root = data_root / "monthly_backfill" / source_id / symbol.upper() / month
-    return root / suffix if suffix else root
-
-
-def _required_receipt_params(source_id: str, plan_params: Mapping[str, Any]) -> dict[str, Any] | None:
-    if source_id == "alpaca_liquidity":
-        return {
-            "benchmark_liquidity_acquisition_policy": "full_hourly_regular_session_windows_per_component_month",
-            "required_acquisition_window_labels": [
-                str(window.get("label"))
-                for window in plan_params.get("acquisition_windows", [])
-                if isinstance(window, Mapping) and window.get("label")
-            ],
-        }
-    return None
-
-
-def _receipt_succeeded(path: Path, *, required_params: Mapping[str, Any] | None = None) -> bool:
+def _receipt_succeeded(path: Path) -> bool:
     if not path.exists():
         return False
     try:
@@ -523,64 +330,15 @@ def _receipt_succeeded(path: Path, *, required_params: Mapping[str, Any] | None 
     except json.JSONDecodeError:
         return False
     runs = payload.get("runs") if isinstance(payload, Mapping) else None
-    if not isinstance(runs, list):
-        return False
-    required_labels = set(required_params.get("required_acquisition_window_labels", [])) if required_params else set()
-    observed_labels: set[str] = set()
-    for run in runs:
-        if not isinstance(run, Mapping) or run.get("status") != "succeeded":
-            continue
-        if not required_params:
-            return True
-        output_dir = run.get("output_dir")
-        if not output_dir:
-            continue
-        manifest_path = Path(str(output_dir)) / "request_manifest.json"
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        params = manifest.get("params") if isinstance(manifest, Mapping) else None
-        if not isinstance(params, Mapping):
-            continue
-        scalar_requirements = {
-            key: value
-            for key, value in required_params.items()
-            if key != "required_acquisition_window_labels"
-        }
-        if not all(params.get(key) == value for key, value in scalar_requirements.items()):
-            continue
-        if not required_labels:
-            return True
-        for window in params.get("acquisition_windows", []):
-            if isinstance(window, Mapping) and window.get("label"):
-                observed_labels.add(str(window["label"]))
-    return bool(required_labels) and required_labels.issubset(observed_labels)
+    return isinstance(runs, list) and any(isinstance(run, Mapping) and run.get("status") == "succeeded" for run in runs)
 
 
-def _expected_output_ref(source_id: str, symbol: str, month: str, *, suffix: str | None = None) -> str:
-    base = f"storage://trading-data/monthly_backfill/{source_id}/{symbol.upper()}/{month}/"
-    return f"{base}{suffix}/" if suffix else base
+def _expected_output_ref(source_id: str, contract_id: str, month: str) -> str:
+    return f"storage://trading-data/benchmark_replay/{source_id}/{contract_id}/{month}/"
 
 
-def _acquisition_id(
-    contract_id: str,
-    component: BenchmarkComponent,
-    source_id: str,
-    month: str,
-    *,
-    suffix: str | None = None,
-) -> str:
-    return "bmkacq_" + "_".join(
-        [
-            _path_token(contract_id),
-            _path_token(component.component_id),
-            _path_token(source_id),
-            component.target_symbol.lower().replace("-", "_"),
-            month.replace("-", "_"),
-            *([_path_token(suffix)] if suffix else []),
-        ]
-    )
+def _acquisition_id(contract_id: str, source_id: str, month: str) -> str:
+    return "bmkacq_" + "_".join([_path_token(contract_id), _path_token(source_id), month.replace("-", "_")])
 
 
 def _path_token(value: str) -> str:
@@ -594,10 +352,6 @@ def _write_csv(path: Path, fieldnames: list[str], rows: Iterable[Mapping[str, An
         writer.writerows(rows)
 
 
-def _format_weight(value: float) -> str:
-    return f"{value:.10g}"
-
-
 def _join(values: Iterable[str]) -> str:
     return ";".join(values)
 
@@ -607,10 +361,10 @@ def _now_utc() -> str:
 
 
 __all__ = [
-    "BENCHMARK_COMPONENT_MANIFEST_CONTRACT",
     "BENCHMARK_COVERAGE_SUMMARY_CONTRACT",
     "BENCHMARK_DATASET_PREPARATION_MANIFEST_CONTRACT",
     "BENCHMARK_FEED_ACQUISITION_PLAN_CONTRACT",
+    "BENCHMARK_REPLAY_WINDOW_MANIFEST_CONTRACT",
     "PreparedBenchmarkDataset",
     "prepare_benchmark_dataset",
 ]

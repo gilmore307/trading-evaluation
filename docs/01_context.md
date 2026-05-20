@@ -14,7 +14,7 @@
 
 ## Operating Assumptions
 
-- The benchmark panel is selected once under review and then frozen.
+- The promotion benchmark is selected once under review and then frozen as a two-year candidate-policy replay.
 - The benchmark contract records enough data-snapshot, cost-model, baseline, and exclusion evidence to make later fold comparisons reproducible.
 - Guardrail benchmarks may block overfit or pathological candidates, but the primary benchmark remains the main horizontal comparison surface.
 - Settlement reports must separate returns from risk, turnover, abstention quality, event-risk intervention effect, and calibration.

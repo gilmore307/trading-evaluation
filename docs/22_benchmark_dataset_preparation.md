@@ -1,11 +1,11 @@
 # Benchmark Dataset Preparation
 
-`benchmark_dataset_preparation_manifest` is the storage-side one-shot acquisition bundle for an accepted benchmark contract candidate.
+`benchmark_dataset_preparation_manifest` is the storage-side one-shot acquisition bundle for an accepted two-year candidate-policy replay benchmark.
 
 The preparation step writes runtime artifacts under `trading-storage/storage/benchmark/<contract_id>/`:
 
 - `dataset_manifest.json`
-- `component_manifest.csv`
+- `replay_window_manifest.csv`
 - `feed_acquisition_plan.csv`
 - `coverage_summary.csv`
 
@@ -13,33 +13,28 @@ This step is not a benchmark freeze and does not use the manager task/request ro
 
 ## Current Inputs
 
-- source contract: `trading-evaluation/benchmarks/primary_benchmark_candidate_20260519.json`
-- shared candidate CSV: `trading-storage/main/shared/evaluation_primary_benchmark_candidate.csv`
+- source contract: pending accepted candidate-policy replay benchmark under `trading-evaluation/benchmarks/`
 - local coverage scan root: `trading-data/storage`
 - runtime output root: `trading-storage/storage/benchmark`
 
 ## Feed Requirements
 
-Equity single-name and ETF components prepare one-shot acquisition requirements for:
+Candidate-policy replay prepares one-shot acquisition requirements for the full two-year replay window:
 
 - `01_feed_alpaca_bars`
-- `02_feed_alpaca_liquidity` through full trades/quotes over each hourly regular-session window in the component month
+- `02_feed_alpaca_liquidity`
 - `03_feed_alpaca_news`
 - `05_feed_gdelt_news` for broad market, sector, theme, and symbol event evidence
 - `07_feed_trading_economics_calendar_web` for high-importance U.S. macro event evidence
-- `08_feed_sec_company_financials` for mapped single-name SEC companyfacts evidence
-
-Crypto components prepare one-shot acquisition requirements for:
-
 - `04_feed_okx_crypto_market_data`
 
-ThetaData option-chain snapshots (`09_feed_thetadata_option_selection_snapshot`) are generated on demand from benchmark replay model buy/expression points. Selected-contract feeds (`10_feed_thetadata_option_primary_tracking` and `11_feed_thetadata_option_event_timeline`) expand only after those snapshots produce concrete expiration/right/strike selections. They are not guessed or pre-scanned across every benchmark day in the initial bundle.
+Candidate symbols are not preselected. The candidate universe materializes point-in-time during replay from the accepted candidate policy. ThetaData option-chain snapshots (`09_feed_thetadata_option_selection_snapshot`) are generated on demand from benchmark replay model buy/expression points. Selected-contract feeds (`10_feed_thetadata_option_primary_tracking` and `11_feed_thetadata_option_event_timeline`) expand only after those snapshots produce concrete expiration/right/strike selections. They are not guessed or pre-scanned across every benchmark day in the initial bundle.
 
 ## Command
 
 ```bash
 PYTHONPATH=src python3 scripts/evaluation/prepare_benchmark_dataset.py \
-  --contract benchmarks/primary_benchmark_candidate_20260519.json \
+  --contract benchmarks/promotion_benchmark_candidate_policy_replay.json \
   --output-root /root/projects/trading-storage/storage/benchmark \
   --data-root /root/projects/trading-data/storage
 ```
@@ -60,7 +55,7 @@ To plan or execute bounded one-shot acquisitions from the generated plan:
 
 ```bash
 PYTHONPATH=src python3 scripts/evaluation/run_benchmark_acquisition.py \
-  --dataset-root /root/projects/trading-storage/storage/benchmark/primary_benchmark_candidate_20260519 \
+  --dataset-root /root/projects/trading-storage/storage/benchmark/promotion_benchmark_candidate_policy_replay \
   --source-id gdelt_news \
   --limit 10
 ```

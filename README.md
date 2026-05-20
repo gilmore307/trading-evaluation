@@ -28,7 +28,6 @@ docs/
   05_decision.md
   06_memory.md
   20_benchmark_contracts.md
-  21_primary_benchmark_candidate.md
   22_benchmark_dataset_preparation.md
   30_fold_settlement.md
   40_promotion_eligibility.md
@@ -39,7 +38,7 @@ docs/
 
 ```text
 frozen benchmark contract
-  -> benchmark exclusion proof
+  -> two-year candidate-policy replay holdout proof
   -> benchmark dataset preparation manifest
   -> fold settlement run
   -> settlement metric rows/report refs
@@ -49,7 +48,7 @@ frozen benchmark contract
   -> execution shadow cycle selection
 ```
 
-The primary benchmark is one frozen target/window panel so fold-to-fold results remain horizontally comparable. Guardrail benchmarks may exist for overfit detection, but they do not replace the primary leaderboard unless a new benchmark contract is explicitly accepted.
+The promotion benchmark is a frozen two-year historical-clock replay. The candidate model must generate candidates from the accepted candidate policy, rank/select targets itself, and run through the realtime decision route against a frozen snapshot and cost model. Guardrail benchmarks may exist for overfit detection, but they do not replace the primary replay leaderboard unless a new benchmark contract is explicitly accepted.
 
 Agent review, when used, must follow the workspace skill `skills/openclaw/promotion-evaluation-review`. The reviewer produces advisory structured evidence only; deterministic evaluation code validates eligibility and writes promotion readiness records.
 

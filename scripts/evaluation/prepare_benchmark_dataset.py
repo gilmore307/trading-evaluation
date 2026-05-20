@@ -28,11 +28,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--source-contract-ref",
-        default="trading-evaluation/benchmarks/primary_benchmark_candidate_20260519.json",
-    )
-    parser.add_argument(
-        "--shared-candidate-csv-ref",
-        default="trading-storage/main/shared/evaluation_primary_benchmark_candidate.csv",
+        default="trading-evaluation/benchmarks/promotion_benchmark_candidate_policy_replay.json",
     )
     args = parser.parse_args(argv)
 
@@ -44,7 +40,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         output_root=args.output_root,
         data_root=args.data_root,
         source_contract_ref=args.source_contract_ref,
-        shared_candidate_csv_ref=args.shared_candidate_csv_ref,
     )
     print(json.dumps(prepared.manifest, indent=2, sort_keys=True))
     return 0
