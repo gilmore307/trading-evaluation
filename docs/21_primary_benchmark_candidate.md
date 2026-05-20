@@ -1,9 +1,9 @@
-# Primary Benchmark Candidate
+# Fixed Target/Window Diagnostic Candidate
 
-Status: final candidate, not frozen.
+Status: diagnostic/stress candidate, not a promotion benchmark.
 
 The current candidate contract is benchmarks/primary_benchmark_candidate_20260519.json.
-It is intended for one final review before promotion to the frozen primary benchmark.
+It is retained as a fixed target/window diagnostic and stress panel candidate. It should not be promoted as the full primary benchmark for target-selection models because it preselects final target identities instead of replaying a fixed candidate-universe policy.
 
 ## Composition
 
@@ -107,4 +107,4 @@ Event buckets may overlap because a component can cross earnings while also repr
 - Single-name components require reviewed target-context refs before freeze.
 - The crypto route assumes OKX trade-derived liquidity bars; standalone raw crypto trades are transient, and quote/order-book context is the explicit stress gap.
 - Layer 8 option-expression evaluation should compare option expression against an underlying-only expression baseline. If options are unsuitable, the model may recommend the underlying-expression route rather than forcing an option contract.
-- This candidate should not be used for training, tuning, prompt iteration, or model selection until it is explicitly accepted and frozen as evaluation-only data.
+- This candidate should not be used for training, tuning, prompt iteration, model selection, or promotion. It can support diagnostic/stress replay after review; promotion requires a benchmark that freezes the candidate-universe policy and lets the model select/rank targets inside each historical replay batch.
