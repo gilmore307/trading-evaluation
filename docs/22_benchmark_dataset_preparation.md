@@ -23,7 +23,7 @@ This step is not a benchmark freeze and does not use the manager task/request ro
 Equity single-name and ETF components prepare one-shot acquisition requirements for:
 
 - `01_feed_alpaca_bars`
-- `02_feed_alpaca_liquidity` through full IEX trades/quotes over each weekday regular-session window in the component month
+- `02_feed_alpaca_liquidity` through full trades/quotes over each hourly regular-session window in the component month
 - `03_feed_alpaca_news`
 
 Crypto components prepare one-shot acquisition requirements for:

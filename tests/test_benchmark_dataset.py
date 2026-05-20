@@ -109,9 +109,10 @@ class BenchmarkDatasetPreparationTests(unittest.TestCase):
             self.assertEqual(json.loads(bars_row["params_json"])["symbol"], "XYZ")
             liquidity_row = next(row for row in acquisition_rows if row["source_id"] == "alpaca_liquidity")
             liquidity_params = json.loads(liquidity_row["params_json"])
-            self.assertEqual(liquidity_params["benchmark_liquidity_acquisition_policy"], "full_daily_regular_session_windows_per_component_month")
+            self.assertEqual(liquidity_params["benchmark_liquidity_acquisition_policy"], "full_hourly_regular_session_windows_per_component_month")
             self.assertTrue(liquidity_params["fail_on_incomplete_pagination"])
-            self.assertGreaterEqual(len(liquidity_params["acquisition_windows"]), 20)
+            self.assertGreaterEqual(len(liquidity_params["acquisition_windows"]), 100)
+            self.assertTrue(liquidity_params["acquisition_windows"][0]["label"].endswith("_0930_1030_et"))
             self.assertFalse((prepared.manifest_path.parent / "task_keys").exists())
 
     def test_prepare_benchmark_dataset_cli(self):

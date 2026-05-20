@@ -223,7 +223,7 @@ def _component_sources(component: BenchmarkComponent) -> tuple[dict[str, str], .
                 "source_id": "alpaca_liquidity",
                 "feed": "02_feed_alpaca_liquidity",
                 "timeframe": "1Min",
-                "notes": "benchmark one-shot full trade/quote liquidity acquisition by daily regular-session windows; raw trades and quotes remain transient",
+                "notes": "benchmark one-shot full trade/quote liquidity acquisition by hourly regular-session windows; raw trades and quotes remain transient",
             },
             {
                 "source_id": "alpaca_news",
@@ -257,7 +257,7 @@ def _feed_params(component: BenchmarkComponent, source: Mapping[str, str], windo
             "limit": 10000,
             "max_pages": 500,
             "acquisition_windows": acquisition_windows,
-            "benchmark_liquidity_acquisition_policy": "full_daily_regular_session_windows_per_component_month",
+            "benchmark_liquidity_acquisition_policy": "full_hourly_regular_session_windows_per_component_month",
             "fail_on_incomplete_pagination": True,
         }
     if feed == "03_feed_alpaca_news":
@@ -307,15 +307,22 @@ def _liquidity_acquisition_windows(window: Mapping[str, str]) -> list[dict[str, 
     current = start_date
     while current < end_date:
         if current.weekday() < 5:
-            start = datetime.combine(current, time(9, 30), tzinfo=ET)
-            end = datetime.combine(current, time(16, 0), tzinfo=ET)
-            windows.append(
-                {
-                    "label": f"{current.isoformat()}_regular_session",
-                    "start": start.astimezone(UTC).isoformat().replace("+00:00", "Z"),
-                    "end": end.astimezone(UTC).isoformat().replace("+00:00", "Z"),
-                }
-            )
+            session_start = datetime.combine(current, time(9, 30), tzinfo=ET)
+            session_end = datetime.combine(current, time(16, 0), tzinfo=ET)
+            chunk_start = session_start
+            while chunk_start < session_end:
+                chunk_end = min(chunk_start + timedelta(hours=1), session_end)
+                windows.append(
+                    {
+                        "label": (
+                            f"{current.isoformat()}_"
+                            f"{chunk_start.strftime('%H%M')}_{chunk_end.strftime('%H%M')}_et"
+                        ),
+                        "start": chunk_start.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+                        "end": chunk_end.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+                    }
+                )
+                chunk_start = chunk_end
         current += timedelta(days=1)
     return windows
 
@@ -373,7 +380,7 @@ def _coverage_output_root(data_root: Path, source_id: str, symbol: str, month: s
 def _required_receipt_params(source_id: str, plan_params: Mapping[str, Any]) -> dict[str, Any] | None:
     if source_id == "alpaca_liquidity":
         return {
-            "benchmark_liquidity_acquisition_policy": "full_daily_regular_session_windows_per_component_month",
+            "benchmark_liquidity_acquisition_policy": "full_hourly_regular_session_windows_per_component_month",
             "required_acquisition_window_labels": [
                 str(window.get("label"))
                 for window in plan_params.get("acquisition_windows", [])
