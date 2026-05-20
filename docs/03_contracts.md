@@ -39,7 +39,7 @@ Required fields include:
 - `coverage_summary_ref`
 - safety booleans proving no provider calls, SQL mutation, model training, activation, broker execution, or account mutation occurred
 
-The preparation bundle may write files under `trading-storage/storage/benchmark/<contract_id>/`, but it does not generate manager task/request rows or reusable task keys. Live provider acquisition for the sealed benchmark is a one-shot gated action that records receipts under the source storage roots.
+The preparation bundle may write files under `trading-storage/storage/benchmark_datasets/<contract_id>/`, but it does not generate manager task/request rows or reusable task keys. Live provider acquisition for the sealed benchmark is a one-shot gated action that records receipts under the source storage roots.
 
 After accepted acquisition coverage, the benchmark contract references one frozen reusable data snapshot. All benchmark replay and downstream evaluation artifacts for that contract must consume that snapshot. Candidate-specific data download, source reinterpretation, or training-flow feature generation is not allowed for benchmark judgment.
 

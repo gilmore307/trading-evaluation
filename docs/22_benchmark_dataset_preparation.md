@@ -2,7 +2,7 @@
 
 `benchmark_dataset_preparation_manifest` is the storage-side one-shot acquisition bundle for an accepted candidate-policy replay benchmark.
 
-The preparation step writes runtime artifacts under `trading-storage/storage/benchmark/<contract_id>/`:
+The preparation step writes runtime artifacts under `trading-storage/storage/benchmark_datasets/<contract_id>/`:
 
 - `dataset_manifest.json`
 - `replay_window_manifest.csv`
@@ -15,8 +15,8 @@ This step is not a benchmark freeze and does not use the manager task/request ro
 
 - source contract: pending accepted candidate-policy replay benchmark under `trading-evaluation/benchmarks/`
 - canonical replay window: `2021-01-01` through `2026-01-01` end-exclusive
-- local coverage scan root: `trading-storage/storage/data`
-- runtime output root: `trading-storage/storage/benchmark`
+- local coverage scan root: `trading-storage/storage/source_data`
+- runtime output root: `trading-storage/storage/benchmark_datasets`
 
 ## Feed Requirements
 
@@ -36,8 +36,8 @@ Candidate symbols are not preselected. The candidate universe materializes point
 ```bash
 PYTHONPATH=src python3 scripts/evaluation/prepare_benchmark_dataset.py \
   --contract benchmarks/promotion_benchmark_candidate_policy_replay.json \
-  --output-root /root/projects/trading-storage/storage/benchmark \
-  --data-root /root/projects/trading-storage/storage/data
+  --output-root /root/projects/trading-storage/storage/benchmark_datasets \
+  --data-root /root/projects/trading-storage/storage/source_data
 ```
 
 The generated acquisition plan records feed parameters and target output roots only. Live provider calls require a separate one-shot benchmark acquisition gate, but they do not need manager task rows or reusable task keys because this dataset is a sealed one-time benchmark artifact.
@@ -56,7 +56,7 @@ To plan or execute bounded one-shot acquisitions from the generated plan:
 
 ```bash
 PYTHONPATH=src python3 scripts/evaluation/run_benchmark_acquisition.py \
-  --dataset-root /root/projects/trading-storage/storage/benchmark/promotion_benchmark_candidate_policy_replay \
+  --dataset-root /root/projects/trading-storage/storage/benchmark_datasets/promotion_benchmark_candidate_policy_replay \
   --source-id gdelt_news \
   --limit 10
 ```

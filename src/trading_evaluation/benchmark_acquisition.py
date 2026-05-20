@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 DEFAULT_DATA_ROOT = Path("/root/projects/trading-data")
-DEFAULT_DATASET_ROOT = Path("/root/projects/trading-storage/storage/benchmark/promotion_benchmark_candidate_policy_replay")
+DEFAULT_DATASET_ROOT = Path("/root/projects/trading-storage/storage/benchmark_datasets/promotion_benchmark_candidate_policy_replay")
 DEFAULT_RUN_ID = "benchmark_one_shot_acquisition"
 
 MODULE_BY_FEED = {
