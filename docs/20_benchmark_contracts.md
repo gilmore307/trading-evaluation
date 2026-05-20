@@ -33,6 +33,7 @@ Required replay behavior:
 
 - the candidate model gets the full replay period and must operate according to the same model route intended for live use.
 - Layer 2 produces sector context point-in-time; Layer 3 generates/ranks the candidate set; downstream layers decide whether and how to trade.
+- Layer 4 and later are invoked per selected target. If Layer 3 selects multiple targets, replay fans them out into repeated single-target downstream runs rather than passing one multi-target batch into Layer 4+.
 - the benchmark judges final realized replay performance and guardrail behavior, not isolated hand-picked episodes.
 - replay output must preserve enough per-decision evidence to audit why targets were selected, watched, blocked, traded, or skipped.
 
