@@ -20,8 +20,8 @@ BENCHMARK_DATASET_PREPARATION_MANIFEST_CONTRACT = "benchmark_dataset_preparation
 BENCHMARK_REPLAY_WINDOW_MANIFEST_CONTRACT = "benchmark_replay_window_manifest"
 BENCHMARK_FEED_ACQUISITION_PLAN_CONTRACT = "benchmark_feed_acquisition_plan"
 BENCHMARK_COVERAGE_SUMMARY_CONTRACT = "benchmark_coverage_summary"
-DEFAULT_OUTPUT_ROOT = Path("/root/projects/trading-storage/storage/benchmark_datasets")
-DEFAULT_DATA_ROOT = Path("/root/projects/trading-storage/storage/source_data")
+DEFAULT_OUTPUT_ROOT = Path("/root/projects/trading-storage/storage/05_benchmark_datasets")
+DEFAULT_DATA_ROOT = Path("/root/projects/trading-storage/storage/01_source_data")
 DEFAULT_SOURCE_CONTRACT_REF = "trading-evaluation/benchmarks/promotion_benchmark_candidate_policy_replay.json"
 
 REPLAY_WINDOW_FIELDS = [
@@ -119,7 +119,7 @@ def prepare_benchmark_dataset(
         "candidate_policy_ref": contract.candidate_policy_ref,
         "replay_route_ref": contract.replay_route_ref,
         "dataset_root": str(dataset_root),
-        "storage_ref": f"storage://trading-storage/benchmark_datasets/{contract.contract_id}/",
+        "storage_ref": f"storage://trading-storage/05_benchmark_datasets/{contract.contract_id}/",
         "replay_window_count": len(replay_window_rows),
         "feed_acquisition_count": len(acquisition_rows),
         "available_feed_acquisition_count": sum(1 for row in acquisition_rows if row["coverage_status"] == "available"),

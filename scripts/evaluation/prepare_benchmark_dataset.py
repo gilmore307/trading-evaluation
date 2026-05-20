@@ -17,13 +17,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path("/root/projects/trading-storage/storage/benchmark_datasets"),
+        default=Path("/root/projects/trading-storage/storage/05_benchmark_datasets"),
         help="Storage-owned runtime root for benchmark dataset preparation outputs.",
     )
     parser.add_argument(
         "--data-root",
         type=Path,
-        default=Path("/root/projects/trading-storage/storage/source_data"),
+        default=Path("/root/projects/trading-storage/storage/01_source_data"),
         help="Trading-data storage root used for local coverage scan.",
     )
     parser.add_argument(
