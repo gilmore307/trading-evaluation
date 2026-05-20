@@ -2,7 +2,7 @@
 
 Fold settlement is the comprehensive post-fold evaluation step.
 
-It should run after a fold has completed all model-worker stages and before promotion eligibility is accepted.
+It should run after a fold has completed Layer 1 through Layer 9 model evaluation and before promotion eligibility is accepted. Single-layer fold evaluation can be stored as diagnostic evidence, but it is not promotion-ready until the full stack for that fold is complete.
 
 ## Required Metric Families
 
@@ -19,4 +19,3 @@ It should run after a fold has completed all model-worker stages and before prom
 ## Storage Boundary
 
 Detailed settlement reports and chart-ready summaries are durable artifacts and should be stored through `trading-storage` contracts. This repository owns metric semantics and validation.
-
