@@ -7,8 +7,11 @@ Promotion readiness is evaluation-owned. Runtime activation is execution-owned.
 ## Required Inputs
 
 - accepted `promotion_eligibility_decision` with `decision_status = eligible`;
-- accepted benchmark contract reference;
-- fold settlement run and metric references;
+- accepted benchmark contract reference plus `benchmark_validation_ref` and `benchmark_freeze_status = frozen`;
+- fold settlement run, metric references, `fold_stack_evidence_ref`, and `fold_stack_status = complete_layer_01_10`;
+- non-empty guardrail refs with `guardrail_status = passed`;
+- incumbent comparison ref with `incumbent_comparison_status = passed`;
+- advisory `promotion-evaluation-review` ref with `agent_review_recommendation = eligible_for_shadow`;
 - pinned Layer 1-10 candidate model/config refs;
 - rollback ref;
 - execution shadow scope.

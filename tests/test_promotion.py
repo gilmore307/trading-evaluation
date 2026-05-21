@@ -21,6 +21,17 @@ class PromotionTests(unittest.TestCase):
             settlement_run_ref="storage://settlement/run",
             decision_status="eligible",
             decision_reason="passed frozen benchmark",
+            metric_refs=["storage://metrics/fold"],
+            guardrail_refs=["benchmark://guardrail/risk"],
+            benchmark_validation_ref="storage://benchmark/validation/passed",
+            benchmark_freeze_status="frozen",
+            fold_stack_evidence_ref="storage://fold/complete_layer_01_10",
+            fold_stack_status="complete_layer_01_10",
+            guardrail_status="passed",
+            incumbent_comparison_ref="storage://comparison/incumbent",
+            incumbent_comparison_status="passed",
+            agent_review_ref="agent-review://promotion-evaluation-review/passed",
+            agent_review_recommendation="eligible_for_shadow",
         )
 
         record = build_promotion_readiness_record(
@@ -35,7 +46,21 @@ class PromotionTests(unittest.TestCase):
         self.assertFalse(record["active_model_config_written"])
         self.assertFalse(record["broker_execution_performed"])
         self.assertFalse(record["account_mutation_performed"])
+        self.assertEqual(record["benchmark_freeze_status"], "frozen")
+        self.assertEqual(record["fold_stack_status"], "complete_layer_01_10")
+        self.assertEqual(record["agent_review_recommendation"], "eligible_for_shadow")
         self.assertEqual(validate_promotion_readiness_record(record).validation_status, "passed")
+
+    def test_rejects_eligible_decision_without_gate_evidence(self):
+        with self.assertRaisesRegex(ValueError, "benchmark_validation_ref is required"):
+            build_promotion_eligibility_decision(
+                fold_id="fold_2016-01_2016-06",
+                candidate_model_ref="storage://models/candidate",
+                benchmark_contract_ref="benchmark://primary",
+                settlement_run_ref="storage://settlement/run",
+                decision_status="eligible",
+                decision_reason="missing gate evidence",
+            )
 
     def test_rejects_readiness_from_non_eligible_decision(self):
         decision = build_promotion_eligibility_decision(

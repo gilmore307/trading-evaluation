@@ -13,6 +13,15 @@ Promotion eligibility is the evaluation-owned decision that a candidate has enou
 - Guardrails may block eligibility when the primary benchmark score is strong but risk, calibration, turnover, or overfit indicators fail.
 - Eligibility is the required predecessor for `promotion_readiness_record` and has no execution side effects.
 
+For `decision_status = eligible`, the record must include:
+
+- `benchmark_validation_ref` and `benchmark_freeze_status = frozen`;
+- `fold_stack_evidence_ref` and `fold_stack_status = complete_layer_01_10`;
+- non-empty `metric_refs`;
+- non-empty `guardrail_refs` and `guardrail_status = passed`;
+- `incumbent_comparison_ref` and `incumbent_comparison_status = passed`;
+- `agent_review_ref` from `promotion-evaluation-review` and `agent_review_recommendation = eligible_for_shadow`.
+
 ## Reviewer Recommendation States
 
 - `failed`: benchmark integrity or hard guardrails failed.

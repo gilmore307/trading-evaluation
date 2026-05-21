@@ -12,6 +12,11 @@ ELIGIBLE_STATUS = "eligible"
 PROMOTION_ELIGIBILITY_DECISION_CONTRACT = "promotion_eligibility_decision"
 PROMOTION_READINESS_RECORD_CONTRACT = "promotion_readiness_record"
 ALLOWED_ELIGIBILITY_STATUSES = {"eligible", "rejected", "review_required", "revoked", "superseded"}
+ELIGIBLE_BENCHMARK_FREEZE_STATUS = "frozen"
+ELIGIBLE_FOLD_STACK_STATUS = "complete_layer_01_10"
+ELIGIBLE_GUARDRAIL_STATUS = "passed"
+ELIGIBLE_INCUMBENT_COMPARISON_STATUS = "passed"
+ELIGIBLE_AGENT_REVIEW_RECOMMENDATION = "eligible_for_shadow"
 
 
 def _now_utc() -> str:
@@ -53,6 +58,15 @@ def build_promotion_eligibility_decision(
     decision_reason: str,
     metric_refs: Iterable[str] | None = None,
     guardrail_refs: Iterable[str] | None = None,
+    benchmark_validation_ref: str | None = None,
+    benchmark_freeze_status: str | None = None,
+    fold_stack_evidence_ref: str | None = None,
+    fold_stack_status: str | None = None,
+    guardrail_status: str | None = None,
+    incumbent_comparison_ref: str | None = None,
+    incumbent_comparison_status: str | None = None,
+    agent_review_ref: str | None = None,
+    agent_review_recommendation: str | None = None,
     decision_id: str | None = None,
     created_at_utc: str | None = None,
 ) -> dict[str, Any]:
@@ -72,6 +86,15 @@ def build_promotion_eligibility_decision(
         "decision_reason": decision_reason,
         "metric_refs": metric_ref_list,
         "guardrail_refs": guardrail_ref_list,
+        "benchmark_validation_ref": benchmark_validation_ref or "",
+        "benchmark_freeze_status": benchmark_freeze_status or "",
+        "fold_stack_evidence_ref": fold_stack_evidence_ref or "",
+        "fold_stack_status": fold_stack_status or "",
+        "guardrail_status": guardrail_status or "",
+        "incumbent_comparison_ref": incumbent_comparison_ref or "",
+        "incumbent_comparison_status": incumbent_comparison_status or "",
+        "agent_review_ref": agent_review_ref or "",
+        "agent_review_recommendation": agent_review_recommendation or "",
         "created_at_utc": created_at_utc or _now_utc(),
     }
     validation = validate_promotion_eligibility_decision(payload)
@@ -103,11 +126,39 @@ def validate_promotion_eligibility_decision(payload: Mapping[str, Any]) -> Activ
     for field in ("metric_refs", "guardrail_refs"):
         if field in payload and not isinstance(payload[field], list):
             errors.append(f"{field} must be a list")
+    if payload.get("decision_status") == ELIGIBLE_STATUS:
+        _validate_eligible_evidence(payload, errors)
     return ActivationValidation(
         contract_type="promotion_eligibility_decision_validation",
         validation_status="passed" if not errors else "failed",
         errors=tuple(errors),
     )
+
+
+def _validate_eligible_evidence(payload: Mapping[str, Any], errors: list[str]) -> None:
+    required_refs = (
+        "benchmark_validation_ref",
+        "fold_stack_evidence_ref",
+        "incumbent_comparison_ref",
+        "agent_review_ref",
+    )
+    for field in required_refs:
+        if payload.get(field) in (None, ""):
+            errors.append(f"{field} is required when decision_status is eligible")
+    if not payload.get("metric_refs"):
+        errors.append("metric_refs is required when decision_status is eligible")
+    if not payload.get("guardrail_refs"):
+        errors.append("guardrail_refs is required when decision_status is eligible")
+    expected_statuses = {
+        "benchmark_freeze_status": ELIGIBLE_BENCHMARK_FREEZE_STATUS,
+        "fold_stack_status": ELIGIBLE_FOLD_STACK_STATUS,
+        "guardrail_status": ELIGIBLE_GUARDRAIL_STATUS,
+        "incumbent_comparison_status": ELIGIBLE_INCUMBENT_COMPARISON_STATUS,
+        "agent_review_recommendation": ELIGIBLE_AGENT_REVIEW_RECOMMENDATION,
+    }
+    for field, expected in expected_statuses.items():
+        if payload.get(field) != expected:
+            errors.append(f"{field} must be {expected} when decision_status is eligible")
 
 
 def build_promotion_readiness_record(
@@ -145,6 +196,19 @@ def build_promotion_readiness_record(
         "candidate_config_ref": candidate_config_ref,
         "rollback_ref": rollback_ref,
         "execution_shadow_scope": execution_shadow_scope,
+        "benchmark_contract_ref": promotion_eligibility_decision["benchmark_contract_ref"],
+        "benchmark_validation_ref": promotion_eligibility_decision["benchmark_validation_ref"],
+        "benchmark_freeze_status": promotion_eligibility_decision["benchmark_freeze_status"],
+        "settlement_run_ref": promotion_eligibility_decision["settlement_run_ref"],
+        "metric_refs": list(promotion_eligibility_decision["metric_refs"]),
+        "fold_stack_evidence_ref": promotion_eligibility_decision["fold_stack_evidence_ref"],
+        "fold_stack_status": promotion_eligibility_decision["fold_stack_status"],
+        "guardrail_refs": list(promotion_eligibility_decision["guardrail_refs"]),
+        "guardrail_status": promotion_eligibility_decision["guardrail_status"],
+        "incumbent_comparison_ref": promotion_eligibility_decision["incumbent_comparison_ref"],
+        "incumbent_comparison_status": promotion_eligibility_decision["incumbent_comparison_status"],
+        "agent_review_ref": promotion_eligibility_decision["agent_review_ref"],
+        "agent_review_recommendation": promotion_eligibility_decision["agent_review_recommendation"],
         "created_at_utc": created_at_utc or _now_utc(),
         "model_activation_performed": False,
         "active_model_config_written": False,
@@ -167,6 +231,17 @@ def validate_promotion_readiness_record(payload: Mapping[str, Any]) -> Activatio
         "candidate_config_ref",
         "rollback_ref",
         "execution_shadow_scope",
+        "benchmark_contract_ref",
+        "benchmark_validation_ref",
+        "benchmark_freeze_status",
+        "settlement_run_ref",
+        "fold_stack_evidence_ref",
+        "fold_stack_status",
+        "guardrail_status",
+        "incumbent_comparison_ref",
+        "incumbent_comparison_status",
+        "agent_review_ref",
+        "agent_review_recommendation",
         "created_at_utc",
     )
     for field in required:
@@ -174,6 +249,10 @@ def validate_promotion_readiness_record(payload: Mapping[str, Any]) -> Activatio
             errors.append(f"{field} is required")
     if payload.get("contract_type") != PROMOTION_READINESS_RECORD_CONTRACT:
         errors.append(f"contract_type must be {PROMOTION_READINESS_RECORD_CONTRACT}")
+    for field in ("metric_refs", "guardrail_refs"):
+        if not isinstance(payload.get(field), list) or not payload.get(field):
+            errors.append(f"{field} must be a non-empty list")
+    _validate_eligible_evidence(payload, errors)
     for field in (
         "model_activation_performed",
         "active_model_config_written",

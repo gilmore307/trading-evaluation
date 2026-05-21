@@ -64,6 +64,8 @@ Required future fields:
 
 `promotion_eligibility_decision` states whether settlement evidence makes a candidate eligible for execution shadow review.
 
+An `eligible` decision must include frozen benchmark validation evidence, complete Layer 1-10 fold-stack evidence, non-empty metric refs, passed guardrail evidence, incumbent comparison evidence, and advisory `promotion-evaluation-review` evidence with `agent_review_recommendation = eligible_for_shadow`.
+
 Agent review evidence may support this decision only when it follows the fixed `promotion-evaluation-review` skill. The review is advisory and must not change the sealed benchmark, write active config pointers, or replace deterministic validation.
 
 ## Promotion Readiness Record
@@ -77,6 +79,19 @@ Required fields:
 - `candidate_config_ref`
 - `rollback_ref`
 - `execution_shadow_scope`
+- `benchmark_contract_ref`
+- `benchmark_validation_ref`
+- `benchmark_freeze_status = frozen`
+- `settlement_run_ref`
+- non-empty `metric_refs`
+- `fold_stack_evidence_ref`
+- `fold_stack_status = complete_layer_01_10`
+- non-empty `guardrail_refs`
+- `guardrail_status = passed`
+- `incumbent_comparison_ref`
+- `incumbent_comparison_status = passed`
+- `agent_review_ref`
+- `agent_review_recommendation = eligible_for_shadow`
 - `created_at_utc`
 
 It must report `model_activation_performed = false`, `active_model_config_written = false`, `broker_execution_performed = false`, and `account_mutation_performed = false`.
