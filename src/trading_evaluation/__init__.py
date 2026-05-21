@@ -22,6 +22,13 @@ from .promotion import (
     validate_promotion_eligibility_decision,
     validate_promotion_readiness_record,
 )
+from .settlement import (
+    FOLD_SETTLEMENT_METRIC_CONTRACT,
+    FOLD_SETTLEMENT_RUN_CONTRACT,
+    build_fold_settlement_run,
+    load_decision_rows,
+    validate_fold_settlement_run,
+)
 
 __all__ = [
     "BenchmarkContract",
@@ -32,12 +39,17 @@ __all__ = [
     "BENCHMARK_REPLAY_WINDOW_MANIFEST_CONTRACT",
     "PROMOTION_ELIGIBILITY_DECISION_CONTRACT",
     "PROMOTION_READINESS_RECORD_CONTRACT",
+    "FOLD_SETTLEMENT_METRIC_CONTRACT",
+    "FOLD_SETTLEMENT_RUN_CONTRACT",
     "PreparedBenchmarkDataset",
     "build_promotion_eligibility_decision",
     "build_promotion_readiness_record",
+    "build_fold_settlement_run",
     "is_training_fold_blocked_by_benchmark",
+    "load_decision_rows",
     "prepare_benchmark_dataset",
     "validate_benchmark_contract",
+    "validate_fold_settlement_run",
     "validate_promotion_eligibility_decision",
     "validate_promotion_readiness_record",
 ]

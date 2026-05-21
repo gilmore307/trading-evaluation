@@ -19,3 +19,9 @@ It should run after a fold has completed Layer 1 through Layer 10 model evaluati
 ## Storage Boundary
 
 Detailed settlement reports and chart-ready summaries are durable artifacts and should be stored through `trading-storage` contracts. This repository owns metric semantics and validation.
+
+## Implementation
+
+`src/trading_evaluation/settlement.py` and `scripts/evaluation/build_fold_settlement_run.py` assemble a `fold_settlement_run` from replay decision rows. The first implementation computes return, excess return, max drawdown, turnover proxy, hit rate, payoff ratio, AUROC, Brier score, and PCA/PCoA-style structure diagnostics when numeric feature columns are present.
+
+The settlement run always sets `agent_review_required=true` with `agent_review_scope=promotion-evaluation-review`. Deterministic gates can mark the run `passed` or `review_required`, but they do not promote a model or write execution active pointers by themselves.
