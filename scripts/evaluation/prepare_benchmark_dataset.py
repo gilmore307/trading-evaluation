@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare a storage-side one-shot benchmark acquisition bundle."""
+"""Prepare a storage-side one-shot replay acquisition bundle."""
 
 from __future__ import annotations
 
@@ -12,13 +12,13 @@ from trading_evaluation import prepare_benchmark_dataset
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Prepare benchmark dataset manifests for one-shot acquisition.")
-    parser.add_argument("--contract", required=True, type=Path, help="Path to a benchmark contract JSON file.")
+    parser = argparse.ArgumentParser(description="Prepare replay dataset manifests for one-shot acquisition.")
+    parser.add_argument("--contract", required=True, type=Path, help="Path to a replay contract JSON file.")
     parser.add_argument(
         "--output-root",
         type=Path,
         default=Path("/root/projects/trading-storage/storage/05_benchmark_datasets"),
-        help="Storage-owned runtime root for benchmark dataset preparation outputs.",
+        help="Storage-owned runtime root for replay dataset preparation outputs.",
     )
     parser.add_argument(
         "--data-root",
@@ -34,7 +34,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     payload = json.loads(args.contract.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
-        raise SystemExit("benchmark contract must be a JSON object")
+        raise SystemExit("replay contract must be a JSON object")
     prepared = prepare_benchmark_dataset(
         payload,
         output_root=args.output_root,

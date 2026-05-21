@@ -1,4 +1,4 @@
-"""Promotion benchmark contract validation."""
+"""Promotion replay contract validation."""
 
 from __future__ import annotations
 
@@ -30,7 +30,10 @@ def _strings(value: object) -> tuple[str, ...]:
 
 @dataclass(frozen=True)
 class BenchmarkContract:
-    """Frozen candidate-policy replay benchmark contract."""
+    """Frozen candidate-policy replay contract.
+
+    The class name is kept as a compatibility API surface.
+    """
 
     contract_id: str
     benchmark_mode: str
@@ -94,7 +97,7 @@ class BenchmarkContract:
 
 @dataclass(frozen=True)
 class BenchmarkValidation:
-    """Validation result for a benchmark contract."""
+    """Validation result for a replay contract."""
 
     contract_type: str
     validation_status: str
@@ -113,7 +116,7 @@ class BenchmarkValidation:
 
 
 def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidation:
-    """Validate the accepted candidate-policy replay benchmark rules."""
+    """Validate the accepted candidate-policy replay rules."""
 
     errors: list[str] = []
     warnings: list[str] = []
@@ -129,9 +132,9 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
         )
 
     if payload.get("target_symbol"):
-        errors.append("target_symbol is not allowed for promotion benchmarks; the model must select targets from the candidate policy")
+        errors.append("target_symbol is not allowed for promotion replay; the model must select targets from the candidate policy")
     if payload.get("benchmark_components"):
-        errors.append("benchmark_components are obsolete for promotion benchmarks; use candidate_policy_ref")
+        errors.append("benchmark_components are obsolete for promotion replay; use candidate_policy_ref")
     if not contract.contract_id:
         errors.append("contract_id is required")
     if contract.benchmark_mode != EXPECTED_BENCHMARK_MODE:
@@ -139,9 +142,9 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
     if contract.end_date <= contract.start_date:
         errors.append("end_date must be after start_date")
     if contract.start_date != CANONICAL_REPLAY_START_DATE or contract.end_date != CANONICAL_REPLAY_END_DATE:
-        errors.append("benchmark replay window must be the canonical 2021-01-01 to 2026-01-01 end-exclusive window")
+        errors.append("replay window must be the canonical 2021-01-01 to 2026-01-01 end-exclusive window")
     if contract.min_trading_days < CANONICAL_REPLAY_EXPECTED_TRADING_DAYS:
-        errors.append("min_trading_days must be at least 1255 for the canonical benchmark window")
+        errors.append("min_trading_days must be at least 1255 for the canonical replay window")
     if len(set(contract.market_condition_tags)) < REQUIRED_MARKET_CONDITION_TAGS:
         errors.append("market_condition_tags must cover at least four distinct market conditions")
     if not contract.candidate_policy_ref:
@@ -157,13 +160,13 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
     if not contract.selection_metric_refs:
         errors.append("selection_metric_refs must include at least one accepted performance metric")
     if not contract.excluded_training_windows:
-        errors.append("excluded_training_windows is required for benchmark training-contamination exclusion")
+        errors.append("excluded_training_windows is required for replay training-contamination exclusion")
     else:
         errors.extend(_validate_excluded_training_windows(contract.excluded_training_windows))
         if not _replay_window_is_excluded(contract, contract.excluded_training_windows):
-            errors.append("excluded_training_windows must cover the full benchmark replay window")
+            errors.append("excluded_training_windows must cover the full replay window")
     if not contract.guardrail_refs:
-        errors.append("guardrail_refs must include at least one accepted guardrail benchmark")
+        errors.append("guardrail_refs must include at least one accepted guardrail replay")
 
     return BenchmarkValidation(
         contract_type="evaluation_benchmark_contract_validation",
@@ -193,7 +196,7 @@ def _validate_excluded_training_windows(windows: Sequence[Mapping[str, Any]]) ->
     errors: list[str] = []
     for index, window in enumerate(windows, start=1):
         if window.get("target_symbol"):
-            errors.append(f"excluded_training_windows[{index}] target_symbol is not allowed; benchmark replay exclusion must be global")
+            errors.append(f"excluded_training_windows[{index}] target_symbol is not allowed; replay exclusion must be global")
         try:
             start = _parse_date(window.get("start_date"), field_name="excluded_training_windows.start_date")
             end = _parse_date(window.get("end_date"), field_name="excluded_training_windows.end_date")

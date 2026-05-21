@@ -1,16 +1,16 @@
 # trading-evaluation
 
-`trading-evaluation` is the independent benchmark, fold-settlement, and promotion-readiness repository for the trading system.
+`trading-evaluation` is the independent replay, fold-settlement, and promotion-readiness repository for the trading system.
 
-It owns frozen benchmark contracts, benchmark exclusion proof, fold settlement, model-performance comparison, promotion eligibility decisions, and promotion readiness records. It is the system's offline evaluation referee: it judges model candidates against accepted evidence and may admit them to execution shadow review, but it does not train models, switch active model configs, execute trades, mutate accounts, run provider acquisition, or own durable storage layout.
+It owns frozen replay contracts, replay-window training-exclusion proof, fold settlement, model-performance comparison, promotion eligibility decisions, and promotion readiness records. It is the system's offline evaluation referee: it judges model candidates against accepted evidence and may admit them to execution shadow review, but it does not train models, switch active model configs, execute trades, mutate accounts, run provider acquisition, or own durable storage layout.
 
 ## Top-Level Structure
 
 ```text
 docs/        Repository scope, architecture, contracts, tasks, decisions, and evaluation modules.
-benchmarks/  Reviewable benchmark contract candidates before freeze.
+benchmarks/  Compatibility directory for reviewable replay contract candidates before freeze.
 scripts/     Executable evaluation and validation entrypoints.
-src/         Importable benchmark, settlement, and promotion-eligibility helpers.
+src/         Importable replay, settlement, and promotion-eligibility helpers.
 tests/       First-party tests.
 ```
 
@@ -27,8 +27,8 @@ docs/
   04_task.md
   05_decision.md
   06_memory.md
-  20_benchmark_contracts.md
-  22_benchmark_dataset_preparation.md
+  20_replay_contracts.md
+  22_replay_dataset_preparation.md
   30_fold_settlement.md
   40_promotion_eligibility.md
   50_promotion_readiness.md
@@ -37,9 +37,9 @@ docs/
 ## Current Route
 
 ```text
-frozen benchmark contract
+frozen replay contract
   -> candidate-policy replay holdout proof
-  -> benchmark dataset preparation manifest
+  -> replay dataset preparation manifest
   -> fold settlement run
   -> settlement metric rows/report refs
   -> fixed-rubric promotion reviewer advisory
@@ -48,14 +48,14 @@ frozen benchmark contract
   -> execution shadow cycle selection
 ```
 
-The promotion benchmark is a frozen historical-clock candidate-policy replay over the canonical fixed window `2021-01-01` through `2026-01-01` end-exclusive, covering the full 2021-2025 calendar years and 1255 expected NYSE trading days. The candidate model must generate candidates from the accepted candidate policy, rank/select targets itself, and run through the realtime decision route against a frozen snapshot and cost model. Guardrail benchmarks may exist for overfit detection, but they do not replace the primary replay leaderboard unless a new benchmark contract is explicitly accepted.
+The promotion replay is a frozen historical-clock candidate-policy replay over the canonical fixed window `2021-01-01` through `2026-01-01` end-exclusive, covering the full 2021-2025 calendar years and 1255 expected NYSE trading days. The candidate model must generate candidates from the accepted candidate policy, rank/select targets itself, and run through the realtime decision route against a frozen snapshot and cost model. Guardrail replays may exist for overfit detection, but they do not replace the primary replay leaderboard unless a new replay contract is explicitly accepted.
 
 Agent review, when used, must follow the workspace skill `skills/openclaw/promotion-evaluation-review`. The reviewer produces advisory structured evidence only; deterministic evaluation code validates eligibility and writes promotion readiness records.
 
 ## Platform Boundaries
 
 - `trading-model` owns training, model generation, and raw model outputs.
-- `trading-evaluation` owns independent benchmark evaluation, fold settlement, promotion eligibility, and promotion readiness records.
+- `trading-evaluation` owns independent replay evaluation, fold settlement, promotion eligibility, and promotion readiness records.
 - `trading-execution` owns live/shadow runtime model selection and active model switching after a market-hours shadow cycle.
 - `trading-manager` owns scheduling and control-plane state, not model-quality judgment or activation.
 - `trading-storage` owns durable settlement reports, references, backup, archive, restore, and lifecycle.
@@ -68,6 +68,6 @@ Shared names, fields, statuses, scripts, and contract ids discovered here must b
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests
 python3 -m compileall -q src scripts
-PYTHONPATH=src python3 scripts/evaluation/validate_benchmark_contract.py --input tests/fixtures/benchmark_contract_valid.json
+PYTHONPATH=src python3 scripts/evaluation/validate_replay_contract.py --input tests/fixtures/benchmark_contract_valid.json
 PYTHONPATH=src python3 scripts/evaluation/build_promotion_readiness_record.py --promotion-eligibility-json tests/fixtures/promotion_eligibility_eligible.json --candidate-model-ref storage://models/market_regime/new --candidate-config-ref storage://configs/market_regime/new --rollback-ref storage://models/market_regime/old
 ```

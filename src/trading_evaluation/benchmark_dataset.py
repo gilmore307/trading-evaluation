@@ -1,8 +1,8 @@
-"""Benchmark dataset preparation manifests.
+"""Replay dataset preparation manifests.
 
-This module turns an accepted candidate-policy replay benchmark contract into
+This module turns an accepted candidate-policy replay contract into
 concrete storage-side preparation artifacts. It does not call providers, mutate
-SQL, freeze the benchmark, select option contracts, or write active model state.
+SQL, freeze the replay, select option contracts, or write active model state.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ COVERAGE_FIELDS = [
 
 @dataclass(frozen=True)
 class PreparedBenchmarkDataset:
-    """Paths and summary for a prepared benchmark dataset manifest."""
+    """Paths and summary for a prepared replay dataset manifest."""
 
     manifest_path: Path
     replay_window_manifest_path: Path
@@ -84,11 +84,11 @@ def prepare_benchmark_dataset(
     source_contract_ref: str = DEFAULT_SOURCE_CONTRACT_REF,
     prepared_at_utc: str | None = None,
 ) -> PreparedBenchmarkDataset:
-    """Write a benchmark dataset preparation bundle."""
+    """Write a replay dataset preparation bundle."""
 
     validation = validate_benchmark_contract(payload)
     if validation.validation_status != "passed" or validation.contract is None:
-        raise ValueError("benchmark contract validation failed: " + "; ".join(validation.errors))
+        raise ValueError("replay contract validation failed: " + "; ".join(validation.errors))
 
     contract = validation.contract
     prepared_at = prepared_at_utc or _now_utc()

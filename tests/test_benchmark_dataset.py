@@ -108,7 +108,7 @@ class BenchmarkDatasetPreparationTests(unittest.TestCase):
             result = subprocess.run(
                 [
                     sys.executable,
-                    "scripts/evaluation/prepare_benchmark_dataset.py",
+                    "scripts/evaluation/prepare_replay_dataset.py",
                     "--contract",
                     str(contract_path),
                     "--output-root",

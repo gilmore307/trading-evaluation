@@ -1,8 +1,8 @@
-"""One-shot benchmark acquisition runner.
+"""One-shot replay acquisition runner.
 
-The runner consumes a prepared benchmark feed_acquisition_plan.csv and can
+The runner consumes a prepared replay feed_acquisition_plan.csv and can
 materialize or execute bounded feed task payloads. It does not create manager
-requests, mutate SQL, freeze benchmarks, train models, activate models, call
+requests, mutate SQL, freeze replay contracts, train models, activate models, call
 brokers, or mutate accounts.
 """
 
@@ -253,7 +253,7 @@ def _append_progress(path: Path, result: RunnerItemResult) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Plan or execute benchmark one-shot feed acquisitions.")
+    parser = argparse.ArgumentParser(description="Plan or execute replay one-shot feed acquisitions.")
     parser.add_argument("--dataset-root", type=Path, default=DEFAULT_DATASET_ROOT)
     parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
     parser.add_argument("--run-id", default=DEFAULT_RUN_ID)

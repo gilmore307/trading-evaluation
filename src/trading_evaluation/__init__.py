@@ -1,4 +1,4 @@
-"""Independent benchmark, settlement, and promotion-readiness helpers."""
+"""Independent replay, settlement, and promotion-readiness helpers."""
 
 from .benchmark import (
     BenchmarkContract,

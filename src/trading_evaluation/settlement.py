@@ -1,6 +1,6 @@
 """Fold settlement metric assembly for promotion evaluation.
 
-The helper consumes replay decision rows from an accepted benchmark run and
+The helper consumes replay decision rows from an accepted replay run and
 emits deterministic metric evidence. It does not run models, call providers,
 write active model pointers, construct orders, or mutate accounts.
 """

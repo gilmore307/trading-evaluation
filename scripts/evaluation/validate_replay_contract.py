@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Plan or execute one-shot replay feed acquisitions."""
+"""Validate an evaluation replay contract JSON file."""
 
 from __future__ import annotations
 
-from trading_evaluation.benchmark_acquisition import main
+from validate_benchmark_contract import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -57,17 +57,17 @@ class BenchmarkContractTests(unittest.TestCase):
         result = validate_benchmark_contract(payload)
         self.assertEqual(result.validation_status, "failed")
         self.assertIn(
-            "target_symbol is not allowed for promotion benchmarks; the model must select targets from the candidate policy",
+            "target_symbol is not allowed for promotion replay; the model must select targets from the candidate policy",
             result.errors,
         )
-        self.assertIn("benchmark_components are obsolete for promotion benchmarks; use candidate_policy_ref", result.errors)
+        self.assertIn("benchmark_components are obsolete for promotion replay; use candidate_policy_ref", result.errors)
 
     def test_canonical_replay_window_is_required(self):
         payload = dict(VALID_CONTRACT, start_date="2024-01-02", end_date="2024-12-31", min_trading_days=251)
         result = validate_benchmark_contract(payload)
         self.assertEqual(result.validation_status, "failed")
-        self.assertIn("benchmark replay window must be the canonical 2021-01-01 to 2026-01-01 end-exclusive window", result.errors)
-        self.assertIn("min_trading_days must be at least 1255 for the canonical benchmark window", result.errors)
+        self.assertIn("replay window must be the canonical 2021-01-01 to 2026-01-01 end-exclusive window", result.errors)
+        self.assertIn("min_trading_days must be at least 1255 for the canonical replay window", result.errors)
 
     def test_two_year_replay_window_is_rejected(self):
         payload = dict(
@@ -85,8 +85,8 @@ class BenchmarkContractTests(unittest.TestCase):
         )
         result = validate_benchmark_contract(payload)
         self.assertEqual(result.validation_status, "failed")
-        self.assertIn("benchmark replay window must be the canonical 2021-01-01 to 2026-01-01 end-exclusive window", result.errors)
-        self.assertIn("min_trading_days must be at least 1255 for the canonical benchmark window", result.errors)
+        self.assertIn("replay window must be the canonical 2021-01-01 to 2026-01-01 end-exclusive window", result.errors)
+        self.assertIn("min_trading_days must be at least 1255 for the canonical replay window", result.errors)
 
     def test_candidate_policy_and_replay_route_are_required(self):
         payload = dict(VALID_CONTRACT, candidate_policy_ref="", replay_route_ref="", selection_metric_refs=[])
@@ -100,7 +100,7 @@ class BenchmarkContractTests(unittest.TestCase):
         payload = dict(VALID_CONTRACT, guardrail_refs=[])
         result = validate_benchmark_contract(payload)
         self.assertEqual(result.validation_status, "failed")
-        self.assertIn("guardrail_refs must include at least one accepted guardrail benchmark", result.errors)
+        self.assertIn("guardrail_refs must include at least one accepted guardrail replay", result.errors)
 
     def test_replay_holdout_must_cover_full_window(self):
         payload = dict(
@@ -115,7 +115,7 @@ class BenchmarkContractTests(unittest.TestCase):
         )
         result = validate_benchmark_contract(payload)
         self.assertEqual(result.validation_status, "failed")
-        self.assertIn("excluded_training_windows must cover the full benchmark replay window", result.errors)
+        self.assertIn("excluded_training_windows must cover the full replay window", result.errors)
 
     def test_training_fold_overlap_is_blocked_by_replay_window(self):
         result = validate_benchmark_contract(VALID_CONTRACT)
@@ -141,7 +141,7 @@ class BenchmarkContractTests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    "scripts/evaluation/validate_benchmark_contract.py",
+                    "scripts/evaluation/validate_replay_contract.py",
                     "--input",
                     str(path),
                 ],
