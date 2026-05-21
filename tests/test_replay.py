@@ -16,7 +16,7 @@ VALID_CONTRACT = {
     "min_trading_days": 1255,
     "market_condition_tags": ["trend_up", "drawdown", "high_volatility", "event_shock"],
     "candidate_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/default",
-    "replay_route_ref": "trading-execution://historical_clock/realtime_decision_path",
+    "replay_route_ref": "trading-execution://execution_runtime_component_graph/replay",
     "data_snapshot_ref": "storage://replay/promotion_replay/data_snapshot/pending_materialization",
     "cost_model_ref": "storage://replay/promotion_replay/cost_model/pending_review",
     "baseline_refs": ["baseline://active_model", "baseline://no_trade"],
@@ -95,6 +95,15 @@ class ReplayContractTests(unittest.TestCase):
         self.assertIn("candidate_policy_ref is required", result.errors)
         self.assertIn("replay_route_ref is required", result.errors)
         self.assertIn("selection_metric_refs must include at least one accepted performance metric", result.errors)
+
+    def test_replay_route_must_use_execution_component_graph(self):
+        payload = dict(VALID_CONTRACT, replay_route_ref="trading-execution://not_accepted_route")
+        result = validate_replay_contract(payload)
+        self.assertEqual(result.validation_status, "failed")
+        self.assertIn(
+            "replay_route_ref must be trading-execution://execution_runtime_component_graph/replay",
+            result.errors,
+        )
 
     def test_guardrail_refs_are_required(self):
         payload = dict(VALID_CONTRACT, guardrail_refs=[])

@@ -20,6 +20,7 @@ Future implementation slices may add:
 ```text
 ReplayContract
   -> ReplayValidation
+  -> trading-execution execution_runtime_component_graph under Replay adapters
   -> FoldSettlementRun
   -> FoldSettlementMetric[]
   -> PromotionEligibilityDecision
@@ -29,4 +30,4 @@ ReplayContract
 
 The implemented scaffold validates replay contracts, prepares storage-side replay dataset manifests, builds fold settlement metrics from replay decision rows, and can build promotion readiness records from eligible evaluation decisions. Settlement covers return, baseline excess, drawdown, turnover proxy, hit-rate, payoff, AUROC, Brier score, and PCA/PCoA structure evidence when replay rows contain usable feature columns. Dataset preparation writes local storage runtime artifacts and one-shot acquisition requirements, but it does not use manager task/request rows, call providers unless explicitly executed through the gated one-shot acquisition runner, mutate SQL, freeze replay contracts, train models, switch active model configs, execute brokers, construct orders, or mutate accounts.
 
-Replay data construction is separate from replay execution. Construction is a one-time storage-owned acquisition and normalization phase that produces the frozen reusable replay data snapshot. Replay and settlement then run candidates through the realtime execution decision path under a historical clock, reusing that same snapshot for every candidate and baseline. The replay path must not route through model training or rebuild point-in-time data differently per candidate.
+Replay data construction is separate from replay execution. Construction is a one-time storage-owned acquisition and normalization phase that produces the frozen reusable replay data snapshot. Replay then calls `trading-execution`'s `execution_runtime_component_graph` under Replay adapters, reusing that same snapshot for every candidate and baseline. `trading-evaluation` owns orchestration, settlement, metrics, promotion eligibility, and promotion readiness; it does not duplicate trading decisions that belong to execution components. The replay path must not route through model training or rebuild point-in-time data differently per candidate.

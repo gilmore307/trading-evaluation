@@ -10,7 +10,7 @@ Required properties:
 - the canonical fixed replay window `2021-01-01` through `2026-01-01` end-exclusive, covering the full 2021-2025 calendar years and 1255 expected NYSE trading days.
 - a frozen candidate-universe policy, historical data snapshot, cost model, baseline ladder, selection metrics, and guardrails.
 - candidate policy inputs covering current Layer 2 selected/watch sectors, reviewed sector constituents or proxies, current market-wide hot/liquid names, quality filters, and control candidates when contrast is required.
-- the model must generate candidates, rank/select targets, and run through the realtime decision route under a historical clock.
+- the model must generate candidates, rank/select targets, and run through `trading-execution`'s `execution_runtime_component_graph` under Replay adapters.
 - no `target_symbol`, fixed final target list.
 - metrics must evaluate realized replay performance after cost, risk, drawdown, turnover, selection quality, and guardrails.
 - metadata for candidate source, market state, Layer 2 sector source, event state, data availability, and model decision provenance.
@@ -26,7 +26,7 @@ Required properties:
 - fixed data snapshot, cost model, slippage/fee assumptions, and baseline ladder.
 - replay acquisition and event/source normalization are one-time construction phases that produce a frozen reusable data snapshot for the contract.
 - all replay, settlement, promotion eligibility, guardrail, and regression checks must reuse that frozen data snapshot instead of rebuilding data per model candidate.
-- replay evaluation must run through the realtime execution decision path under a historical clock, not through the model training pipeline.
+- replay evaluation must run through the execution runtime component graph under a historical clock, not through the model training pipeline or an evaluation-owned trading decision graph.
 - reviewed target-context refs available to the candidate policy so non-ETF targets still use the accepted target/proxy mapping route.
 
 Required replay behavior:
@@ -34,7 +34,7 @@ Required replay behavior:
 - the candidate model gets the full replay period and must operate according to the same model route intended for live use.
 - Layer 2 produces sector context point-in-time; Layer 3 generates/ranks the candidate set; downstream layers decide whether and how to trade.
 - Layer 4 and later are invoked per selected target. If Layer 3 selects multiple targets, replay fans them out into repeated single-target downstream runs rather than passing one multi-target batch into Layer 4+; Layer 6 dynamic risk policy is still driven primarily by whole-market state, not by one sector or target.
-- Layer 10 EventRiskGovernor remains an independent model and is invoked as part of the frozen replay component graph when its point-in-time event inputs are available.
+- Layer 10 EventRiskGovernor remains an independent model and is invoked only through the execution-owned Failure Explanation Component after observed model or trade failure.
 - the replay judges final realized replay performance and guardrail behavior, not isolated hand-picked episodes.
 - replay output must preserve enough per-decision evidence to audit why targets were selected, watched, blocked, traded, or skipped.
 

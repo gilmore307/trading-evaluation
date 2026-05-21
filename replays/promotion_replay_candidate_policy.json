@@ -26,7 +26,7 @@
     "event_shock"
   ],
   "min_trading_days": 1255,
-  "replay_route_ref": "trading-execution://historical_clock/realtime_decision_path",
+  "replay_route_ref": "trading-execution://execution_runtime_component_graph/replay",
   "selection_metric_refs": [
     "metric://net_return_after_costs",
     "metric://max_drawdown",

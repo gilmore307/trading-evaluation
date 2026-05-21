@@ -30,4 +30,15 @@ Status: Accepted
 
 For Layer 3 and later target-selection models, promotion replay must give the candidate model a fixed historical-clock replay over `2021-01-01` through `2026-01-01` end-exclusive. This covers the full 2021-2025 calendar years and 1255 expected NYSE trading days. The replay fixes the replay window, source snapshot, cost model, baseline ladder, guardrails, Layer 2 sector-selection inputs, sector constituent/proxy rules, hot/liquid-name admission rules, quality filters, controls, and scoring metrics.
 
-It must not preselect the final tickers the model is supposed to choose. The model must generate candidates from the accepted policy, rank/select targets, run through the realtime decision route under the historical clock, and be judged by final realized replay performance plus slice diagnostics. Fixed target/window panels are not applicable to promotion replay judgment.
+It must not preselect the final tickers the model is supposed to choose. The model must generate candidates from the accepted policy, rank/select targets, run through `trading-execution`'s `execution_runtime_component_graph` under the historical clock and Replay adapters, and be judged by final realized replay performance plus slice diagnostics. Fixed target/window panels are not applicable to promotion replay judgment.
+
+## D005 - Replay Uses The Execution Runtime Component Graph
+
+Date: 2026-05-21
+Status: Accepted
+
+Replay and live/shadow execution use the same task-level execution components and decision contracts. Replay swaps only the adapter profile: historical clock, frozen historical market snapshot, simulated account, simulated execution gate, and fill simulator.
+
+`trading-evaluation` owns replay orchestration, freeze validation, settlement, metrics, promotion eligibility, and promotion readiness. It must not reimplement target selection, entry, position lifecycle, option re-expression, failure explanation, order intent, or execution-gate decisions outside `trading-execution`.
+
+Layer 10 remains an independent model, but Replay reaches it only through execution's Failure Explanation Component after observed model or trade failure. Normal entry and position lifecycle event risk remains Layer 4's forward-risk responsibility.

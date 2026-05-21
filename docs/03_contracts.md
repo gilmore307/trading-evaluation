@@ -21,6 +21,8 @@
 
 The current validator requires a candidate-policy replay over the canonical fixed window `2021-01-01` through `2026-01-01` end-exclusive, with at least 1255 expected trading days, sufficient declared market-condition coverage, non-empty candidate policy, replay route, data snapshot, cost model, baseline refs, guardrail refs, selection metric refs, and explicit exclusion windows covering the full replay window. Fixed target fields and `replay_components` are rejected. `is_training_fold_blocked_by_replay` is the helper for blocking folds that overlap the sealed replay window.
 
+The accepted `replay_route_ref` is `trading-execution://execution_runtime_component_graph/replay`. Replay calls the execution-owned component graph with Replay adapters; evaluation does not own a separate trading decision graph.
+
 ## Replay Dataset Preparation Manifest
 
 `replay_dataset_preparation_manifest` is the contract type for the runtime preparation bundle for a replay contract under storage ownership.
@@ -43,7 +45,7 @@ The preparation bundle may write files under the `trading-storage/storage/05_rep
 
 After accepted acquisition coverage, the replay contract references one frozen reusable data snapshot. All replay and downstream evaluation artifacts for that contract must consume that snapshot. Candidate-specific data download, source reinterpretation, or training-flow feature generation is not allowed for replay judgment.
 
-Replay uses the realtime execution route with a historical clock. It consumes point-in-time market, event, liquidity, and account-context inputs from the frozen snapshot, invokes the frozen Layer 1-10 component graph including Layer 10 EventRiskGovernor calls, then requests option-chain snapshots only when replayed model decisions create buy or option-expression points.
+Replay uses the execution runtime component graph with a historical clock. It consumes point-in-time market, event, liquidity, and account-context inputs from the frozen snapshot, calls the same task-level components used by live/shadow execution, and then settles the emitted decision rows. Layer 10 is called only through execution's `failure_explanation_component` after observed model or trade failure; normal entry and lifecycle event risk comes from Layer 4. Option-chain snapshots are requested only when replayed model decisions create buy or option-expression points.
 
 ## Fold Settlement Run
 

@@ -17,7 +17,7 @@ VALID_DATASET_CONTRACT = {
     "min_trading_days": 1255,
     "market_condition_tags": ["trend_up", "drawdown", "high_volatility", "event_shock"],
     "candidate_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/default",
-    "replay_route_ref": "trading-execution://historical_clock/realtime_decision_path",
+    "replay_route_ref": "trading-execution://execution_runtime_component_graph/replay",
     "data_snapshot_ref": "storage://replay/promotion_replay/data_snapshot/pending_materialization",
     "cost_model_ref": "storage://replay/promotion_replay/cost_model/pending_review",
     "baseline_refs": ["baseline://active_model"],

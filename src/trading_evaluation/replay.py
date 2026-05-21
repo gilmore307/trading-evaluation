@@ -7,6 +7,7 @@ from datetime import date
 from typing import Any, Mapping, Sequence
 
 EXPECTED_REPLAY_MODE = "candidate_policy_replay"
+EXPECTED_REPLAY_ROUTE_REF = "trading-execution://execution_runtime_component_graph/replay"
 CANONICAL_REPLAY_START_DATE = date(2021, 1, 1)
 CANONICAL_REPLAY_END_DATE = date(2026, 1, 1)
 CANONICAL_REPLAY_EXPECTED_TRADING_DAYS = 1255
@@ -148,6 +149,8 @@ def validate_replay_contract(payload: Mapping[str, Any]) -> ReplayValidation:
         errors.append("candidate_policy_ref is required")
     if not contract.replay_route_ref:
         errors.append("replay_route_ref is required")
+    elif contract.replay_route_ref != EXPECTED_REPLAY_ROUTE_REF:
+        errors.append(f"replay_route_ref must be {EXPECTED_REPLAY_ROUTE_REF}")
     if not contract.data_snapshot_ref:
         errors.append("data_snapshot_ref is required")
     if not contract.cost_model_ref:
