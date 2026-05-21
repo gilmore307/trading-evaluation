@@ -20,8 +20,8 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 DEFAULT_DATA_ROOT = Path("/root/projects/trading-data")
-DEFAULT_DATASET_ROOT = Path("/root/projects/trading-storage/storage/05_benchmark_datasets/promotion_benchmark_candidate_policy_replay")
-DEFAULT_RUN_ID = "benchmark_one_shot_acquisition"
+DEFAULT_DATASET_ROOT = Path("/root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy")
+DEFAULT_RUN_ID = "replay_one_shot_acquisition"
 
 MODULE_BY_FEED = {
     "01_feed_alpaca_bars": "data_feed.01_feed_alpaca_bars",
@@ -154,7 +154,7 @@ def build_task_payload(item: AcquisitionItem, *, allow_provider_calls: bool = Fa
             "secrets_policy": "secret_aliases_only",
             "max_requests": max_requests,
             "max_symbols": max_symbols,
-            "benchmark_acquisition_id": item.acquisition_id,
+            "replay_acquisition_id": item.acquisition_id,
         }
     )
     if max_rows is not None:
@@ -225,7 +225,7 @@ def run_acquisition(
         if execute and return_code != 0 and stop_on_failure:
             break
     return RunnerSummary(
-        contract_type="benchmark_one_shot_acquisition_runner_summary",
+        contract_type="replay_one_shot_acquisition_runner_summary",
         dataset_root=str(dataset_root),
         plan_path=str(plan_path),
         run_id=run_id,

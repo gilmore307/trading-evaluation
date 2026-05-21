@@ -14,19 +14,19 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from .benchmark import BenchmarkContract, validate_benchmark_contract
+from .replay import ReplayContract, validate_replay_contract
 
-BENCHMARK_DATASET_PREPARATION_MANIFEST_CONTRACT = "benchmark_dataset_preparation_manifest"
-BENCHMARK_REPLAY_WINDOW_MANIFEST_CONTRACT = "benchmark_replay_window_manifest"
-BENCHMARK_FEED_ACQUISITION_PLAN_CONTRACT = "benchmark_feed_acquisition_plan"
-BENCHMARK_COVERAGE_SUMMARY_CONTRACT = "benchmark_coverage_summary"
-DEFAULT_OUTPUT_ROOT = Path("/root/projects/trading-storage/storage/05_benchmark_datasets")
+REPLAY_DATASET_PREPARATION_MANIFEST_CONTRACT = "replay_dataset_preparation_manifest"
+REPLAY_WINDOW_MANIFEST_CONTRACT = "replay_window_manifest"
+REPLAY_FEED_ACQUISITION_PLAN_CONTRACT = "replay_feed_acquisition_plan"
+REPLAY_COVERAGE_SUMMARY_CONTRACT = "replay_coverage_summary"
+DEFAULT_OUTPUT_ROOT = Path("/root/projects/trading-storage/storage/05_replay_datasets")
 DEFAULT_DATA_ROOT = Path("/root/projects/trading-storage/storage/01_source_data")
-DEFAULT_SOURCE_CONTRACT_REF = "trading-evaluation/benchmarks/promotion_benchmark_candidate_policy_replay.json"
+DEFAULT_SOURCE_CONTRACT_REF = "trading-evaluation/replays/promotion_replay_candidate_policy.json"
 
 REPLAY_WINDOW_FIELDS = [
     "contract_id",
-    "benchmark_mode",
+    "replay_mode",
     "start_date",
     "end_date",
     "min_trading_days",
@@ -67,7 +67,7 @@ COVERAGE_FIELDS = [
 
 
 @dataclass(frozen=True)
-class PreparedBenchmarkDataset:
+class PreparedReplayDataset:
     """Paths and summary for a prepared replay dataset manifest."""
 
     manifest_path: Path
@@ -76,17 +76,17 @@ class PreparedBenchmarkDataset:
     coverage_summary_path: Path
     manifest: dict[str, Any]
 
-def prepare_benchmark_dataset(
+def prepare_replay_dataset(
     payload: Mapping[str, Any],
     *,
     output_root: Path = DEFAULT_OUTPUT_ROOT,
     data_root: Path = DEFAULT_DATA_ROOT,
     source_contract_ref: str = DEFAULT_SOURCE_CONTRACT_REF,
     prepared_at_utc: str | None = None,
-) -> PreparedBenchmarkDataset:
+) -> PreparedReplayDataset:
     """Write a replay dataset preparation bundle."""
 
-    validation = validate_benchmark_contract(payload)
+    validation = validate_replay_contract(payload)
     if validation.validation_status != "passed" or validation.contract is None:
         raise ValueError("replay contract validation failed: " + "; ".join(validation.errors))
 
@@ -109,9 +109,9 @@ def prepare_benchmark_dataset(
     _write_csv(coverage_summary_path, COVERAGE_FIELDS, coverage_rows)
 
     manifest = {
-        "contract_type": BENCHMARK_DATASET_PREPARATION_MANIFEST_CONTRACT,
+        "contract_type": REPLAY_DATASET_PREPARATION_MANIFEST_CONTRACT,
         "contract_id": contract.contract_id,
-        "benchmark_mode": contract.benchmark_mode,
+        "replay_mode": contract.replay_mode,
         "preparation_status": "prepared_candidate_policy_replay_acquisition_bundle",
         "freeze_status": "not_frozen",
         "prepared_at_utc": prepared_at,
@@ -119,7 +119,7 @@ def prepare_benchmark_dataset(
         "candidate_policy_ref": contract.candidate_policy_ref,
         "replay_route_ref": contract.replay_route_ref,
         "dataset_root": str(dataset_root),
-        "storage_ref": f"storage://trading-storage/05_benchmark_datasets/{contract.contract_id}/",
+        "storage_ref": f"storage://trading-storage/05_replay_datasets/{contract.contract_id}/",
         "replay_window_count": len(replay_window_rows),
         "feed_acquisition_count": len(acquisition_rows),
         "available_feed_acquisition_count": sum(1 for row in acquisition_rows if row["coverage_status"] == "available"),
@@ -132,7 +132,7 @@ def prepare_benchmark_dataset(
         "safety": {
             "provider_calls_performed": False,
             "sql_mutation_performed": False,
-            "benchmark_freeze_performed": False,
+            "replay_freeze_performed": False,
             "model_training_performed": False,
             "model_activation_performed": False,
             "broker_execution_performed": False,
@@ -149,7 +149,7 @@ def prepare_benchmark_dataset(
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    return PreparedBenchmarkDataset(
+    return PreparedReplayDataset(
         manifest_path=manifest_path,
         replay_window_manifest_path=replay_window_manifest_path,
         feed_acquisition_plan_path=feed_acquisition_plan_path,
@@ -158,11 +158,11 @@ def prepare_benchmark_dataset(
     )
 
 
-def _replay_window_rows(contract: BenchmarkContract) -> list[dict[str, Any]]:
+def _replay_window_rows(contract: ReplayContract) -> list[dict[str, Any]]:
     return [
         {
             "contract_id": contract.contract_id,
-            "benchmark_mode": contract.benchmark_mode,
+            "replay_mode": contract.replay_mode,
             "start_date": contract.start_date.isoformat(),
             "end_date": contract.end_date.isoformat(),
             "min_trading_days": contract.min_trading_days,
@@ -174,7 +174,7 @@ def _replay_window_rows(contract: BenchmarkContract) -> list[dict[str, Any]]:
     ]
 
 
-def _acquisition_rows(contract: BenchmarkContract, *, data_root: Path) -> list[dict[str, str]]:
+def _acquisition_rows(contract: ReplayContract, *, data_root: Path) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for source in _replay_sources():
         for window in _replay_months(contract):
@@ -247,7 +247,7 @@ def _replay_sources() -> tuple[dict[str, str], ...]:
     )
 
 
-def _feed_params(contract: BenchmarkContract, source: Mapping[str, str], window: Mapping[str, str]) -> dict[str, Any]:
+def _feed_params(contract: ReplayContract, source: Mapping[str, str], window: Mapping[str, str]) -> dict[str, Any]:
     return {
         "contract_id": contract.contract_id,
         "candidate_policy_ref": contract.candidate_policy_ref,
@@ -255,12 +255,12 @@ def _feed_params(contract: BenchmarkContract, source: Mapping[str, str], window:
         "start": window["start_date"],
         "end": window["end_date_exclusive"],
         "timeframe": source["timeframe"],
-        "benchmark_acquisition_policy": "candidate_policy_replay_monthly_surface",
+        "replay_acquisition_policy": "candidate_policy_replay_monthly_surface",
         "source_id": source["source_id"],
     }
 
 
-def _replay_months(contract: BenchmarkContract) -> list[dict[str, str]]:
+def _replay_months(contract: ReplayContract) -> list[dict[str, str]]:
     current = date(contract.start_date.year, contract.start_date.month, 1)
     end_month = date(contract.end_date.year, contract.end_date.month, 1)
     windows: list[dict[str, str]] = []
@@ -286,7 +286,7 @@ def _next_month(value: date) -> date:
     return date(value.year, value.month + 1, 1)
 
 
-def _coverage_rows(contract: BenchmarkContract, acquisition_rows: Iterable[Mapping[str, str]]) -> list[dict[str, Any]]:
+def _coverage_rows(contract: ReplayContract, acquisition_rows: Iterable[Mapping[str, str]]) -> list[dict[str, Any]]:
     grouped: dict[str, list[Mapping[str, str]]] = {}
     for row in acquisition_rows:
         grouped.setdefault(row["source_id"], []).append(row)
@@ -319,7 +319,7 @@ def _coverage_rows(contract: BenchmarkContract, acquisition_rows: Iterable[Mappi
 
 
 def _coverage_output_root(data_root: Path, source_id: str, contract_id: str, month: str) -> Path:
-    return data_root / "benchmark_replay" / source_id / contract_id / month
+    return data_root / "replay" / source_id / contract_id / month
 
 
 def _receipt_succeeded(path: Path) -> bool:
@@ -334,11 +334,11 @@ def _receipt_succeeded(path: Path) -> bool:
 
 
 def _expected_output_ref(source_id: str, contract_id: str, month: str) -> str:
-    return f"storage://trading-data/benchmark_replay/{source_id}/{contract_id}/{month}/"
+    return f"storage://trading-data/replay/{source_id}/{contract_id}/{month}/"
 
 
 def _acquisition_id(contract_id: str, source_id: str, month: str) -> str:
-    return "bmkacq_" + "_".join([_path_token(contract_id), _path_token(source_id), month.replace("-", "_")])
+    return "rplacq_" + "_".join([_path_token(contract_id), _path_token(source_id), month.replace("-", "_")])
 
 
 def _path_token(value: str) -> str:
@@ -361,10 +361,10 @@ def _now_utc() -> str:
 
 
 __all__ = [
-    "BENCHMARK_COVERAGE_SUMMARY_CONTRACT",
-    "BENCHMARK_DATASET_PREPARATION_MANIFEST_CONTRACT",
-    "BENCHMARK_FEED_ACQUISITION_PLAN_CONTRACT",
-    "BENCHMARK_REPLAY_WINDOW_MANIFEST_CONTRACT",
-    "PreparedBenchmarkDataset",
-    "prepare_benchmark_dataset",
+    "REPLAY_COVERAGE_SUMMARY_CONTRACT",
+    "REPLAY_DATASET_PREPARATION_MANIFEST_CONTRACT",
+    "REPLAY_FEED_ACQUISITION_PLAN_CONTRACT",
+    "REPLAY_WINDOW_MANIFEST_CONTRACT",
+    "PreparedReplayDataset",
+    "prepare_replay_dataset",
 ]

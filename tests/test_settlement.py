@@ -34,7 +34,7 @@ class SettlementTests(unittest.TestCase):
         payload = build_fold_settlement_run(
             fold_id="fold_2016-01_2016-06",
             candidate_model_ref="model://candidate/a",
-            benchmark_contract_ref="benchmark://promotion",
+            replay_contract_ref="replay://promotion",
             replay_result_ref="storage://replay/result",
             baseline_ref="baseline://incumbent",
             decision_rows=self._rows(),
@@ -52,7 +52,7 @@ class SettlementTests(unittest.TestCase):
         payload = build_fold_settlement_run(
             fold_id="fold_2016-01_2016-06",
             candidate_model_ref="model://candidate/a",
-            benchmark_contract_ref="benchmark://promotion",
+            replay_contract_ref="replay://promotion",
             replay_result_ref="storage://replay/result",
             decision_rows=self._rows()[:3],
         )
@@ -66,7 +66,7 @@ class SettlementTests(unittest.TestCase):
             "fold_settlement_run_id": "settlement_test",
             "fold_id": "fold_2016-01_2016-06",
             "candidate_model_ref": "model://candidate/a",
-            "benchmark_contract_ref": "benchmark://promotion",
+            "replay_contract_ref": "replay://promotion",
             "replay_result_ref": "storage://replay/result",
             "created_at_utc": "2026-05-21T00:00:00Z",
             "decision_status": "passed",
@@ -91,7 +91,7 @@ class SettlementTests(unittest.TestCase):
         payload = build_fold_settlement_run(
             fold_id="fold_2016-01_2016-06",
             candidate_model_ref="model://candidate/a",
-            benchmark_contract_ref="benchmark://promotion",
+            replay_contract_ref="replay://promotion",
             replay_result_ref="storage://replay/result",
             decision_rows=self._rows(),
         )
@@ -106,7 +106,7 @@ class SettlementTests(unittest.TestCase):
         payload = build_fold_settlement_run(
             fold_id="fold_2016-01_2016-06",
             candidate_model_ref="model://candidate/a",
-            benchmark_contract_ref="benchmark://promotion",
+            replay_contract_ref="replay://promotion",
             replay_result_ref="storage://replay/result",
             decision_rows=self._rows(),
         )
@@ -136,8 +136,8 @@ class SettlementTests(unittest.TestCase):
                     "fold_2016-01_2016-06",
                     "--candidate-model-ref",
                     "model://candidate/a",
-                    "--benchmark-contract-ref",
-                    "benchmark://promotion",
+                    "--replay-contract-ref",
+                    "replay://promotion",
                     "--replay-result-ref",
                     "storage://replay/result",
                     "--output-path",

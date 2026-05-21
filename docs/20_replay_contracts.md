@@ -6,12 +6,12 @@ The promotion replay must be selected once and then frozen. For Layer 3 and late
 
 Required properties:
 
-- one replay contract with compatibility field `benchmark_mode = candidate_policy_replay`.
+- one replay contract with field `replay_mode = candidate_policy_replay`.
 - the canonical fixed replay window `2021-01-01` through `2026-01-01` end-exclusive, covering the full 2021-2025 calendar years and 1255 expected NYSE trading days.
 - a frozen candidate-universe policy, historical data snapshot, cost model, baseline ladder, selection metrics, and guardrails.
 - candidate policy inputs covering current Layer 2 selected/watch sectors, reviewed sector constituents or proxies, current market-wide hot/liquid names, quality filters, and control candidates when contrast is required.
 - the model must generate candidates, rank/select targets, and run through the realtime decision route under a historical clock.
-- no `target_symbol`, fixed final target list, or compatibility `benchmark_components`.
+- no `target_symbol`, fixed final target list.
 - metrics must evaluate realized replay performance after cost, risk, drawdown, turnover, selection quality, and guardrails.
 - metadata for candidate source, market state, Layer 2 sector source, event state, data availability, and model decision provenance.
 - explicit sector coverage metadata, including consumer and entertainment/media coverage.

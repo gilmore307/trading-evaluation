@@ -17,14 +17,14 @@ class PromotionTests(unittest.TestCase):
         decision = build_promotion_eligibility_decision(
             fold_id="fold_2016-01_2016-06",
             candidate_model_ref="storage://models/candidate",
-            benchmark_contract_ref="benchmark://primary",
+            replay_contract_ref="replay://primary",
             settlement_run_ref="storage://settlement/run",
             decision_status="eligible",
-            decision_reason="passed frozen benchmark",
+            decision_reason="passed frozen replay",
             metric_refs=["storage://metrics/fold"],
-            guardrail_refs=["benchmark://guardrail/risk"],
-            benchmark_validation_ref="storage://benchmark/validation/passed",
-            benchmark_freeze_status="frozen",
+            guardrail_refs=["replay://guardrail/risk"],
+            replay_validation_ref="storage://replay/validation/passed",
+            replay_freeze_status="frozen",
             fold_stack_evidence_ref="storage://fold/complete_layer_01_10",
             fold_stack_status="complete_layer_01_10",
             guardrail_status="passed",
@@ -46,17 +46,17 @@ class PromotionTests(unittest.TestCase):
         self.assertFalse(record["active_model_config_written"])
         self.assertFalse(record["broker_execution_performed"])
         self.assertFalse(record["account_mutation_performed"])
-        self.assertEqual(record["benchmark_freeze_status"], "frozen")
+        self.assertEqual(record["replay_freeze_status"], "frozen")
         self.assertEqual(record["fold_stack_status"], "complete_layer_01_10")
         self.assertEqual(record["agent_review_recommendation"], "eligible_for_shadow")
         self.assertEqual(validate_promotion_readiness_record(record).validation_status, "passed")
 
     def test_rejects_eligible_decision_without_gate_evidence(self):
-        with self.assertRaisesRegex(ValueError, "benchmark_validation_ref is required"):
+        with self.assertRaisesRegex(ValueError, "replay_validation_ref is required"):
             build_promotion_eligibility_decision(
                 fold_id="fold_2016-01_2016-06",
                 candidate_model_ref="storage://models/candidate",
-                benchmark_contract_ref="benchmark://primary",
+                replay_contract_ref="replay://primary",
                 settlement_run_ref="storage://settlement/run",
                 decision_status="eligible",
                 decision_reason="missing gate evidence",
@@ -66,7 +66,7 @@ class PromotionTests(unittest.TestCase):
         decision = build_promotion_eligibility_decision(
             fold_id="fold_2016-01_2016-06",
             candidate_model_ref="storage://models/candidate",
-            benchmark_contract_ref="benchmark://primary",
+            replay_contract_ref="replay://primary",
             settlement_run_ref="storage://settlement/run",
             decision_status="review_required",
             decision_reason="guardrail needs review",

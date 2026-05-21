@@ -3,8 +3,8 @@
 ## Modules
 
 ```text
-src/trading_evaluation/benchmark.py           Replay contract parsing and validation; keeps compatibility API names.
-src/trading_evaluation/benchmark_dataset.py   Replay dataset preparation manifests and one-shot acquisition planning; keeps compatibility API names.
+src/trading_evaluation/replay.py           Replay contract parsing and validation; current replay API.
+src/trading_evaluation/replay_dataset.py   Replay dataset preparation manifests and one-shot acquisition planning; current replay API.
 src/trading_evaluation/settlement.py          Fold settlement metric assembly and validation.
 src/trading_evaluation/promotion.py           Promotion eligibility and readiness validation.
 scripts/evaluation/                          Thin executable wrappers over src.

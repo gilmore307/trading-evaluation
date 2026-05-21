@@ -12,7 +12,7 @@ ELIGIBLE_STATUS = "eligible"
 PROMOTION_ELIGIBILITY_DECISION_CONTRACT = "promotion_eligibility_decision"
 PROMOTION_READINESS_RECORD_CONTRACT = "promotion_readiness_record"
 ALLOWED_ELIGIBILITY_STATUSES = {"eligible", "rejected", "review_required", "revoked", "superseded"}
-ELIGIBLE_BENCHMARK_FREEZE_STATUS = "frozen"
+ELIGIBLE_REPLAY_FREEZE_STATUS = "frozen"
 ELIGIBLE_FOLD_STACK_STATUS = "complete_layer_01_10"
 ELIGIBLE_GUARDRAIL_STATUS = "passed"
 ELIGIBLE_INCUMBENT_COMPARISON_STATUS = "passed"
@@ -52,14 +52,14 @@ def build_promotion_eligibility_decision(
     *,
     fold_id: str,
     candidate_model_ref: str,
-    benchmark_contract_ref: str,
+    replay_contract_ref: str,
     settlement_run_ref: str,
     decision_status: Literal["eligible", "rejected", "review_required", "revoked", "superseded"],
     decision_reason: str,
     metric_refs: Iterable[str] | None = None,
     guardrail_refs: Iterable[str] | None = None,
-    benchmark_validation_ref: str | None = None,
-    benchmark_freeze_status: str | None = None,
+    replay_validation_ref: str | None = None,
+    replay_freeze_status: str | None = None,
     fold_stack_evidence_ref: str | None = None,
     fold_stack_status: str | None = None,
     guardrail_status: str | None = None,
@@ -77,17 +77,17 @@ def build_promotion_eligibility_decision(
     payload = {
         "contract_type": PROMOTION_ELIGIBILITY_DECISION_CONTRACT,
         "promotion_eligibility_decision_id": decision_id
-        or _stable_id("promelig", fold_id, candidate_model_ref, benchmark_contract_ref, settlement_run_ref, decision_status),
+        or _stable_id("promelig", fold_id, candidate_model_ref, replay_contract_ref, settlement_run_ref, decision_status),
         "fold_id": fold_id,
         "candidate_model_ref": candidate_model_ref,
-        "benchmark_contract_ref": benchmark_contract_ref,
+        "replay_contract_ref": replay_contract_ref,
         "settlement_run_ref": settlement_run_ref,
         "decision_status": decision_status,
         "decision_reason": decision_reason,
         "metric_refs": metric_ref_list,
         "guardrail_refs": guardrail_ref_list,
-        "benchmark_validation_ref": benchmark_validation_ref or "",
-        "benchmark_freeze_status": benchmark_freeze_status or "",
+        "replay_validation_ref": replay_validation_ref or "",
+        "replay_freeze_status": replay_freeze_status or "",
         "fold_stack_evidence_ref": fold_stack_evidence_ref or "",
         "fold_stack_status": fold_stack_status or "",
         "guardrail_status": guardrail_status or "",
@@ -110,7 +110,7 @@ def validate_promotion_eligibility_decision(payload: Mapping[str, Any]) -> Activ
         "promotion_eligibility_decision_id",
         "fold_id",
         "candidate_model_ref",
-        "benchmark_contract_ref",
+        "replay_contract_ref",
         "settlement_run_ref",
         "decision_status",
         "decision_reason",
@@ -137,7 +137,7 @@ def validate_promotion_eligibility_decision(payload: Mapping[str, Any]) -> Activ
 
 def _validate_eligible_evidence(payload: Mapping[str, Any], errors: list[str]) -> None:
     required_refs = (
-        "benchmark_validation_ref",
+        "replay_validation_ref",
         "fold_stack_evidence_ref",
         "incumbent_comparison_ref",
         "agent_review_ref",
@@ -150,7 +150,7 @@ def _validate_eligible_evidence(payload: Mapping[str, Any], errors: list[str]) -
     if not payload.get("guardrail_refs"):
         errors.append("guardrail_refs is required when decision_status is eligible")
     expected_statuses = {
-        "benchmark_freeze_status": ELIGIBLE_BENCHMARK_FREEZE_STATUS,
+        "replay_freeze_status": ELIGIBLE_REPLAY_FREEZE_STATUS,
         "fold_stack_status": ELIGIBLE_FOLD_STACK_STATUS,
         "guardrail_status": ELIGIBLE_GUARDRAIL_STATUS,
         "incumbent_comparison_status": ELIGIBLE_INCUMBENT_COMPARISON_STATUS,
@@ -196,9 +196,9 @@ def build_promotion_readiness_record(
         "candidate_config_ref": candidate_config_ref,
         "rollback_ref": rollback_ref,
         "execution_shadow_scope": execution_shadow_scope,
-        "benchmark_contract_ref": promotion_eligibility_decision["benchmark_contract_ref"],
-        "benchmark_validation_ref": promotion_eligibility_decision["benchmark_validation_ref"],
-        "benchmark_freeze_status": promotion_eligibility_decision["benchmark_freeze_status"],
+        "replay_contract_ref": promotion_eligibility_decision["replay_contract_ref"],
+        "replay_validation_ref": promotion_eligibility_decision["replay_validation_ref"],
+        "replay_freeze_status": promotion_eligibility_decision["replay_freeze_status"],
         "settlement_run_ref": promotion_eligibility_decision["settlement_run_ref"],
         "metric_refs": list(promotion_eligibility_decision["metric_refs"]),
         "fold_stack_evidence_ref": promotion_eligibility_decision["fold_stack_evidence_ref"],
@@ -231,9 +231,9 @@ def validate_promotion_readiness_record(payload: Mapping[str, Any]) -> Activatio
         "candidate_config_ref",
         "rollback_ref",
         "execution_shadow_scope",
-        "benchmark_contract_ref",
-        "benchmark_validation_ref",
-        "benchmark_freeze_status",
+        "replay_contract_ref",
+        "replay_validation_ref",
+        "replay_freeze_status",
         "settlement_run_ref",
         "fold_stack_evidence_ref",
         "fold_stack_status",

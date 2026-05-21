@@ -6,58 +6,58 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from trading_evaluation import prepare_benchmark_dataset
+from trading_evaluation import prepare_replay_dataset
 
 
 VALID_DATASET_CONTRACT = {
-    "contract_id": "promotion_benchmark_replay_dataset_test",
-    "benchmark_mode": "candidate_policy_replay",
+    "contract_id": "promotion_replay_dataset_test",
+    "replay_mode": "candidate_policy_replay",
     "start_date": "2021-01-01",
     "end_date": "2026-01-01",
     "min_trading_days": 1255,
     "market_condition_tags": ["trend_up", "drawdown", "high_volatility", "event_shock"],
     "candidate_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/default",
     "replay_route_ref": "trading-execution://historical_clock/realtime_decision_path",
-    "data_snapshot_ref": "storage://benchmark/promotion_replay/data_snapshot/pending_materialization",
-    "cost_model_ref": "storage://benchmark/promotion_replay/cost_model/pending_review",
+    "data_snapshot_ref": "storage://replay/promotion_replay/data_snapshot/pending_materialization",
+    "cost_model_ref": "storage://replay/promotion_replay/cost_model/pending_review",
     "baseline_refs": ["baseline://active_model"],
-    "guardrail_refs": ["benchmark://guardrail/liquidity_regime"],
+    "guardrail_refs": ["replay://guardrail/liquidity_regime"],
     "selection_metric_refs": ["metric://net_return_after_costs"],
     "excluded_training_windows": [
         {
             "start_date": "2021-01-01",
             "end_date": "2026-01-01",
-            "reason": "promotion benchmark replay holdout",
+            "reason": "promotion replay holdout",
         }
     ],
 }
 
 
-class BenchmarkDatasetPreparationTests(unittest.TestCase):
-    def test_prepare_benchmark_dataset_writes_candidate_policy_replay_bundle(self):
+class ReplayDatasetPreparationTests(unittest.TestCase):
+    def test_prepare_replay_dataset_writes_candidate_policy_replay_bundle(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             data_root = root / "data"
             receipt_path = (
                 data_root
-                / "benchmark_replay"
+                / "replay"
                 / "alpaca_bars"
-                / "promotion_benchmark_replay_dataset_test"
+                / "promotion_replay_dataset_test"
                 / "2021-01"
                 / "completion_receipt.json"
             )
             receipt_path.parent.mkdir(parents=True)
             receipt_path.write_text(json.dumps({"runs": [{"status": "succeeded"}]}) + "\n", encoding="utf-8")
 
-            prepared = prepare_benchmark_dataset(
+            prepared = prepare_replay_dataset(
                 VALID_DATASET_CONTRACT,
-                output_root=root / "storage" / "benchmark",
+                output_root=root / "storage" / "replay",
                 data_root=data_root,
                 prepared_at_utc="2026-05-20T00:00:00Z",
             )
 
-            self.assertEqual(prepared.manifest["contract_type"], "benchmark_dataset_preparation_manifest")
-            self.assertEqual(prepared.manifest["benchmark_mode"], "candidate_policy_replay")
+            self.assertEqual(prepared.manifest["contract_type"], "replay_dataset_preparation_manifest")
+            self.assertEqual(prepared.manifest["replay_mode"], "candidate_policy_replay")
             self.assertEqual(prepared.manifest["replay_window_count"], 1)
             self.assertEqual(prepared.manifest["feed_acquisition_count"], 360)
             self.assertEqual(prepared.manifest["available_feed_acquisition_count"], 1)
@@ -90,17 +90,17 @@ class BenchmarkDatasetPreparationTests(unittest.TestCase):
             self.assertEqual(bars_row["feed"], "01_feed_alpaca_bars")
             self.assertEqual(
                 bars_row["output_root"],
-                str(data_root / "benchmark_replay" / "alpaca_bars" / "promotion_benchmark_replay_dataset_test" / "2021-01"),
+                str(data_root / "replay" / "alpaca_bars" / "promotion_replay_dataset_test" / "2021-01"),
             )
             params = json.loads(bars_row["params_json"])
             self.assertEqual(params["candidate_policy_ref"], VALID_DATASET_CONTRACT["candidate_policy_ref"])
-            self.assertEqual(params["benchmark_acquisition_policy"], "candidate_policy_replay_monthly_surface")
+            self.assertEqual(params["replay_acquisition_policy"], "candidate_policy_replay_monthly_surface")
             self.assertIn(
                 "candidate_universe_materializes_point_in_time_during_replay",
                 prepared.manifest["known_deferred_requirements"],
             )
 
-    def test_prepare_benchmark_dataset_cli(self):
+    def test_prepare_replay_dataset_cli(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             contract_path = root / "contract.json"
@@ -112,7 +112,7 @@ class BenchmarkDatasetPreparationTests(unittest.TestCase):
                     "--contract",
                     str(contract_path),
                     "--output-root",
-                    str(root / "storage" / "benchmark"),
+                    str(root / "storage" / "replay"),
                     "--data-root",
                     str(root / "data"),
                 ],

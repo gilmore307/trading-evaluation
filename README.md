@@ -8,7 +8,7 @@ It owns frozen replay contracts, replay-window training-exclusion proof, fold se
 
 ```text
 docs/        Repository scope, architecture, contracts, tasks, decisions, and evaluation modules.
-benchmarks/  Compatibility directory for reviewable replay contract candidates before freeze.
+replays/  Reviewable replay contract candidates before freeze.
 scripts/     Executable evaluation and validation entrypoints.
 src/         Importable replay, settlement, and promotion-eligibility helpers.
 tests/       First-party tests.
@@ -68,6 +68,6 @@ Shared names, fields, statuses, scripts, and contract ids discovered here must b
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests
 python3 -m compileall -q src scripts
-PYTHONPATH=src python3 scripts/evaluation/validate_replay_contract.py --input tests/fixtures/benchmark_contract_valid.json
+PYTHONPATH=src python3 scripts/evaluation/validate_replay_contract.py --input tests/fixtures/replay_contract_valid.json
 PYTHONPATH=src python3 scripts/evaluation/build_promotion_readiness_record.py --promotion-eligibility-json tests/fixtures/promotion_eligibility_eligible.json --candidate-model-ref storage://models/market_regime/new --candidate-config-ref storage://configs/market_regime/new --rollback-ref storage://models/market_regime/old
 ```

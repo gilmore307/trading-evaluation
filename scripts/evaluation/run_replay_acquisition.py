@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from trading_evaluation.benchmark_acquisition import main
+from trading_evaluation.replay_acquisition import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

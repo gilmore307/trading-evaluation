@@ -15,7 +15,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--decision-rows", required=True, type=Path, help="Replay decision rows as JSON, JSONL, or CSV.")
     parser.add_argument("--fold-id", required=True)
     parser.add_argument("--candidate-model-ref", required=True)
-    parser.add_argument("--benchmark-contract-ref", required=True)
+    parser.add_argument("--replay-contract-ref", required=True)
     parser.add_argument("--replay-result-ref", required=True)
     parser.add_argument("--baseline-ref")
     parser.add_argument("--feature-column", action="append", dest="feature_columns")
@@ -31,7 +31,7 @@ def main() -> int:
     payload = build_fold_settlement_run(
         fold_id=args.fold_id,
         candidate_model_ref=args.candidate_model_ref,
-        benchmark_contract_ref=args.benchmark_contract_ref,
+        replay_contract_ref=args.replay_contract_ref,
         replay_result_ref=args.replay_result_ref,
         baseline_ref=args.baseline_ref,
         decision_rows=rows,

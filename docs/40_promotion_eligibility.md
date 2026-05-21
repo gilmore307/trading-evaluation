@@ -15,7 +15,7 @@ Promotion eligibility is the evaluation-owned decision that a candidate has enou
 
 For `decision_status = eligible`, the record must include:
 
-- `benchmark_validation_ref` and `benchmark_freeze_status = frozen`;
+- `replay_validation_ref` and `replay_freeze_status = frozen`;
 - `fold_stack_evidence_ref` and `fold_stack_status = complete_layer_01_10`;
 - non-empty `metric_refs`;
 - non-empty `guardrail_refs` and `guardrail_status = passed`;

@@ -2,10 +2,10 @@
 
 ## Replay Contract
 
-`evaluation_benchmark_contract` is the compatibility contract type for the frozen replay surface:
+`evaluation_replay_contract` is the contract type for the frozen replay surface:
 
 - `contract_id`
-- `benchmark_mode = candidate_policy_replay`
+- `replay_mode = candidate_policy_replay`
 - `start_date`
 - `end_date`
 - `min_trading_days`
@@ -19,11 +19,11 @@
 - `selection_metric_refs`
 - `excluded_training_windows` covering the full replay window
 
-The current validator requires a candidate-policy replay over the canonical fixed window `2021-01-01` through `2026-01-01` end-exclusive, with at least 1255 expected trading days, sufficient declared market-condition coverage, non-empty candidate policy, replay route, data snapshot, cost model, baseline refs, guardrail refs, selection metric refs, and explicit exclusion windows covering the full replay window. Fixed target fields and compatibility `benchmark_components` are rejected. `is_training_fold_blocked_by_benchmark` is the compatibility helper for blocking folds that overlap the sealed replay window.
+The current validator requires a candidate-policy replay over the canonical fixed window `2021-01-01` through `2026-01-01` end-exclusive, with at least 1255 expected trading days, sufficient declared market-condition coverage, non-empty candidate policy, replay route, data snapshot, cost model, baseline refs, guardrail refs, selection metric refs, and explicit exclusion windows covering the full replay window. Fixed target fields and `replay_components` are rejected. `is_training_fold_blocked_by_replay` is the helper for blocking folds that overlap the sealed replay window.
 
 ## Replay Dataset Preparation Manifest
 
-`benchmark_dataset_preparation_manifest` is the compatibility contract type for the runtime preparation bundle for a replay contract under storage ownership.
+`replay_dataset_preparation_manifest` is the contract type for the runtime preparation bundle for a replay contract under storage ownership.
 
 Required fields include:
 
@@ -39,7 +39,7 @@ Required fields include:
 - `coverage_summary_ref`
 - safety booleans proving no provider calls, SQL mutation, model training, activation, broker execution, or account mutation occurred
 
-The preparation bundle may write files under the compatibility path `trading-storage/storage/05_benchmark_datasets/<contract_id>/`, but it does not generate manager task/request rows or reusable task keys. Live provider acquisition for the sealed replay is a one-shot gated action that records receipts under the source storage roots.
+The preparation bundle may write files under the `trading-storage/storage/05_replay_datasets/<contract_id>/`, but it does not generate manager task/request rows or reusable task keys. Live provider acquisition for the sealed replay is a one-shot gated action that records receipts under the source storage roots.
 
 After accepted acquisition coverage, the replay contract references one frozen reusable data snapshot. All replay and downstream evaluation artifacts for that contract must consume that snapshot. Candidate-specific data download, source reinterpretation, or training-flow feature generation is not allowed for replay judgment.
 
@@ -55,7 +55,7 @@ Required run fields:
 - `fold_settlement_run_id`
 - `fold_id`
 - `candidate_model_ref`
-- `benchmark_contract_ref`
+- `replay_contract_ref`
 - `replay_result_ref`
 - `baseline_ref`
 - `created_at_utc`
@@ -108,9 +108,9 @@ Required fields:
 - `candidate_config_ref`
 - `rollback_ref`
 - `execution_shadow_scope`
-- `benchmark_contract_ref`
-- `benchmark_validation_ref`
-- `benchmark_freeze_status = frozen`
+- `replay_contract_ref`
+- `replay_validation_ref`
+- `replay_freeze_status = frozen`
 - `settlement_run_ref`
 - non-empty `metric_refs`
 - `fold_stack_evidence_ref`

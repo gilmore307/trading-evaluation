@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Mapping, Sequence
 
-EXPECTED_BENCHMARK_MODE = "candidate_policy_replay"
+EXPECTED_REPLAY_MODE = "candidate_policy_replay"
 CANONICAL_REPLAY_START_DATE = date(2021, 1, 1)
 CANONICAL_REPLAY_END_DATE = date(2026, 1, 1)
 CANONICAL_REPLAY_EXPECTED_TRADING_DAYS = 1255
@@ -29,14 +29,11 @@ def _strings(value: object) -> tuple[str, ...]:
 
 
 @dataclass(frozen=True)
-class BenchmarkContract:
-    """Frozen candidate-policy replay contract.
-
-    The class name is kept as a compatibility API surface.
-    """
+class ReplayContract:
+    """Frozen candidate-policy replay contract."""
 
     contract_id: str
-    benchmark_mode: str
+    replay_mode: str
     start_date: date
     end_date: date
     min_trading_days: int
@@ -51,7 +48,7 @@ class BenchmarkContract:
     excluded_training_windows: tuple[dict[str, Any], ...]
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any]) -> "BenchmarkContract":
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "ReplayContract":
         try:
             min_trading_days = int(payload.get("min_trading_days", 0))
         except (TypeError, ValueError) as exc:
@@ -61,7 +58,7 @@ class BenchmarkContract:
             windows = []
         return cls(
             contract_id=str(payload.get("contract_id") or "").strip(),
-            benchmark_mode=str(payload.get("benchmark_mode") or "").strip(),
+            replay_mode=str(payload.get("replay_mode") or "").strip(),
             start_date=_parse_date(payload.get("start_date"), field_name="start_date"),
             end_date=_parse_date(payload.get("end_date"), field_name="end_date"),
             min_trading_days=min_trading_days,
@@ -79,7 +76,7 @@ class BenchmarkContract:
     def to_dict(self) -> dict[str, Any]:
         return {
             "contract_id": self.contract_id,
-            "benchmark_mode": self.benchmark_mode,
+            "replay_mode": self.replay_mode,
             "start_date": self.start_date.isoformat(),
             "end_date": self.end_date.isoformat(),
             "min_trading_days": self.min_trading_days,
@@ -96,14 +93,14 @@ class BenchmarkContract:
 
 
 @dataclass(frozen=True)
-class BenchmarkValidation:
+class ReplayValidation:
     """Validation result for a replay contract."""
 
     contract_type: str
     validation_status: str
     errors: tuple[str, ...]
     warnings: tuple[str, ...]
-    contract: BenchmarkContract | None
+    contract: ReplayContract | None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -115,16 +112,16 @@ class BenchmarkValidation:
         }
 
 
-def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidation:
+def validate_replay_contract(payload: Mapping[str, Any]) -> ReplayValidation:
     """Validate the accepted candidate-policy replay rules."""
 
     errors: list[str] = []
     warnings: list[str] = []
     try:
-        contract = BenchmarkContract.from_mapping(payload)
+        contract = ReplayContract.from_mapping(payload)
     except ValueError as exc:
-        return BenchmarkValidation(
-            contract_type="evaluation_benchmark_contract_validation",
+        return ReplayValidation(
+            contract_type="evaluation_replay_contract_validation",
             validation_status="failed",
             errors=(str(exc),),
             warnings=(),
@@ -133,12 +130,12 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
 
     if payload.get("target_symbol"):
         errors.append("target_symbol is not allowed for promotion replay; the model must select targets from the candidate policy")
-    if payload.get("benchmark_components"):
-        errors.append("benchmark_components are obsolete for promotion replay; use candidate_policy_ref")
+    if payload.get("replay_components"):
+        errors.append("replay_components are obsolete for promotion replay; use candidate_policy_ref")
     if not contract.contract_id:
         errors.append("contract_id is required")
-    if contract.benchmark_mode != EXPECTED_BENCHMARK_MODE:
-        errors.append(f"benchmark_mode must be {EXPECTED_BENCHMARK_MODE}")
+    if contract.replay_mode != EXPECTED_REPLAY_MODE:
+        errors.append(f"replay_mode must be {EXPECTED_REPLAY_MODE}")
     if contract.end_date <= contract.start_date:
         errors.append("end_date must be after start_date")
     if contract.start_date != CANONICAL_REPLAY_START_DATE or contract.end_date != CANONICAL_REPLAY_END_DATE:
@@ -168,8 +165,8 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
     if not contract.guardrail_refs:
         errors.append("guardrail_refs must include at least one accepted guardrail replay")
 
-    return BenchmarkValidation(
-        contract_type="evaluation_benchmark_contract_validation",
+    return ReplayValidation(
+        contract_type="evaluation_replay_contract_validation",
         validation_status="passed" if not errors else "failed",
         errors=tuple(errors),
         warnings=tuple(warnings),
@@ -177,8 +174,8 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
     )
 
 
-def is_training_fold_blocked_by_benchmark(
-    contract: BenchmarkContract,
+def is_training_fold_blocked_by_replay(
+    contract: ReplayContract,
     *,
     fold_start_date: date | str,
     fold_end_date: date | str,
@@ -208,7 +205,7 @@ def _validate_excluded_training_windows(windows: Sequence[Mapping[str, Any]]) ->
     return errors
 
 
-def _replay_window_is_excluded(contract: BenchmarkContract, windows: Sequence[Mapping[str, Any]]) -> bool:
+def _replay_window_is_excluded(contract: ReplayContract, windows: Sequence[Mapping[str, Any]]) -> bool:
     for window in windows:
         try:
             start = _parse_date(window.get("start_date"), field_name="excluded_training_windows.start_date")

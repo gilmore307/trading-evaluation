@@ -273,7 +273,7 @@ def build_fold_settlement_run(
     *,
     fold_id: str,
     candidate_model_ref: str,
-    benchmark_contract_ref: str,
+    replay_contract_ref: str,
     replay_result_ref: str,
     decision_rows: Sequence[Mapping[str, Any]],
     baseline_ref: str | None = None,
@@ -286,7 +286,7 @@ def build_fold_settlement_run(
 
     rows = [dict(row) for row in decision_rows]
     realized_returns = [_float(row, "net_return", "realized_return", "candidate_return") for row in rows]
-    baseline_returns = [_float(row, "baseline_return", "benchmark_return", "incumbent_return") for row in rows]
+    baseline_returns = [_float(row, "baseline_return", "replay_return", "incumbent_return") for row in rows]
     costs = [_float(row, "cost", "trading_cost", "cost_drag") for row in rows]
     net_returns = [value - cost for value, cost in zip(realized_returns, costs, strict=True)]
     cumulative: list[float] = []
@@ -313,7 +313,7 @@ def build_fold_settlement_run(
     elif auroc < min_auroc:
         gate_failures.append("auroc_below_minimum")
     decision_status = "passed" if not gate_failures else "review_required"
-    settlement_id = _stable_id("settlement", fold_id, candidate_model_ref, benchmark_contract_ref, replay_result_ref)
+    settlement_id = _stable_id("settlement", fold_id, candidate_model_ref, replay_contract_ref, replay_result_ref)
     metrics = {
         "contract_type": FOLD_SETTLEMENT_METRIC_CONTRACT,
         "settlement_run_ref": settlement_id,
@@ -339,7 +339,7 @@ def build_fold_settlement_run(
         "fold_settlement_run_id": settlement_id,
         "fold_id": fold_id,
         "candidate_model_ref": candidate_model_ref,
-        "benchmark_contract_ref": benchmark_contract_ref,
+        "replay_contract_ref": replay_contract_ref,
         "replay_result_ref": replay_result_ref,
         "baseline_ref": baseline_ref,
         "created_at_utc": created_at_utc or _now_utc(),
@@ -367,7 +367,7 @@ def validate_fold_settlement_run(payload: Mapping[str, Any]) -> SettlementValida
         "fold_settlement_run_id",
         "fold_id",
         "candidate_model_ref",
-        "benchmark_contract_ref",
+        "replay_contract_ref",
         "replay_result_ref",
         "created_at_utc",
         "decision_status",

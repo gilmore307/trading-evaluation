@@ -1,18 +1,18 @@
 """Independent replay, settlement, and promotion-readiness helpers."""
 
-from .benchmark import (
-    BenchmarkContract,
-    BenchmarkValidation,
-    is_training_fold_blocked_by_benchmark,
-    validate_benchmark_contract,
+from .replay import (
+    ReplayContract,
+    ReplayValidation,
+    is_training_fold_blocked_by_replay,
+    validate_replay_contract,
 )
-from .benchmark_dataset import (
-    BENCHMARK_COVERAGE_SUMMARY_CONTRACT,
-    BENCHMARK_DATASET_PREPARATION_MANIFEST_CONTRACT,
-    BENCHMARK_FEED_ACQUISITION_PLAN_CONTRACT,
-    BENCHMARK_REPLAY_WINDOW_MANIFEST_CONTRACT,
-    PreparedBenchmarkDataset,
-    prepare_benchmark_dataset,
+from .replay_dataset import (
+    REPLAY_COVERAGE_SUMMARY_CONTRACT,
+    REPLAY_DATASET_PREPARATION_MANIFEST_CONTRACT,
+    REPLAY_FEED_ACQUISITION_PLAN_CONTRACT,
+    REPLAY_WINDOW_MANIFEST_CONTRACT,
+    PreparedReplayDataset,
+    prepare_replay_dataset,
 )
 from .promotion import (
     PROMOTION_ELIGIBILITY_DECISION_CONTRACT,
@@ -31,24 +31,24 @@ from .settlement import (
 )
 
 __all__ = [
-    "BenchmarkContract",
-    "BenchmarkValidation",
-    "BENCHMARK_COVERAGE_SUMMARY_CONTRACT",
-    "BENCHMARK_DATASET_PREPARATION_MANIFEST_CONTRACT",
-    "BENCHMARK_FEED_ACQUISITION_PLAN_CONTRACT",
-    "BENCHMARK_REPLAY_WINDOW_MANIFEST_CONTRACT",
+    "ReplayContract",
+    "ReplayValidation",
+    "REPLAY_COVERAGE_SUMMARY_CONTRACT",
+    "REPLAY_DATASET_PREPARATION_MANIFEST_CONTRACT",
+    "REPLAY_FEED_ACQUISITION_PLAN_CONTRACT",
+    "REPLAY_WINDOW_MANIFEST_CONTRACT",
     "PROMOTION_ELIGIBILITY_DECISION_CONTRACT",
     "PROMOTION_READINESS_RECORD_CONTRACT",
     "FOLD_SETTLEMENT_METRIC_CONTRACT",
     "FOLD_SETTLEMENT_RUN_CONTRACT",
-    "PreparedBenchmarkDataset",
+    "PreparedReplayDataset",
     "build_promotion_eligibility_decision",
     "build_promotion_readiness_record",
     "build_fold_settlement_run",
-    "is_training_fold_blocked_by_benchmark",
+    "is_training_fold_blocked_by_replay",
     "load_decision_rows",
-    "prepare_benchmark_dataset",
-    "validate_benchmark_contract",
+    "prepare_replay_dataset",
+    "validate_replay_contract",
     "validate_fold_settlement_run",
     "validate_promotion_eligibility_decision",
     "validate_promotion_readiness_record",

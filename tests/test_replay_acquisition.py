@@ -4,14 +4,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from trading_evaluation.benchmark_acquisition import build_task_payload, run_acquisition
+from trading_evaluation.replay_acquisition import build_task_payload, run_acquisition
 
 
-class BenchmarkAcquisitionRunnerTests(unittest.TestCase):
+class ReplayAcquisitionRunnerTests(unittest.TestCase):
     def test_runner_plans_missing_items_without_provider_calls(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            dataset_root = root / "benchmark" / "contract"
+            dataset_root = root / "replay" / "contract"
             dataset_root.mkdir(parents=True)
             plan_path = dataset_root / "feed_acquisition_plan.csv"
             fields = [
@@ -36,7 +36,7 @@ class BenchmarkAcquisitionRunnerTests(unittest.TestCase):
                 writer.writeheader()
                 writer.writerow(
                     {
-                        "acquisition_id": "bmkacq_test_gdelt",
+                        "acquisition_id": "rplacq_test_gdelt",
                         "contract_id": "contract",
                         "source_id": "gdelt_news",
                         "feed": "05_feed_gdelt_news",
