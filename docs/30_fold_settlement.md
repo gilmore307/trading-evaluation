@@ -4,17 +4,17 @@ Fold settlement is the comprehensive post-fold evaluation step.
 
 It should run after a fold has completed Layer 1 through Layer 10 model evaluation and before promotion eligibility is accepted. Single-layer fold evaluation can be stored as diagnostic evidence, but promotion judgment evaluates one pinned Layer 1-10 version bundle. The bundle is accepted or rejected as a whole; no single layer or partial substack is promotion-ready by itself.
 
-## Required Metric Families
+## Current Metric Contract
 
 - return and excess return.
-- drawdown and tail loss.
-- Sharpe/Sortino-style risk-adjusted measures.
-- turnover, trade count, exposure time, and cost drag.
+- max drawdown.
+- turnover proxy and cost drag.
 - hit rate and payoff ratio.
-- abstention quality.
-- event-risk intervention effect.
-- calibration of confidence and action strength.
+- AUROC and Brier score when replay rows contain labels and scores.
+- PCA/PCoA-style feature structure diagnostics when numeric feature columns are present.
 - comparison against frozen baselines.
+
+Additional families such as Sharpe/Sortino-style risk-adjusted measures, exposure time, abstention quality, event-risk intervention effect, and richer calibration slices belong in later settlement expansions once replay rows expose the required fields.
 
 ## Storage Boundary
 

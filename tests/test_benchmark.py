@@ -96,6 +96,12 @@ class BenchmarkContractTests(unittest.TestCase):
         self.assertIn("replay_route_ref is required", result.errors)
         self.assertIn("selection_metric_refs must include at least one accepted performance metric", result.errors)
 
+    def test_guardrail_refs_are_required(self):
+        payload = dict(VALID_CONTRACT, guardrail_refs=[])
+        result = validate_benchmark_contract(payload)
+        self.assertEqual(result.validation_status, "failed")
+        self.assertIn("guardrail_refs must include at least one accepted guardrail benchmark", result.errors)
+
     def test_replay_holdout_must_cover_full_window(self):
         payload = dict(
             VALID_CONTRACT,

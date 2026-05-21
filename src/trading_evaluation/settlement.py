@@ -238,6 +238,37 @@ class SettlementValidation:
         }
 
 
+def _is_finite_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
+
+
+def _validate_nonnegative_int(metrics: Mapping[str, Any], field: str, errors: list[str]) -> None:
+    value = metrics.get(field)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        errors.append(f"metrics.{field} must be a non-negative integer")
+
+
+def _validate_finite_number(metrics: Mapping[str, Any], field: str, errors: list[str]) -> None:
+    if not _is_finite_number(metrics.get(field)):
+        errors.append(f"metrics.{field} must be a finite number")
+
+
+def _validate_optional_probability(metrics: Mapping[str, Any], field: str, errors: list[str]) -> None:
+    value = metrics.get(field)
+    if value is None:
+        return
+    if not _is_finite_number(value) or not 0.0 <= float(value) <= 1.0:
+        errors.append(f"metrics.{field} must be null or a finite number between 0 and 1")
+
+
+def _validate_optional_nonnegative_number(metrics: Mapping[str, Any], field: str, errors: list[str]) -> None:
+    value = metrics.get(field)
+    if value is None:
+        return
+    if not _is_finite_number(value) or float(value) < 0.0:
+        errors.append(f"metrics.{field} must be null or a non-negative finite number")
+
+
 def build_fold_settlement_run(
     *,
     fold_id: str,
@@ -340,7 +371,11 @@ def validate_fold_settlement_run(payload: Mapping[str, Any]) -> SettlementValida
         "replay_result_ref",
         "created_at_utc",
         "decision_status",
+        "gate_failures",
+        "metric_refs",
         "metrics",
+        "agent_review_required",
+        "agent_review_scope",
     )
     for field in required:
         if payload.get(field) in (None, ""):
@@ -354,6 +389,26 @@ def validate_fold_settlement_run(payload: Mapping[str, Any]) -> SettlementValida
         errors.append("metrics must be an object")
     elif metrics.get("contract_type") != FOLD_SETTLEMENT_METRIC_CONTRACT:
         errors.append(f"metrics.contract_type must be {FOLD_SETTLEMENT_METRIC_CONTRACT}")
+    elif isinstance(metrics, Mapping):
+        _validate_settlement_metrics(payload, metrics, errors)
+    gate_failures = payload.get("gate_failures")
+    if not isinstance(gate_failures, list):
+        errors.append("gate_failures must be a list")
+    elif payload.get("decision_status") == "passed" and gate_failures:
+        errors.append("passed settlement runs must not include gate_failures")
+    elif payload.get("decision_status") in {"review_required", "failed"} and not gate_failures:
+        errors.append("non-passed settlement runs must include at least one gate_failure")
+    metric_refs = payload.get("metric_refs")
+    settlement_id = str(payload.get("fold_settlement_run_id") or "")
+    expected_metric_ref = f"{settlement_id}:metrics" if settlement_id else ""
+    if not isinstance(metric_refs, list) or not all(isinstance(item, str) and item for item in metric_refs):
+        errors.append("metric_refs must be a non-empty string list")
+    elif expected_metric_ref and expected_metric_ref not in metric_refs:
+        errors.append("metric_refs must include the settlement metrics ref")
+    if payload.get("agent_review_required") is not True:
+        errors.append("agent_review_required must be true")
+    if payload.get("agent_review_scope") != "promotion-evaluation-review":
+        errors.append("agent_review_scope must be promotion-evaluation-review")
     for field in ("model_activation_performed", "active_model_config_written", "broker_execution_performed", "account_mutation_performed"):
         if payload.get(field) is not False:
             errors.append(f"{field} must be false")
@@ -362,6 +417,68 @@ def validate_fold_settlement_run(payload: Mapping[str, Any]) -> SettlementValida
         validation_status="passed" if not errors else "failed",
         errors=tuple(errors),
     )
+
+
+def _validate_settlement_metrics(payload: Mapping[str, Any], metrics: Mapping[str, Any], errors: list[str]) -> None:
+    required_metric_fields = (
+        "settlement_run_ref",
+        "decision_row_count",
+        "net_return_total",
+        "baseline_return_total",
+        "excess_return_total",
+        "max_drawdown",
+        "turnover_proxy_count",
+        "hit_rate",
+        "payoff_ratio",
+        "auroc",
+        "auroc_pair_count",
+        "brier_score",
+        "feature_column_count",
+        "feature_row_count",
+        "pca_available",
+        "pcoa_available",
+    )
+    for field in required_metric_fields:
+        if field not in metrics:
+            errors.append(f"metrics.{field} is required")
+    settlement_id = str(payload.get("fold_settlement_run_id") or "")
+    if settlement_id and metrics.get("settlement_run_ref") != settlement_id:
+        errors.append("metrics.settlement_run_ref must match fold_settlement_run_id")
+    for field in ("decision_row_count", "turnover_proxy_count", "auroc_pair_count", "feature_column_count", "feature_row_count"):
+        if metrics.get(field) is not None:
+            _validate_nonnegative_int(metrics, field, errors)
+    for field in ("net_return_total", "baseline_return_total", "excess_return_total", "max_drawdown"):
+        if metrics.get(field) is not None:
+            _validate_finite_number(metrics, field, errors)
+    for field in ("hit_rate", "auroc", "brier_score", "pca_top2_variance_ratio"):
+        _validate_optional_probability(metrics, field, errors)
+    for field in ("payoff_ratio", "pcoa_mean_pairwise_distance"):
+        _validate_optional_nonnegative_number(metrics, field, errors)
+    for field in ("pca_available", "pcoa_available"):
+        value = metrics.get(field)
+        if value is not None and not isinstance(value, bool):
+            errors.append(f"metrics.{field} must be a boolean")
+    if all(_is_finite_number(metrics.get(field)) for field in ("net_return_total", "baseline_return_total", "excess_return_total")):
+        expected_excess = float(metrics["net_return_total"]) - float(metrics["baseline_return_total"])
+        if not math.isclose(float(metrics["excess_return_total"]), expected_excess, rel_tol=1e-9, abs_tol=1e-12):
+            errors.append("metrics.excess_return_total must equal net_return_total - baseline_return_total")
+    gate_failures = payload.get("gate_failures")
+    if isinstance(gate_failures, list):
+        decision_rows = metrics.get("decision_row_count")
+        auroc = metrics.get("auroc")
+        net_return = metrics.get("net_return_total")
+        baseline_return = metrics.get("baseline_return_total")
+        if isinstance(decision_rows, int) and not isinstance(decision_rows, bool) and decision_rows < DEFAULT_MIN_DECISION_ROWS:
+            if "decision_row_count_below_minimum" not in gate_failures:
+                errors.append("gate_failures must include decision_row_count_below_minimum")
+        if auroc is None:
+            if "auroc_unavailable" not in gate_failures:
+                errors.append("gate_failures must include auroc_unavailable when metrics.auroc is null")
+        elif _is_finite_number(auroc) and float(auroc) < DEFAULT_MIN_AUROC and "auroc_below_minimum" not in gate_failures:
+            errors.append("gate_failures must include auroc_below_minimum")
+        if _is_finite_number(net_return) and _is_finite_number(baseline_return) and float(net_return) <= float(baseline_return):
+            if "net_return_not_above_baseline" not in gate_failures:
+                errors.append("gate_failures must include net_return_not_above_baseline")
 
 
 def load_decision_rows(path: Path) -> list[dict[str, Any]]:

@@ -62,6 +62,8 @@ class BenchmarkAcquisitionRunnerTests(unittest.TestCase):
             payload = json.loads(task_key.read_text(encoding="utf-8"))
             self.assertEqual(payload["feed"], "05_feed_gdelt_news")
             self.assertEqual(payload["manager_controls"]["allowed_providers"], ["gdelt_bigquery"])
+            self.assertFalse(payload["manager_controls"]["allow_live_provider_calls"])
+            self.assertFalse(payload["manager_controls"]["autonomous_historical_provider_acquisition"])
             self.assertFalse(summary.manager_request_route_used)
 
     def test_liquidity_task_budget_scales_by_acquisition_windows(self):
@@ -80,6 +82,25 @@ class BenchmarkAcquisitionRunnerTests(unittest.TestCase):
         )
         self.assertEqual(payload["manager_controls"]["max_requests"], 12)
         self.assertEqual(payload["manager_controls"]["max_rows"], 1200)
+        self.assertFalse(payload["manager_controls"]["allow_live_provider_calls"])
+
+    def test_execute_task_payload_allows_provider_gate(self):
+        payload = build_task_payload(
+            type(
+                "Item",
+                (),
+                {
+                    "acquisition_id": "a",
+                    "feed": "05_feed_gdelt_news",
+                    "source_id": "gdelt_news",
+                    "params": {"max_rows": 100},
+                    "output_root": "/tmp/out",
+                },
+            )(),
+            allow_provider_calls=True,
+        )
+        self.assertTrue(payload["manager_controls"]["allow_live_provider_calls"])
+        self.assertTrue(payload["manager_controls"]["autonomous_historical_provider_acquisition"])
 
 
 if __name__ == "__main__":

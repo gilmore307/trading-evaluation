@@ -163,7 +163,7 @@ def validate_benchmark_contract(payload: Mapping[str, Any]) -> BenchmarkValidati
         if not _replay_window_is_excluded(contract, contract.excluded_training_windows):
             errors.append("excluded_training_windows must cover the full benchmark replay window")
     if not contract.guardrail_refs:
-        warnings.append("guardrail_refs is empty; promotion benchmark remains valid but overfit detection is weaker")
+        errors.append("guardrail_refs must include at least one accepted guardrail benchmark")
 
     return BenchmarkValidation(
         contract_type="evaluation_benchmark_contract_validation",

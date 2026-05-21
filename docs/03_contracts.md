@@ -47,18 +47,47 @@ Benchmark replay uses the realtime execution route with a historical clock. It c
 
 ## Fold Settlement Run
 
-`fold_settlement_run` will summarize one completed fold against one accepted benchmark contract.
+`fold_settlement_run` summarizes one completed fold against one accepted benchmark contract.
 
-Required future fields:
+Required run fields:
 
+- `contract_type = fold_settlement_run`
+- `fold_settlement_run_id`
 - `fold_id`
-- `benchmark_contract_id`
-- `candidate_model_refs`
-- `baseline_refs`
+- `candidate_model_ref`
+- `benchmark_contract_ref`
+- `replay_result_ref`
+- `baseline_ref`
+- `created_at_utc`
+- `decision_status` in `passed`, `review_required`, or `failed`
+- `gate_failures`
 - `metric_refs`
-- `report_ref`
-- `validation_status`
-- `generated_at_utc`
+- `metrics`
+- `agent_review_required = true`
+- `agent_review_scope = promotion-evaluation-review`
+- safety booleans proving no model activation, active config write, broker execution, or account mutation occurred
+
+Required metric fields:
+
+- `contract_type = fold_settlement_metric`
+- `settlement_run_ref`
+- `decision_row_count`
+- `net_return_total`
+- `baseline_return_total`
+- `excess_return_total`
+- `max_drawdown`
+- `turnover_proxy_count`
+- `hit_rate`
+- `payoff_ratio`
+- `auroc`
+- `auroc_pair_count`
+- `brier_score`
+- `feature_column_count`
+- `feature_row_count`
+- `pca_available`
+- `pcoa_available`
+
+The validator requires the metric ref to match the settlement run, core metric fields to be present and typed, bounded probability metrics to stay within `0..1`, and deterministic gate failures to be present when evidence is too small, AUROC is unavailable/weak, or net return is not above baseline.
 
 ## Promotion Eligibility Decision
 

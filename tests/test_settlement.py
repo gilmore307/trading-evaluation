@@ -60,6 +60,65 @@ class SettlementTests(unittest.TestCase):
         self.assertEqual(payload["decision_status"], "review_required")
         self.assertIn("decision_row_count_below_minimum", payload["gate_failures"])
 
+    def test_rejects_incomplete_settlement_metrics(self):
+        payload = {
+            "contract_type": "fold_settlement_run",
+            "fold_settlement_run_id": "settlement_test",
+            "fold_id": "fold_2016-01_2016-06",
+            "candidate_model_ref": "model://candidate/a",
+            "benchmark_contract_ref": "benchmark://promotion",
+            "replay_result_ref": "storage://replay/result",
+            "created_at_utc": "2026-05-21T00:00:00Z",
+            "decision_status": "passed",
+            "gate_failures": [],
+            "metric_refs": ["settlement_test:metrics"],
+            "metrics": {"contract_type": "fold_settlement_metric"},
+            "agent_review_required": True,
+            "agent_review_scope": "promotion-evaluation-review",
+            "model_activation_performed": False,
+            "active_model_config_written": False,
+            "broker_execution_performed": False,
+            "account_mutation_performed": False,
+        }
+
+        result = validate_fold_settlement_run(payload)
+
+        self.assertEqual(result.validation_status, "failed")
+        self.assertIn("metrics.decision_row_count is required", result.errors)
+        self.assertIn("metrics.net_return_total is required", result.errors)
+
+    def test_rejects_inconsistent_settlement_metrics(self):
+        payload = build_fold_settlement_run(
+            fold_id="fold_2016-01_2016-06",
+            candidate_model_ref="model://candidate/a",
+            benchmark_contract_ref="benchmark://promotion",
+            replay_result_ref="storage://replay/result",
+            decision_rows=self._rows(),
+        )
+        payload["metrics"]["excess_return_total"] = 999.0
+
+        result = validate_fold_settlement_run(payload)
+
+        self.assertEqual(result.validation_status, "failed")
+        self.assertIn("metrics.excess_return_total must equal net_return_total - baseline_return_total", result.errors)
+
+    def test_rejects_missing_nullable_metric_keys(self):
+        payload = build_fold_settlement_run(
+            fold_id="fold_2016-01_2016-06",
+            candidate_model_ref="model://candidate/a",
+            benchmark_contract_ref="benchmark://promotion",
+            replay_result_ref="storage://replay/result",
+            decision_rows=self._rows(),
+        )
+        del payload["metrics"]["auroc"]
+        del payload["metrics"]["hit_rate"]
+
+        result = validate_fold_settlement_run(payload)
+
+        self.assertEqual(result.validation_status, "failed")
+        self.assertIn("metrics.auroc is required", result.errors)
+        self.assertIn("metrics.hit_rate is required", result.errors)
+
     def test_cli_writes_settlement(self):
         with tempfile.TemporaryDirectory() as raw_tmp:
             tmp = Path(raw_tmp)

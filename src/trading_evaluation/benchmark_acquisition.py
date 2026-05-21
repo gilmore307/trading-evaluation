@@ -144,13 +144,13 @@ def _request_budget(params: Mapping[str, Any], feed: str) -> tuple[int, int | No
     return max_pages, limit * max_pages, 1
 
 
-def build_task_payload(item: AcquisitionItem) -> dict[str, Any]:
+def build_task_payload(item: AcquisitionItem, *, allow_provider_calls: bool = False) -> dict[str, Any]:
     controls = dict(PROVIDER_CONTROLS_BY_FEED.get(item.feed, {}))
     max_requests, max_rows, max_symbols = _request_budget(item.params, item.feed)
     controls.update(
         {
-            "allow_live_provider_calls": True,
-            "autonomous_historical_provider_acquisition": True,
+            "allow_live_provider_calls": allow_provider_calls,
+            "autonomous_historical_provider_acquisition": allow_provider_calls,
             "secrets_policy": "secret_aliases_only",
             "max_requests": max_requests,
             "max_symbols": max_symbols,
@@ -207,7 +207,7 @@ def run_acquisition(
             if stop_on_failure:
                 break
             continue
-        payload = build_task_payload(item)
+        payload = build_task_payload(item, allow_provider_calls=execute)
         task_key_path = task_key_root / f"{item.acquisition_id}.json"
         task_key_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         command = [sys.executable, "-m", module, str(task_key_path), "--run-id", _run_id(run_id, item)]
