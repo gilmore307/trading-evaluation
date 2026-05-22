@@ -82,6 +82,24 @@ class PromotionEvaluationReviewTests(unittest.TestCase):
             self.assertTrue((output_dir / "promotion_evaluation_review.json").exists())
             self.assertTrue((output_dir / "promotion_eligibility_decision.json").exists())
 
+    def test_first_model_bootstrap_is_eligible_baseline(self):
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            result = build_promotion_review_result(
+                settlement_run=self._settlement_run(),
+                settlement_run_ref="storage://settlement/bootstrap",
+                benchmark_contract_ref="trading-evaluation/replays/promotion_replay_candidate_policy.json",
+                output_dir=Path(raw_tmp) / "review",
+                first_model_bootstrap=True,
+            )
+
+            self.assertTrue(result.review["first_model_bootstrap"])
+            self.assertEqual(result.review["recommendation"], "eligible_for_shadow")
+            self.assertEqual(result.review["identity_blinding_status"], "not_applicable")
+            self.assertEqual(result.review["comparison_status"], "not_applicable")
+            self.assertEqual(result.eligibility_decision["decision_status"], "eligible")
+            self.assertEqual(result.eligibility_decision["incumbent_comparison_ref"], "storage://settlement/bootstrap")
+            self.assertEqual(result.eligibility_decision["fold_stack_status"], "complete_layer_01_10")
+
 
 if __name__ == "__main__":
     unittest.main()

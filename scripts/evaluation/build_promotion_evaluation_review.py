@@ -22,6 +22,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--comparison-result-ref")
     parser.add_argument("--candidate-config-ref")
     parser.add_argument("--first-run-evidence-ref")
+    parser.add_argument("--first-model-bootstrap", action="store_true")
     args = parser.parse_args(argv)
 
     settlement_run = json.loads(args.settlement_run_json.read_text(encoding="utf-8"))
@@ -37,6 +38,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         comparison_result_ref=args.comparison_result_ref,
         candidate_config_ref=args.candidate_config_ref,
         first_run_evidence_ref=args.first_run_evidence_ref,
+        first_model_bootstrap=args.first_model_bootstrap,
     )
     print(
         json.dumps(

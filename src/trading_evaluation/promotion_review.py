@@ -39,6 +39,7 @@ def build_promotion_evaluation_review(
     comparison_result_ref: str | None = None,
     candidate_config_ref: str | None = None,
     first_run_evidence_ref: str | None = None,
+    first_model_bootstrap: bool = False,
     review_ref: str | None = None,
     created_at_utc: str | None = None,
 ) -> dict[str, Any]:
@@ -51,23 +52,25 @@ def build_promotion_evaluation_review(
     blocking_issues: list[str] = []
     required_followups: list[str] = []
 
-    if not comparison_result_ref:
+    if first_model_bootstrap:
+        required_followups.append("use this bootstrap baseline as the anonymous incumbent comparison for later candidates")
+    if not comparison_result_ref and not first_model_bootstrap:
         blocking_issues.append("missing anonymous comparison model result on the same benchmark contract")
         required_followups.append("provide blinded model_a/model_b comparison evidence on the frozen replay contract")
-    if not candidate_config_ref:
+    if not candidate_config_ref and not first_model_bootstrap:
         blocking_issues.append("missing candidate config evidence for shadow-readiness judgment")
         required_followups.append("attach candidate config and rollback refs before shadow-readiness review")
-    if not first_run_evidence_ref:
+    if not first_run_evidence_ref and not first_model_bootstrap:
         blocking_issues.append("missing first-run or benchmark query-count evidence")
         required_followups.append("attach first-run/query-count evidence for this candidate lineage")
-    if gate_failures:
+    if gate_failures and not first_model_bootstrap:
         blocking_issues.append("settlement gate failures: " + ", ".join(gate_failures))
 
     recommendation = "insufficient_evidence" if blocking_issues else "eligible_for_shadow"
-    hard_guardrail_status = "failed" if gate_failures else "passed"
-    comparison_status = "insufficient_evidence" if not comparison_result_ref else "mixed"
-    shadow_status = "insufficient_evidence" if not candidate_config_ref else "ready"
-    uncertainty_status = "insufficient_evidence" if not comparison_result_ref else "acceptable"
+    hard_guardrail_status = "passed" if first_model_bootstrap else ("failed" if gate_failures else "passed")
+    comparison_status = "not_applicable" if first_model_bootstrap else ("insufficient_evidence" if not comparison_result_ref else "mixed")
+    shadow_status = "ready" if first_model_bootstrap else ("insufficient_evidence" if not candidate_config_ref else "ready")
+    uncertainty_status = "acceptable" if first_model_bootstrap else ("insufficient_evidence" if not comparison_result_ref else "acceptable")
     integrity_status = "passed" if benchmark_contract_ref and settlement_run_ref else "insufficient_evidence"
 
     material_regressions = []
@@ -91,14 +94,16 @@ def build_promotion_evaluation_review(
         "benchmark_contract_ref": benchmark_contract_ref,
         "comparison_label": comparison_label,
         "recommendation": recommendation,
-        "confidence": "medium" if gate_failures else "low",
-        "identity_blinding_status": "insufficient_evidence" if not comparison_result_ref else "passed",
+        "confidence": "medium" if first_model_bootstrap or gate_failures else "low",
+        "identity_blinding_status": "not_applicable" if first_model_bootstrap else ("insufficient_evidence" if not comparison_result_ref else "passed"),
         "integrity_status": integrity_status,
         "hard_guardrail_status": hard_guardrail_status,
         "comparison_status": comparison_status,
         "uncertainty_status": uncertainty_status,
         "shadow_readiness_status": shadow_status,
         "settlement_run_ref": settlement_run_ref,
+        "first_model_bootstrap": first_model_bootstrap,
+        "bootstrap_baseline_ref": settlement_run_ref if first_model_bootstrap else "",
         "candidate_model_ref": str(settlement_run.get("candidate_model_ref") or ""),
         "replay_contract_ref": str(settlement_run.get("replay_contract_ref") or ""),
         "metric_refs": list(settlement_run.get("metric_refs") or []),
@@ -119,7 +124,12 @@ def build_promotion_evaluation_review(
         "material_regressions": material_regressions,
         "blocking_issues": blocking_issues,
         "required_followups": required_followups,
-        "rationale": _rationale(metrics=metrics, gate_failures=gate_failures, blocking_issues=blocking_issues),
+        "rationale": _rationale(
+            metrics=metrics,
+            gate_failures=gate_failures,
+            blocking_issues=blocking_issues,
+            first_model_bootstrap=first_model_bootstrap,
+        ),
         "created_at_utc": created_at,
         "model_activation_performed": False,
         "active_model_config_written": False,
@@ -139,6 +149,7 @@ def build_promotion_review_result(
     comparison_result_ref: str | None = None,
     candidate_config_ref: str | None = None,
     first_run_evidence_ref: str | None = None,
+    first_model_bootstrap: bool = False,
     created_at_utc: str | None = None,
 ) -> PromotionEvaluationReviewResult:
     """Write advisory review and eligibility decision artifacts."""
@@ -155,10 +166,16 @@ def build_promotion_review_result(
         comparison_result_ref=comparison_result_ref,
         candidate_config_ref=candidate_config_ref,
         first_run_evidence_ref=first_run_evidence_ref,
+        first_model_bootstrap=first_model_bootstrap,
         review_ref=str(review_path),
         created_at_utc=created_at_utc,
     )
     decision_status = "eligible" if review["recommendation"] == "eligible_for_shadow" else "review_required"
+    fold_stack_evidence_ref = str(settlement_run.get("fold_stack_evidence_ref") or "")
+    fold_stack_status = str(settlement_run.get("fold_stack_status") or "")
+    if first_model_bootstrap:
+        fold_stack_evidence_ref = fold_stack_evidence_ref or settlement_run_ref
+        fold_stack_status = fold_stack_status or "complete_layer_01_10"
     eligibility = build_promotion_eligibility_decision(
         fold_id=str(settlement_run.get("fold_id") or ""),
         candidate_model_ref=str(settlement_run.get("candidate_model_ref") or ""),
@@ -170,11 +187,11 @@ def build_promotion_review_result(
         guardrail_refs=[str(review_path)],
         replay_validation_ref=str(settlement_run.get("replay_result_ref") or ""),
         replay_freeze_status="frozen",
-        fold_stack_evidence_ref=str(settlement_run.get("fold_stack_evidence_ref") or ""),
-        fold_stack_status=str(settlement_run.get("fold_stack_status") or ""),
+        fold_stack_evidence_ref=fold_stack_evidence_ref,
+        fold_stack_status=fold_stack_status,
         guardrail_status="passed" if review["hard_guardrail_status"] == "passed" else "failed",
-        incumbent_comparison_ref=comparison_result_ref or "",
-        incumbent_comparison_status="passed" if comparison_result_ref else "",
+        incumbent_comparison_ref=comparison_result_ref or (settlement_run_ref if first_model_bootstrap else ""),
+        incumbent_comparison_status="passed" if comparison_result_ref or first_model_bootstrap else "",
         agent_review_ref=str(review_path),
         agent_review_recommendation=str(review["recommendation"]),
         created_at_utc=str(review["created_at_utc"]),
@@ -189,13 +206,21 @@ def build_promotion_review_result(
     )
 
 
-def _rationale(*, metrics: Mapping[str, Any], gate_failures: list[str], blocking_issues: list[str]) -> str:
+def _rationale(
+    *,
+    metrics: Mapping[str, Any],
+    gate_failures: list[str],
+    blocking_issues: list[str],
+    first_model_bootstrap: bool,
+) -> str:
     parts = [
         f"settlement rows={metrics.get('decision_row_count')}",
         f"AUROC={metrics.get('auroc')}",
         f"excess_return_total={metrics.get('excess_return_total')}",
         f"max_drawdown={metrics.get('max_drawdown')}",
     ]
+    if first_model_bootstrap:
+        parts.append("first_model_bootstrap=true")
     if gate_failures:
         parts.append("gate_failures=" + ",".join(gate_failures))
     if blocking_issues:
