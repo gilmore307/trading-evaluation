@@ -38,6 +38,12 @@ from .execution_runtime import (
     REPLAY_RUNTIME_DRY_RUN_CONTRACT,
     build_replay_runtime_dry_run,
 )
+from .replay_execution import (
+    REPLAY_DECISION_ROW_CONTRACT,
+    REPLAY_EXECUTION_RUN_CONTRACT,
+    ReplayExecutionResult,
+    build_crypto_replay_execution_run,
+)
 
 __all__ = [
     "ReplayContract",
@@ -54,9 +60,13 @@ __all__ = [
     "FOLD_SETTLEMENT_RUN_CONTRACT",
     "EXECUTION_REPLAY_ROUTE_REF",
     "REPLAY_RUNTIME_DRY_RUN_CONTRACT",
+    "REPLAY_DECISION_ROW_CONTRACT",
+    "REPLAY_EXECUTION_RUN_CONTRACT",
     "FrozenReplayDataset",
     "PreparedReplayDataset",
+    "ReplayExecutionResult",
     "build_replay_runtime_dry_run",
+    "build_crypto_replay_execution_run",
     "build_promotion_eligibility_decision",
     "build_promotion_readiness_record",
     "build_fold_settlement_run",

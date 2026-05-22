@@ -2,8 +2,8 @@
 
 ## Active Tasks
 
-- Run the first candidate-policy Replay over the frozen canonical `2021-01-01` to `2026-01-01` end-exclusive window. Replay windows must remain excluded from training folds.
-- Run fold settlement metric assembly after replay produces decision rows; `scripts/evaluation/build_fold_settlement_run.py` now emits AUROC, return/drawdown/cost/hit-rate, and PCA/PCoA-style structure diagnostics for agent-assisted promotion review.
+- Extend Replay execution from the completed crypto fixed sleeve into full point-in-time candidate-policy Replay, including equity/options candidate materialization and candidate-dependent Alpaca rows.
+- Review the completed crypto fixed-sleeve settlement result before using it as strategy evidence; it is `review_required` because AUROC did not meet the minimum gate.
 - Move remaining promotion eligibility and readiness logic out of manager/model paths into this repository in controlled slices.
 
 ## Current Replay Dataset Coverage
@@ -22,3 +22,5 @@
 - Prepared the candidate-policy Replay dataset against the current execution runtime component graph, expanded fixed crypto acquisition for the separate crypto account candidate pool, and added bounded replay acquisition retry support for Trading Economics visible pages.
 - Completed the one-shot Replay source acquisition pass for fixed crypto, GDELT, and Trading Economics monthly source artifacts; remaining Alpaca source rows are intentionally deferred until candidate symbols materialize during Replay.
 - Froze the first candidate-policy Replay dataset after correcting OKX artifact paths to `instrument/month` granularity and validating that all non-deferred source acquisitions have distinct succeeded receipts. Freeze receipt: `/root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy/replay_freeze_receipt.json`.
+- Ran crypto fixed-sleeve Replay execution through `trading-execution` Replay components: `5475` decision rows over `1826` market dates for `BTC`, `ETH`, and `SOL`, with no provider calls, broker calls, broker/account mutation, model training, or active config write.
+- Built fold settlement for the crypto fixed-sleeve Replay. Settlement `settlement_ad1cbf4f039eeb76` is `review_required` with gate failure `auroc_below_minimum`; do not promote from this evidence.

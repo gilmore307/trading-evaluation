@@ -41,6 +41,7 @@ frozen replay contract
   -> candidate-policy replay holdout proof
   -> replay dataset preparation manifest
   -> execution runtime component graph under Replay adapters
+  -> frozen replay execution decision rows
   -> fold settlement run
   -> settlement metric rows/report refs
   -> fixed-rubric promotion reviewer advisory
@@ -49,7 +50,7 @@ frozen replay contract
   -> execution shadow cycle selection
 ```
 
-The promotion replay is a frozen historical-clock candidate-policy replay over the canonical fixed window `2021-01-01` through `2026-01-01` end-exclusive, covering the full 2021-2025 calendar years and 1255 expected NYSE trading days. The candidate model must generate candidates from the accepted candidate policy, rank/select targets itself, and run through `trading-execution`'s `execution_runtime_component_graph` with Replay adapters against a frozen snapshot and cost model. Guardrail replays may exist for overfit detection, but they do not replace the primary replay leaderboard unless a new replay contract is explicitly accepted.
+The promotion replay is a frozen historical-clock candidate-policy replay over the canonical fixed window `2021-01-01` through `2026-01-01` end-exclusive, covering the full 2021-2025 calendar years and 1255 expected NYSE trading days. The candidate model must generate candidates from the accepted candidate policy, rank/select targets itself, and run through `trading-execution`'s `execution_runtime_component_graph` with Replay adapters against a frozen snapshot and cost model. The current implemented execution runner covers the fixed crypto sleeve and writes settlement-ready decision rows; full equity/options candidate materialization remains active work. Guardrail replays may exist for overfit detection, but they do not replace the primary replay leaderboard unless a new replay contract is explicitly accepted.
 
 Agent review, when used, must follow the workspace skill `skills/openclaw/promotion-evaluation-review`. The reviewer produces advisory structured evidence only; deterministic evaluation code validates eligibility and writes promotion readiness records.
 

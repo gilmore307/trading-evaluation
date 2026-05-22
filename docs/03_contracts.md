@@ -29,6 +29,15 @@ execution component graph mode/policy, emitted runtime decision records,
 validation results, and safety flags. It must not train models, call providers,
 write active model config, submit broker requests, or mutate account state.
 
+`evaluation_replay_execution_run` records a side-effect-free Replay execution
+over frozen local source artifacts. The current implemented execution scope is
+`crypto_spot_account_fixed_candidate_pool`: it reads frozen OKX daily bars for
+`BTC`, `ETH`, and `SOL`, calls `trading-execution` runtime builders under Replay
+adapters, writes settlement-ready `evaluation_replay_decision_row` JSONL, and
+records safety flags proving no provider call, broker call, account mutation,
+model training, or active config write occurred. This is Replay evidence, not a
+promotion eligibility decision.
+
 ## Replay Dataset Preparation Manifest
 
 `replay_dataset_preparation_manifest` is the contract type for the runtime preparation bundle for a replay contract under storage ownership.
