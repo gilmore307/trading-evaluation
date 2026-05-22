@@ -13,4 +13,5 @@ Current entrypoints:
 - `evaluation/run_replay_runtime_dry_run.py` smoke-tests the execution-owned Replay component graph without provider, model activation, broker, or account side effects.
 - `evaluation/run_replay_execution.py` runs the frozen crypto fixed-sleeve Replay and writes settlement-ready decision rows.
 - `evaluation/build_fold_settlement_run.py` assembles fold-settlement metrics, including AUROC and structure diagnostics, from replay decision rows.
+- `evaluation/build_promotion_evaluation_review.py` builds promotion-evaluation-review evidence and a promotion eligibility decision from settlement output.
 - `evaluation/build_promotion_readiness_record.py` builds promotion readiness records from eligible evaluation decisions.
