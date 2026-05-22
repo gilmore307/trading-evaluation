@@ -13,7 +13,7 @@ This preparation step is not a replay freeze and does not use the manager task/r
 
 ## Current Inputs
 
-- source contract: pending accepted candidate-policy replay under `trading-evaluation/replays/`
+- source contract: accepted candidate-policy replay under `trading-evaluation/replays/`
 - canonical replay window: `2021-01-01` through `2026-01-01` end-exclusive
 - local coverage scan root: `trading-storage/storage/01_source_data`
 - runtime output root: `trading-storage/storage/05_replay_datasets`
@@ -70,7 +70,7 @@ PYTHONPATH=src python3 scripts/evaluation/run_replay_runtime_dry_run.py \
   --output-path /root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy/replay_runtime_dry_run_receipt.json
 ```
 
-This smoke test is not a 60-month replay. It proves the side-effect-free execution component graph call path and writes a receipt for readiness evidence.
+This smoke test is not a 60-month replay. It proves the side-effect-free execution component graph call path and writes a receipt.
 
 To plan or execute bounded one-shot acquisitions from the generated plan:
 

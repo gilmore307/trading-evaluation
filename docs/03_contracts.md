@@ -19,7 +19,7 @@
 - `selection_metric_refs`
 - `excluded_training_windows` covering the full replay window
 
-The current validator requires a candidate-policy replay over the canonical fixed window `2021-01-01` through `2026-01-01` end-exclusive, with at least 1255 expected trading days, sufficient declared market-condition coverage, non-empty candidate policy, replay route, data snapshot, cost model, baseline refs, guardrail refs, selection metric refs, and explicit exclusion windows covering the full replay window. Fixed target fields and `replay_components` are rejected. `is_training_fold_blocked_by_replay` is the helper for blocking folds that overlap the sealed replay window.
+The validator requires a candidate-policy replay over the canonical fixed window `2021-01-01` through `2026-01-01` end-exclusive, with at least 1255 expected trading days, sufficient declared market-condition coverage, non-empty candidate policy, replay route, data snapshot, cost model, baseline refs, guardrail refs, selection metric refs, and explicit exclusion windows covering the full replay window. Fixed target fields and `replay_components` are rejected. `is_training_fold_blocked_by_replay` blocks folds that overlap the sealed replay window.
 
 The accepted `replay_route_ref` is `trading-execution://execution_runtime_component_graph/replay`. Replay calls the execution-owned component graph with Replay adapters; evaluation does not own a separate trading decision graph.
 
@@ -30,7 +30,7 @@ validation results, and safety flags. It must not train models, call providers,
 write active model config, submit broker requests, or mutate account state.
 
 `evaluation_replay_execution_run` records a side-effect-free Replay execution
-over frozen local source artifacts. The current implemented execution scope is
+over frozen local source artifacts. The active execution scope is
 `crypto_spot_account_fixed_candidate_pool`: it reads frozen OKX daily bars for
 `BTC`, `ETH`, and `SOL`, calls `trading-execution` runtime builders under Replay
 adapters, writes settlement-ready `evaluation_replay_decision_row` JSONL, and

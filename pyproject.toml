@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "trading-evaluation"
 version = "0.1.0"
-description = "Independent replay, fold settlement, and promotion-eligibility contracts for the trading system."
+description = "Independent replay, fold settlement, promotion-eligibility, and promotion-readiness contracts for the trading system."
 requires-python = ">=3.12"
 readme = "README.md"
 
@@ -14,4 +14,3 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-

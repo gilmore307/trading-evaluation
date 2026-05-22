@@ -26,5 +26,4 @@ For `decision_status = eligible`, the record must include:
 
 - `failed`: replay integrity or hard guardrails failed.
 - `deferred`: evidence is valid but the candidate is not materially better than the incumbent.
-- `eligible_for_shadow`: replay evidence is promising but still needs forward shadow evidence.
 - `eligible_for_shadow`: replay integrity, risk guardrails, incumbent comparison, uncertainty checks, and rollback/config evidence all pass well enough for execution shadow review.

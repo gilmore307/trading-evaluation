@@ -1,14 +1,14 @@
 # trading-evaluation
 
-`trading-evaluation` is the independent replay, fold-settlement, and promotion-readiness repository for the trading system.
+`trading-evaluation` is the independent replay, fold-settlement, promotion-eligibility, and promotion-readiness repository for the trading system.
 
 It owns frozen replay contracts, replay-window training-exclusion proof, fold settlement, model-performance comparison, promotion eligibility decisions, and promotion readiness records. It is the system's offline evaluation referee: it judges model candidates against accepted evidence and may admit them to execution shadow review, but it does not train models, switch active model configs, execute trades, mutate accounts, run provider acquisition, or own durable storage layout.
 
 ## Top-Level Structure
 
 ```text
-docs/        Repository scope, architecture, contracts, tasks, decisions, and evaluation modules.
-replays/  Reviewable replay contract candidates before freeze.
+docs/     Repository scope, architecture, contracts, tasks, decisions, and evaluation modules.
+replays/  Reviewable promotion replay contracts.
 scripts/     Executable evaluation and validation entrypoints.
 src/         Importable replay, settlement, and promotion-eligibility helpers.
 tests/       First-party tests.
@@ -50,7 +50,9 @@ frozen replay contract
   -> execution shadow cycle selection
 ```
 
-The promotion replay is a frozen historical-clock candidate-policy replay over the canonical fixed window `2021-01-01` through `2026-01-01` end-exclusive, covering the full 2021-2025 calendar years and 1255 expected NYSE trading days. The candidate model must generate candidates from the accepted candidate policy, rank/select targets itself, and run through `trading-execution`'s `execution_runtime_component_graph` with Replay adapters against a frozen snapshot and cost model. The current implemented execution runner covers the fixed crypto sleeve and writes settlement-ready decision rows; full equity/options candidate materialization remains active work. Guardrail replays may exist for overfit detection, but they do not replace the primary replay leaderboard unless a new replay contract is explicitly accepted.
+The promotion replay is a frozen historical-clock candidate-policy replay over the canonical fixed window `2021-01-01` through `2026-01-01` end-exclusive, covering the full 2021-2025 calendar years and 1255 expected NYSE trading days. The candidate model generates candidates from the accepted candidate policy, ranks and selects targets, and runs through `trading-execution`'s `execution_runtime_component_graph` with Replay adapters against the frozen snapshot and cost model. The active execution runner covers the fixed crypto sleeve and writes settlement-ready decision rows; full equity/options candidate materialization remains active work. Guardrail replays may exist for overfit detection, but they do not replace the primary replay leaderboard unless a new replay contract is explicitly accepted.
+
+Current settlement status is `review_required` for the crypto fixed-sleeve Replay because AUROC is below the minimum gate. Current settlement evidence therefore does not support promotion readiness.
 
 Agent review, when used, must follow the workspace skill `skills/openclaw/promotion-evaluation-review`. The reviewer produces advisory structured evidence only; deterministic evaluation code validates eligibility and writes promotion readiness records.
 

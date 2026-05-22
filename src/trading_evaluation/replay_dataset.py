@@ -88,6 +88,7 @@ class FrozenReplayDataset:
     freeze_receipt_path: Path
     freeze_receipt: dict[str, Any]
 
+
 def prepare_replay_dataset(
     payload: Mapping[str, Any],
     *,

@@ -7,14 +7,12 @@ Status: Accepted
 
 `trading-evaluation` owns replay judgment, fold settlement, promotion eligibility, and promotion readiness records. It does not train models, schedule workflow, store durable artifacts, switch active model configs, execute broker actions, or mutate accounts.
 
-## D002 - Primary Fixed Panel Was Superseded
+## D002 - Fixed Target Panels Are Not Promotion Replay
 
 Date: 2026-05-19
-Status: Superseded and deleted for target-selection promotion replay by D004.
+Status: Superseded by D004.
 
-The former primary fixed-panel route allowed multiple fixed target/window components inside one frozen panel so fold settlement remained horizontally comparable across model generations.
-
-That fixed-panel route is no longer active because it preselects the final target identity the model is supposed to choose.
+Fixed target panels do not support target-selection promotion replay because they preselect the final target identity. D004 defines the active candidate-policy replay contract.
 
 ## D003 - Promotion Readiness Belongs In Evaluation; Runtime Activation Belongs In Execution
 

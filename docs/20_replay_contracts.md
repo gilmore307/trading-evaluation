@@ -52,6 +52,6 @@ Guardrail replays may catch overfit or pathological candidates. They should not 
 
 ## Current Selection Status
 
-The canonical promotion replay window is fixed as `2021-01-01` through `2026-01-01` end-exclusive. The first reusable replay data snapshot is frozen for complete GDELT, Trading Economics, and fixed crypto OKX source artifacts; Alpaca bars, liquidity, and news remain accepted deferred requirements because equity/options candidate symbols materialize point-in-time during Replay. The prior fixed target/window artifact was deleted because it preselected final targets and is no longer applicable.
+The canonical promotion replay window is fixed as `2021-01-01` through `2026-01-01` end-exclusive. The reusable replay data snapshot is frozen for complete GDELT, Trading Economics, and fixed crypto OKX source artifacts; Alpaca bars, liquidity, and news remain accepted deferred requirements because equity/options candidate symbols materialize point-in-time during Replay.
 
 Do not use fixed target/window panels for training, tuning, prompt iteration, model selection, or promotion. Full promotion judgment requires an accepted candidate-policy replay.
