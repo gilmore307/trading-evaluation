@@ -23,6 +23,12 @@ The current validator requires a candidate-policy replay over the canonical fixe
 
 The accepted `replay_route_ref` is `trading-execution://execution_runtime_component_graph/replay`. Replay calls the execution-owned component graph with Replay adapters; evaluation does not own a separate trading decision graph.
 
+`evaluation_replay_runtime_dry_run` is the fixture-safe harness proving that
+evaluation can call the execution-owned Replay route directly. It returns the
+execution component graph mode/policy, emitted runtime decision records,
+validation results, and safety flags. It must not train models, call providers,
+write active model config, submit broker requests, or mutate account state.
+
 ## Replay Dataset Preparation Manifest
 
 `replay_dataset_preparation_manifest` is the contract type for the runtime preparation bundle for a replay contract under storage ownership.

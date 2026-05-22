@@ -29,6 +29,11 @@ from .settlement import (
     load_decision_rows,
     validate_fold_settlement_run,
 )
+from .execution_runtime import (
+    EXECUTION_REPLAY_ROUTE_REF,
+    REPLAY_RUNTIME_DRY_RUN_CONTRACT,
+    build_replay_runtime_dry_run,
+)
 
 __all__ = [
     "ReplayContract",
@@ -41,7 +46,10 @@ __all__ = [
     "PROMOTION_READINESS_RECORD_CONTRACT",
     "FOLD_SETTLEMENT_METRIC_CONTRACT",
     "FOLD_SETTLEMENT_RUN_CONTRACT",
+    "EXECUTION_REPLAY_ROUTE_REF",
+    "REPLAY_RUNTIME_DRY_RUN_CONTRACT",
     "PreparedReplayDataset",
+    "build_replay_runtime_dry_run",
     "build_promotion_eligibility_decision",
     "build_promotion_readiness_record",
     "build_fold_settlement_run",
