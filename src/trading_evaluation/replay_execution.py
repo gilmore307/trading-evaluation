@@ -20,6 +20,7 @@ from .execution_runtime import EXECUTION_REPLAY_ROUTE_REF, build_replay_runtime_
 
 REPLAY_EXECUTION_RUN_CONTRACT = "evaluation_replay_execution_run"
 REPLAY_DECISION_ROW_CONTRACT = "evaluation_replay_decision_row"
+REPLAY_PROGRESS_CONTRACT = "evaluation_replay_progress"
 CRYPTO_SPOT_ACCOUNT_SLEEVE = "crypto_spot_account"
 CRYPTO_SYMBOLS_BY_INSTRUMENT = {
     "BTC-USDT": "BTC",
@@ -35,6 +36,7 @@ class ReplayExecutionResult:
 
     receipt_path: Path
     decision_rows_path: Path
+    progress_path: Path
     receipt: dict[str, Any]
 
 
@@ -47,6 +49,7 @@ def build_crypto_replay_execution_run(
     replay_contract_ref: str = "trading-evaluation/replays/promotion_replay_candidate_policy.json",
     max_decision_rows: int | None = None,
     generated_at_utc: str | None = None,
+    progress_path: Path | None = None,
 ) -> ReplayExecutionResult:
     """Run the frozen crypto sleeve through the execution-owned Replay route."""
 
@@ -59,6 +62,7 @@ def build_crypto_replay_execution_run(
     output_dir.mkdir(parents=True, exist_ok=True)
     decision_rows_path = output_dir / "decision_rows.jsonl"
     receipt_path = output_dir / "replay_execution_receipt.json"
+    progress_path = progress_path or dataset_root / "replay_progress.jsonl"
 
     bars_by_target = _load_crypto_bars(Path(str(manifest["feed_acquisition_plan_ref"])))
     market_dates = sorted({row["date"] for rows in bars_by_target.values() for row in rows})
@@ -71,6 +75,13 @@ def build_crypto_replay_execution_run(
         max_decision_rows=max_decision_rows,
     )
     _write_jsonl(decision_rows_path, decision_rows)
+    progress_rows = _build_replay_progress_rows(
+        decision_rows=decision_rows,
+        run_id=run_id,
+        generated_at_utc=generated_at,
+        receipt_path=receipt_path,
+        decision_rows_path=decision_rows_path,
+    )
     receipt = {
         "contract_type": REPLAY_EXECUTION_RUN_CONTRACT,
         "replay_execution_run_id": run_id,
@@ -82,7 +93,9 @@ def build_crypto_replay_execution_run(
         "dataset_manifest_ref": str(dataset_root / "dataset_manifest.json"),
         "replay_freeze_receipt_ref": str(dataset_root / "replay_freeze_receipt.json"),
         "decision_rows_ref": str(decision_rows_path),
+        "progress_ref": str(progress_path),
         "decision_row_count": len(decision_rows),
+        "completed_replay_month_count": len(progress_rows),
         "target_refs": sorted(bars_by_target),
         "market_date_count": len(market_dates),
         "generated_at_utc": generated_at,
@@ -102,7 +115,50 @@ def build_crypto_replay_execution_run(
         ],
     }
     receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return ReplayExecutionResult(receipt_path=receipt_path, decision_rows_path=decision_rows_path, receipt=receipt)
+    _write_jsonl(progress_path, progress_rows)
+    return ReplayExecutionResult(
+        receipt_path=receipt_path,
+        decision_rows_path=decision_rows_path,
+        progress_path=progress_path,
+        receipt=receipt,
+    )
+
+
+def _build_replay_progress_rows(
+    *,
+    decision_rows: Sequence[Mapping[str, Any]],
+    run_id: str,
+    generated_at_utc: str,
+    receipt_path: Path,
+    decision_rows_path: Path,
+) -> list[dict[str, Any]]:
+    rows_by_month: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+    for row in decision_rows:
+        timestamp = str(row.get("timestamp") or "")
+        replay_month = timestamp[:7]
+        if len(replay_month) == 7 and replay_month[4] == "-":
+            rows_by_month[replay_month].append(row)
+    progress_rows: list[dict[str, Any]] = []
+    for replay_month in sorted(rows_by_month):
+        month_rows = rows_by_month[replay_month]
+        progress_rows.append(
+            {
+                "contract_type": REPLAY_PROGRESS_CONTRACT,
+                "stage_id": "model_group.replay",
+                "status": "completed",
+                "replay_status": "completed",
+                "month": replay_month,
+                "replay_month": replay_month,
+                "replay_execution_run_id": run_id,
+                "execution_scope": "crypto_spot_account_fixed_candidate_pool",
+                "decision_row_count": len(month_rows),
+                "target_refs": sorted({str(row.get("target_ref") or "") for row in month_rows if row.get("target_ref")}),
+                "receipt_ref": str(receipt_path),
+                "decision_rows_ref": str(decision_rows_path),
+                "generated_at_utc": generated_at_utc,
+            }
+        )
+    return progress_rows
 
 
 def _build_crypto_decision_rows(
@@ -328,6 +384,7 @@ def _validate_frozen_dataset(manifest: Mapping[str, Any], freeze_receipt: Mappin
 
 
 def _write_jsonl(path: Path, rows: Iterable[Mapping[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row, sort_keys=True) + "\n")

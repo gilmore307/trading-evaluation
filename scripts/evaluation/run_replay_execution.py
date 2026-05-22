@@ -32,6 +32,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         default="trading-evaluation/replays/promotion_replay_candidate_policy.json",
     )
     parser.add_argument("--max-decision-rows", type=int)
+    parser.add_argument("--progress-path", type=Path)
     args = parser.parse_args(argv)
 
     result = build_crypto_replay_execution_run(
@@ -41,6 +42,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         candidate_model_ref=args.candidate_model_ref,
         replay_contract_ref=args.replay_contract_ref,
         max_decision_rows=args.max_decision_rows,
+        progress_path=args.progress_path,
     )
     print(json.dumps(result.receipt, indent=2, sort_keys=True))
     return 0

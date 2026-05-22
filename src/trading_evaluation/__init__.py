@@ -41,6 +41,7 @@ from .execution_runtime import (
 from .replay_execution import (
     REPLAY_DECISION_ROW_CONTRACT,
     REPLAY_EXECUTION_RUN_CONTRACT,
+    REPLAY_PROGRESS_CONTRACT,
     ReplayExecutionResult,
     build_crypto_replay_execution_run,
 )
@@ -62,6 +63,7 @@ __all__ = [
     "REPLAY_RUNTIME_DRY_RUN_CONTRACT",
     "REPLAY_DECISION_ROW_CONTRACT",
     "REPLAY_EXECUTION_RUN_CONTRACT",
+    "REPLAY_PROGRESS_CONTRACT",
     "FrozenReplayDataset",
     "PreparedReplayDataset",
     "ReplayExecutionResult",

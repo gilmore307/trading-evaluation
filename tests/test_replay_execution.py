@@ -150,18 +150,25 @@ class ReplayExecutionTests(unittest.TestCase):
 
             self.assertEqual(result.receipt["contract_type"], "evaluation_replay_execution_run")
             self.assertEqual(result.receipt["decision_row_count"], 2)
+            self.assertEqual(result.receipt["completed_replay_month_count"], 1)
             self.assertFalse(result.receipt["side_effects"]["account_mutation_performed"])
             rows = [json.loads(line) for line in result.decision_rows_path.read_text(encoding="utf-8").splitlines()]
             self.assertEqual(rows[0]["contract_type"], "evaluation_replay_decision_row")
             self.assertEqual(rows[0]["target_ref"], "SOL")
             self.assertIn(rows[0]["validation_status"], {"passed", "failed"})
             self.assertIn("feature_momentum_7d", rows[0])
+            progress_rows = [json.loads(line) for line in result.progress_path.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(progress_rows[0]["contract_type"], "evaluation_replay_progress")
+            self.assertEqual(progress_rows[0]["stage_id"], "model_group.replay")
+            self.assertEqual(progress_rows[0]["month"], "2021-01")
+            self.assertEqual(progress_rows[0]["status"], "completed")
 
     def test_cli_writes_replay_execution_receipt(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             dataset_root = self._dataset(root)
             output_dir = root / "out"
+            progress_path = root / "progress" / "replay_progress.jsonl"
             result = subprocess.run(
                 [
                     sys.executable,
@@ -174,6 +181,8 @@ class ReplayExecutionTests(unittest.TestCase):
                     "cli_run",
                     "--max-decision-rows",
                     "1",
+                    "--progress-path",
+                    str(progress_path),
                 ],
                 cwd=Path(__file__).resolve().parents[1],
                 env={"PYTHONPATH": "src"},
@@ -186,6 +195,7 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(payload["replay_execution_run_id"], "cli_run")
             self.assertEqual(payload["decision_row_count"], 1)
             self.assertTrue((output_dir / "decision_rows.jsonl").exists())
+            self.assertTrue(progress_path.exists())
 
 
 if __name__ == "__main__":
