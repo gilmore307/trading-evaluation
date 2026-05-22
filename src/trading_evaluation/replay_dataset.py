@@ -328,6 +328,7 @@ def _feed_params(contract: ReplayContract, source: Mapping[str, str], window: Ma
                 "end_date": window["end_date_exclusive"],
                 "allow_live_fetch": True,
                 "date_range_mode": "custom",
+                "use_authenticated_cookies": False,
                 "country": "United States",
                 "importance": "3",
                 "max_window_days": 45,

@@ -106,6 +106,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             te_params = json.loads(te_row["params_json"])
             self.assertTrue(te_params["allow_live_fetch"])
             self.assertEqual(te_params["date_range_mode"], "custom")
+            self.assertFalse(te_params["use_authenticated_cookies"])
             self.assertTrue(te_params["persist_failure_diagnostics"])
             okx_rows = [row for row in acquisition_rows if row["source_id"] == "okx_crypto_market_data"]
             self.assertEqual(len(okx_rows), 180)

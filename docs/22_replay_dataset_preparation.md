@@ -26,7 +26,7 @@ Candidate-policy replay prepares one-shot acquisition requirements for the full 
 - `02_feed_alpaca_liquidity`
 - `03_feed_alpaca_news`
 - `05_feed_gdelt_news` for broad market, sector, theme, and symbol event evidence
-- `07_feed_trading_economics_calendar_web` for high-importance U.S. macro event evidence
+- `07_feed_trading_economics_calendar_web` for high-importance U.S. macro event evidence through logged-out visible-page custom-date requests
 - `04_feed_okx_crypto_market_data`
 
 Candidate symbols are not preselected. The candidate universe materializes point-in-time during replay from the accepted candidate policy. ThetaData option-chain snapshots (`09_feed_thetadata_option_selection_snapshot`) are generated on demand from replayed model buy/expression points. Selected-contract feeds (`10_feed_thetadata_option_primary_tracking` and `11_feed_thetadata_option_event_timeline`) expand only after those snapshots produce concrete expiration/right/strike selections. They are not guessed or pre-scanned across every replay day in the initial bundle.
@@ -40,7 +40,7 @@ PYTHONPATH=src python3 scripts/evaluation/prepare_replay_dataset.py \
   --data-root /root/projects/trading-storage/storage/01_source_data
 ```
 
-The generated acquisition plan records feed parameters and target output roots only. Live provider calls require a separate one-shot replay acquisition gate, but they do not need manager task rows or reusable task keys because this dataset is a sealed one-time replay artifact.
+The generated acquisition plan records feed parameters and target output roots only. Trading Economics rows use `use_authenticated_cookies=false`; the completed historical TE pass is a one-time replay seed and does not depend on an ongoing subscription. Live provider calls require a separate one-shot replay acquisition gate, but they do not need manager task rows or reusable task keys because this dataset is a sealed one-time replay artifact.
 
 ## Reusable Frozen Snapshot
 
