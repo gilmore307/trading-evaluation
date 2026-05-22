@@ -2,7 +2,7 @@
 
 ## Active Tasks
 
-- Freeze the first candidate-policy replay for the canonical `2021-01-01` to `2026-01-01` end-exclusive window after final coverage review. Replay windows must remain excluded from training folds.
+- Run the first candidate-policy Replay over the frozen canonical `2021-01-01` to `2026-01-01` end-exclusive window. Replay windows must remain excluded from training folds.
 - Run fold settlement metric assembly after replay produces decision rows; `scripts/evaluation/build_fold_settlement_run.py` now emits AUROC, return/drawdown/cost/hit-rate, and PCA/PCoA-style structure diagnostics for agent-assisted promotion review.
 - Move remaining promotion eligibility and readiness logic out of manager/model paths into this repository in controlled slices.
 
@@ -21,3 +21,4 @@
 - Added `evaluation_replay_runtime_dry_run`, a thin evaluation-side Replay harness that calls `trading-execution` runtime builders directly instead of duplicating trading decisions.
 - Prepared the candidate-policy Replay dataset against the current execution runtime component graph, expanded fixed crypto acquisition for the separate crypto account candidate pool, and added bounded replay acquisition retry support for Trading Economics visible pages.
 - Completed the one-shot Replay source acquisition pass for fixed crypto, GDELT, and Trading Economics monthly source artifacts; remaining Alpaca source rows are intentionally deferred until candidate symbols materialize during Replay.
+- Froze the first candidate-policy Replay dataset after correcting OKX artifact paths to `instrument/month` granularity and validating that all non-deferred source acquisitions have distinct succeeded receipts. Freeze receipt: `/root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy/replay_freeze_receipt.json`.

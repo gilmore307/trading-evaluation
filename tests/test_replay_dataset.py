@@ -114,6 +114,15 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
                 {json.loads(row["params_json"])["instId"] for row in okx_rows if row["month"] == "2021-01"},
                 {"BTC-USDT", "ETH-USDT", "SOL-USDT"},
             )
+            btc_jan = next(row for row in okx_rows if row["month"] == "2021-01" and json.loads(row["params_json"])["instId"] == "BTC-USDT")
+            self.assertEqual(
+                btc_jan["output_root"],
+                str(data_root / "replay" / "okx_crypto_market_data" / "promotion_replay_dataset_test" / "btc_usdt" / "2021-01"),
+            )
+            self.assertEqual(
+                btc_jan["coverage_receipt_path"],
+                str(data_root / "replay" / "okx_crypto_market_data" / "promotion_replay_dataset_test" / "btc_usdt" / "2021-01" / "completion_receipt.json"),
+            )
             self.assertIn(
                 "candidate_universe_materializes_point_in_time_during_replay",
                 prepared.manifest["known_deferred_requirements"],
@@ -217,6 +226,76 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             updated_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             self.assertEqual(updated_manifest["freeze_status"], "frozen")
             self.assertTrue(updated_manifest["safety"]["replay_freeze_performed"])
+
+    def test_freeze_replay_dataset_rejects_shared_non_deferred_receipt_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset_root = Path(tmp) / "dataset"
+            dataset_root.mkdir()
+            receipt_path = dataset_root / "shared" / "completion_receipt.json"
+            receipt_path.parent.mkdir()
+            receipt_path.write_text(json.dumps({"runs": [{"status": "succeeded"}]}) + "\n", encoding="utf-8")
+            plan_path = dataset_root / "feed_acquisition_plan.csv"
+            fields = [
+                "acquisition_id",
+                "contract_id",
+                "source_id",
+                "feed",
+                "month",
+                "start_date",
+                "end_date_exclusive",
+                "timeframe",
+                "acquisition_mode",
+                "output_root",
+                "expected_output_ref",
+                "coverage_status",
+                "coverage_receipt_path",
+                "params_json",
+                "notes",
+            ]
+            with plan_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=fields)
+                writer.writeheader()
+                for month in ("2021-01", "2021-02"):
+                    writer.writerow(
+                        {
+                            "acquisition_id": f"rplacq_test_okx_btc_{month}",
+                            "contract_id": "promotion_replay_dataset_test",
+                            "source_id": "okx_crypto_market_data",
+                            "feed": "04_feed_okx_crypto_market_data",
+                            "month": month,
+                            "start_date": f"{month}-01",
+                            "end_date_exclusive": "2021-03-01",
+                            "timeframe": "1Day",
+                            "acquisition_mode": "one_shot_candidate_policy_replay_acquisition",
+                            "output_root": str(receipt_path.parent),
+                            "expected_output_ref": "storage://test",
+                            "coverage_status": "available",
+                            "coverage_receipt_path": str(receipt_path),
+                            "params_json": "{}",
+                            "notes": "test",
+                        }
+                    )
+            (dataset_root / "dataset_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "contract_type": "replay_dataset_preparation_manifest",
+                        "contract_id": "promotion_replay_dataset_test",
+                        "freeze_status": "not_frozen",
+                        "missing_feed_acquisition_count": 0,
+                        "feed_acquisition_plan_ref": str(plan_path),
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (dataset_root / "coverage_summary.csv").write_text(
+                "contract_id,source_id,required_acquisition_count,available_acquisition_count,deferred_acquisition_count,missing_acquisition_count,coverage_status,notes\n"
+                "promotion_replay_dataset_test,okx_crypto_market_data,2,2,0,0,complete,ok\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "coverage_receipt_path is shared"):
+                freeze_replay_dataset(dataset_root)
 
     def test_freeze_replay_dataset_rejects_missing_coverage(self):
         with tempfile.TemporaryDirectory() as tmp:

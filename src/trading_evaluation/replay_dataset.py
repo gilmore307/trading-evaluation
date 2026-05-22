@@ -293,13 +293,14 @@ def _acquisition_rows_for_source_window(
     month = window["month"]
     if source["source_id"] == "okx_crypto_market_data":
         for instrument_ref in CRYPTO_SPOT_INSTRUMENT_REFS:
+            instrument_token = instrument_ref.lower().replace("-", "_")
             rows.append(
                 _acquisition_row(
                     contract,
                     source,
                     window,
                     data_root=data_root,
-                    acquisition_suffix=instrument_ref.lower().replace("-", "_"),
+                    acquisition_suffix=f"{instrument_token}/{month}",
                     params_extra={"instId": instrument_ref},
                     notes_suffix=f"; fixed crypto spot instrument {instrument_ref}",
                 )
@@ -517,7 +518,7 @@ def _expected_output_ref(source_id: str, contract_id: str, month: str) -> str:
 
 
 def _acquisition_id(contract_id: str, source_id: str, month: str) -> str:
-    return "rplacq_" + "_".join([_path_token(contract_id), _path_token(source_id), month.replace("-", "_")])
+    return "rplacq_" + "_".join([_path_token(contract_id), _path_token(source_id), _path_token(month)])
 
 
 def _path_token(value: str) -> str:
@@ -573,6 +574,42 @@ def _freeze_validation_errors(manifest: Mapping[str, Any], coverage_rows: Iterab
         if status == "deferred" and source_id in ACCEPTED_DEFERRED_SOURCE_IDS:
             continue
         errors.append(f"{source_id} has non-freezable coverage_status={status}")
+    errors.extend(_feed_acquisition_plan_validation_errors(manifest))
+    return errors
+
+
+def _feed_acquisition_plan_validation_errors(manifest: Mapping[str, Any]) -> list[str]:
+    plan_ref = manifest.get("feed_acquisition_plan_ref")
+    if not plan_ref:
+        return []
+    plan_path = Path(str(plan_ref))
+    if not plan_path.exists():
+        return [f"feed acquisition plan not found: {plan_ref}"]
+    with plan_path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    receipt_paths: dict[str, list[str]] = {}
+    errors: list[str] = []
+    for row in rows:
+        source_id = row.get("source_id", "")
+        coverage_status = row.get("coverage_status", "")
+        receipt_path = row.get("coverage_receipt_path", "")
+        acquisition_id = row.get("acquisition_id", "")
+        if coverage_status == "deferred" and source_id in ACCEPTED_DEFERRED_SOURCE_IDS:
+            continue
+        if not receipt_path:
+            errors.append(f"{acquisition_id} has no coverage_receipt_path")
+            continue
+        receipt_paths.setdefault(receipt_path, []).append(acquisition_id)
+        if not _receipt_succeeded(Path(receipt_path)):
+            errors.append(f"{acquisition_id} has no succeeded receipt at {receipt_path}")
+    for path, acquisition_ids in sorted(receipt_paths.items()):
+        if len(acquisition_ids) <= 1:
+            continue
+        suffix = "..." if len(acquisition_ids) > 5 else ""
+        errors.append(
+            f"coverage_receipt_path is shared by multiple non-deferred acquisitions: "
+            f"{path} ({', '.join(acquisition_ids[:5])}{suffix})"
+        )
     return errors
 
 
