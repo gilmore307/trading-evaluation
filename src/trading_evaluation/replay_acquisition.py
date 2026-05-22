@@ -14,6 +14,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,7 @@ from typing import Any, Iterable, Mapping, Sequence
 DEFAULT_DATA_ROOT = Path("/root/projects/trading-data")
 DEFAULT_DATASET_ROOT = Path("/root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy")
 DEFAULT_RUN_ID = "replay_one_shot_acquisition"
+TRADING_MANAGER_SRC = Path("/root/projects/trading-manager/src")
 
 MODULE_BY_FEED = {
     "01_feed_alpaca_bars": "data_feed.01_feed_alpaca_bars",
@@ -43,6 +45,10 @@ PROVIDER_CONTROLS_BY_FEED = {
     "07_feed_trading_economics_calendar_web": {"allowed_providers": ["trading_economics"], "allowed_endpoint_families": ["calendar_web"], "max_time_window": "45d"},
     "08_feed_sec_company_financials": {"allowed_providers": ["sec_edgar"], "allowed_endpoint_families": ["company_financials"]},
     "09_feed_thetadata_option_selection_snapshot": {"allowed_providers": ["thetadata"], "allowed_endpoint_families": ["option_selection_snapshot"], "max_time_window": "1d"},
+}
+
+EXTRA_PYTHONPATH_BY_FEED = {
+    "05_feed_gdelt_news": [TRADING_MANAGER_SRC],
 }
 
 
@@ -68,6 +74,7 @@ class RunnerItemResult:
     execute: bool
     return_code: int | None
     status: str
+    attempt_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -119,6 +126,7 @@ def select_items(
     *,
     source_ids: set[str],
     include_available: bool,
+    include_deferred: bool = False,
     limit: int | None,
 ) -> list[AcquisitionItem]:
     selected: list[AcquisitionItem] = []
@@ -126,6 +134,8 @@ def select_items(
         if source_ids and item.source_id not in source_ids:
             continue
         if not include_available and item.coverage_status == "available":
+            continue
+        if not include_deferred and item.coverage_status == "deferred":
             continue
         selected.append(item)
         if limit is not None and len(selected) >= limit:
@@ -174,6 +184,12 @@ def _run_id(base_run_id: str, item: AcquisitionItem) -> str:
     return f"{base_run_id}_{safe_id}"
 
 
+def _feed_max_attempts(feed: str, te_max_attempts: int) -> int:
+    if feed == "07_feed_trading_economics_calendar_web":
+        return max(1, te_max_attempts)
+    return 1
+
+
 def run_acquisition(
     *,
     dataset_root: Path = DEFAULT_DATASET_ROOT,
@@ -181,15 +197,19 @@ def run_acquisition(
     run_id: str = DEFAULT_RUN_ID,
     source_ids: set[str] | None = None,
     include_available: bool = False,
+    include_deferred: bool = False,
     limit: int | None = None,
     execute: bool = False,
     stop_on_failure: bool = False,
+    te_max_attempts: int = 2,
+    te_retry_delay_seconds: int = 60,
 ) -> RunnerSummary:
     plan_path = dataset_root / "feed_acquisition_plan.csv"
     items = select_items(
         load_plan(plan_path),
         source_ids=set(source_ids or []),
         include_available=include_available,
+        include_deferred=include_deferred,
         limit=limit,
     )
     task_key_root = dataset_root / "acquisition_task_keys" / run_id
@@ -213,13 +233,28 @@ def run_acquisition(
         command = [sys.executable, "-m", module, str(task_key_path), "--run-id", _run_id(run_id, item)]
         return_code: int | None = None
         status = "planned"
+        attempt_count = 0
         if execute:
             env = dict(os.environ)
-            env["PYTHONPATH"] = str(data_root / "src")
-            completed = subprocess.run(command, cwd=data_root, env=env)
-            return_code = completed.returncode
+            pythonpath_parts = [str(data_root / "src")]
+            pythonpath_parts.extend(str(path) for path in EXTRA_PYTHONPATH_BY_FEED.get(item.feed, []) if path.exists())
+            existing_pythonpath = env.get("PYTHONPATH")
+            if existing_pythonpath:
+                pythonpath_parts.append(existing_pythonpath)
+            env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+            max_attempts = _feed_max_attempts(item.feed, te_max_attempts)
+            for attempt in range(1, max_attempts + 1):
+                attempt_count = attempt
+                if attempt > 1 and te_retry_delay_seconds > 0:
+                    time.sleep(te_retry_delay_seconds)
+                attempt_run_id = _run_id(run_id, item) if attempt == 1 else f"{_run_id(run_id, item)}_attempt_{attempt}"
+                command = [sys.executable, "-m", module, str(task_key_path), "--run-id", attempt_run_id]
+                completed = subprocess.run(command, cwd=data_root, env=env)
+                return_code = completed.returncode
+                if return_code == 0:
+                    break
             status = "succeeded" if return_code == 0 else "failed"
-        result = RunnerItemResult(item.acquisition_id, item.source_id, item.feed, item.month, str(task_key_path), command, execute, return_code, status)
+        result = RunnerItemResult(item.acquisition_id, item.source_id, item.feed, item.month, str(task_key_path), command, execute, return_code, status, attempt_count)
         results.append(result)
         _append_progress(progress_log_path, result)
         if execute and return_code != 0 and stop_on_failure:
@@ -259,9 +294,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--run-id", default=DEFAULT_RUN_ID)
     parser.add_argument("--source-id", action="append", default=[])
     parser.add_argument("--include-available", action="store_true")
+    parser.add_argument("--include-deferred", action="store_true")
     parser.add_argument("--limit", type=int)
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--stop-on-failure", action="store_true")
+    parser.add_argument("--te-max-attempts", type=int, default=2)
+    parser.add_argument("--te-retry-delay-seconds", type=int, default=60)
     args = parser.parse_args(argv)
     summary = run_acquisition(
         dataset_root=args.dataset_root,
@@ -269,9 +307,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         run_id=args.run_id,
         source_ids=set(args.source_id),
         include_available=args.include_available,
+        include_deferred=args.include_deferred,
         limit=args.limit,
         execute=args.execute,
         stop_on_failure=args.stop_on_failure,
+        te_max_attempts=args.te_max_attempts,
+        te_retry_delay_seconds=args.te_retry_delay_seconds,
     )
     print(json.dumps(summary.to_dict(), indent=2, sort_keys=True))
     return 1 if summary.failed_count and args.execute else 0

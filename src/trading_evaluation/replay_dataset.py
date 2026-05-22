@@ -23,6 +23,7 @@ REPLAY_COVERAGE_SUMMARY_CONTRACT = "replay_coverage_summary"
 DEFAULT_OUTPUT_ROOT = Path("/root/projects/trading-storage/storage/05_replay_datasets")
 DEFAULT_DATA_ROOT = Path("/root/projects/trading-storage/storage/01_source_data")
 DEFAULT_SOURCE_CONTRACT_REF = "trading-evaluation/replays/promotion_replay_candidate_policy.json"
+CRYPTO_SPOT_INSTRUMENT_REFS = ("BTC-USDT", "ETH-USDT", "SOL-USDT")
 
 REPLAY_WINDOW_FIELDS = [
     "contract_id",
@@ -178,32 +179,89 @@ def _acquisition_rows(contract: ReplayContract, *, data_root: Path) -> list[dict
     rows: list[dict[str, str]] = []
     for source in _replay_sources():
         for window in _replay_months(contract):
-            month = window["month"]
-            acquisition_id = _acquisition_id(contract.contract_id, source["source_id"], month)
-            source_output_root = _coverage_output_root(data_root, source["source_id"], contract.contract_id, month)
-            receipt_path = source_output_root / "completion_receipt.json"
-            params = _feed_params(contract, source, window)
-            coverage_status = "available" if _receipt_succeeded(receipt_path) else "missing"
-            rows.append(
-                {
-                    "acquisition_id": acquisition_id,
-                    "contract_id": contract.contract_id,
-                    "source_id": source["source_id"],
-                    "feed": source["feed"],
-                    "month": month,
-                    "start_date": window["start_date"],
-                    "end_date_exclusive": window["end_date_exclusive"],
-                    "timeframe": source["timeframe"],
-                    "acquisition_mode": "one_shot_candidate_policy_replay_acquisition",
-                    "output_root": str(source_output_root),
-                    "expected_output_ref": _expected_output_ref(source["source_id"], contract.contract_id, month),
-                    "coverage_status": coverage_status,
-                    "coverage_receipt_path": str(receipt_path),
-                    "params_json": json.dumps(params, sort_keys=True),
-                    "notes": source["notes"],
-                }
-            )
+            rows.extend(_acquisition_rows_for_source_window(contract, source, window, data_root=data_root))
     return rows
+
+
+def _acquisition_rows_for_source_window(
+    contract: ReplayContract,
+    source: Mapping[str, str],
+    window: Mapping[str, str],
+    *,
+    data_root: Path,
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    month = window["month"]
+    if source["source_id"] == "okx_crypto_market_data":
+        for instrument_ref in CRYPTO_SPOT_INSTRUMENT_REFS:
+            rows.append(
+                _acquisition_row(
+                    contract,
+                    source,
+                    window,
+                    data_root=data_root,
+                    acquisition_suffix=instrument_ref.lower().replace("-", "_"),
+                    params_extra={"instId": instrument_ref},
+                    notes_suffix=f"; fixed crypto spot instrument {instrument_ref}",
+                )
+            )
+        return rows
+    if source.get("candidate_dependent") == "true":
+        rows.append(
+            _acquisition_row(
+                contract,
+                source,
+                window,
+                data_root=data_root,
+                coverage_status_override="deferred",
+                params_extra={
+                    "candidate_symbol_policy": "materialize_point_in_time_during_replay",
+                    "candidate_symbol_source": contract.candidate_policy_ref,
+                },
+                notes_suffix="; deferred until replay candidate symbols materialize",
+            )
+        )
+        return rows
+    rows.append(_acquisition_row(contract, source, window, data_root=data_root, acquisition_suffix=month))
+    return rows
+
+
+def _acquisition_row(
+    contract: ReplayContract,
+    source: Mapping[str, str],
+    window: Mapping[str, str],
+    *,
+    data_root: Path,
+    acquisition_suffix: str | None = None,
+    coverage_status_override: str | None = None,
+    params_extra: Mapping[str, Any] | None = None,
+    notes_suffix: str = "",
+) -> dict[str, str]:
+    month = window["month"]
+    suffix = acquisition_suffix or month
+    acquisition_id = _acquisition_id(contract.contract_id, source["source_id"], suffix)
+    source_output_root = _coverage_output_root(data_root, source["source_id"], contract.contract_id, suffix)
+    receipt_path = source_output_root / "completion_receipt.json"
+    params = _feed_params(contract, source, window)
+    params.update(dict(params_extra or {}))
+    coverage_status = coverage_status_override or ("available" if _receipt_succeeded(receipt_path) else "missing")
+    return {
+        "acquisition_id": acquisition_id,
+        "contract_id": contract.contract_id,
+        "source_id": source["source_id"],
+        "feed": source["feed"],
+        "month": month,
+        "start_date": window["start_date"],
+        "end_date_exclusive": window["end_date_exclusive"],
+        "timeframe": source["timeframe"],
+        "acquisition_mode": "one_shot_candidate_policy_replay_acquisition",
+        "output_root": str(source_output_root),
+        "expected_output_ref": _expected_output_ref(source["source_id"], contract.contract_id, suffix),
+        "coverage_status": coverage_status,
+        "coverage_receipt_path": str(receipt_path),
+        "params_json": json.dumps(params, sort_keys=True),
+        "notes": source["notes"] + notes_suffix,
+    }
 
 
 def _replay_sources() -> tuple[dict[str, str], ...]:
@@ -213,18 +271,21 @@ def _replay_sources() -> tuple[dict[str, str], ...]:
             "feed": "01_feed_alpaca_bars",
             "timeframe": "1Day",
             "notes": "candidate-policy replay equity and ETF daily OHLCV surface",
+            "candidate_dependent": "true",
         },
         {
             "source_id": "alpaca_liquidity",
             "feed": "02_feed_alpaca_liquidity",
             "timeframe": "1Min",
             "notes": "candidate-policy replay liquidity and spread surface for admitted candidates",
+            "candidate_dependent": "true",
         },
         {
             "source_id": "alpaca_news",
             "feed": "03_feed_alpaca_news",
             "timeframe": "event_time",
             "notes": "candidate-policy replay symbol-scoped news evidence after point-in-time candidate admission",
+            "candidate_dependent": "true",
         },
         {
             "source_id": "gdelt_news",
@@ -248,7 +309,7 @@ def _replay_sources() -> tuple[dict[str, str], ...]:
 
 
 def _feed_params(contract: ReplayContract, source: Mapping[str, str], window: Mapping[str, str]) -> dict[str, Any]:
-    return {
+    params: dict[str, Any] = {
         "contract_id": contract.contract_id,
         "candidate_policy_ref": contract.candidate_policy_ref,
         "replay_route_ref": contract.replay_route_ref,
@@ -258,6 +319,24 @@ def _feed_params(contract: ReplayContract, source: Mapping[str, str], window: Ma
         "replay_acquisition_policy": "candidate_policy_replay_monthly_surface",
         "source_id": source["source_id"],
     }
+    if source["source_id"] == "gdelt_news":
+        params.update({"start_date": window["start_date"], "end_date": window["end_date_exclusive"], "max_rows": 100})
+    if source["source_id"] == "trading_economics_calendar_web":
+        params.update(
+            {
+                "start_date": window["start_date"],
+                "end_date": window["end_date_exclusive"],
+                "allow_live_fetch": True,
+                "date_range_mode": "custom",
+                "country": "United States",
+                "importance": "3",
+                "max_window_days": 45,
+                "persist_failure_diagnostics": True,
+            }
+        )
+    if source["source_id"] == "okx_crypto_market_data":
+        params.update({"limit": 100, "max_pages": 1})
+    return params
 
 
 def _replay_months(contract: ReplayContract) -> list[dict[str, str]]:
