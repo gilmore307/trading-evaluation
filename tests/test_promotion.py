@@ -32,6 +32,8 @@ class PromotionTests(unittest.TestCase):
             incumbent_comparison_status="passed",
             agent_review_ref="agent-review://promotion-evaluation-review/passed",
             agent_review_recommendation="eligible_for_shadow",
+            first_model_bootstrap=True,
+            bootstrap_baseline_ref="storage://settlement/run",
         )
 
         record = build_promotion_readiness_record(
@@ -49,6 +51,8 @@ class PromotionTests(unittest.TestCase):
         self.assertEqual(record["replay_freeze_status"], "frozen")
         self.assertEqual(record["fold_stack_status"], "complete_layer_01_10")
         self.assertEqual(record["agent_review_recommendation"], "eligible_for_shadow")
+        self.assertTrue(record["first_model_bootstrap"])
+        self.assertEqual(record["bootstrap_baseline_ref"], "storage://settlement/run")
         self.assertEqual(validate_promotion_readiness_record(record).validation_status, "passed")
 
     def test_rejects_eligible_decision_without_gate_evidence(self):

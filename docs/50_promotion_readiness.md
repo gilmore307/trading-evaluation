@@ -10,7 +10,7 @@ Promotion readiness is evaluation-owned. Runtime activation is execution-owned.
 - accepted replay contract reference plus `replay_validation_ref` and `replay_freeze_status = frozen`;
 - fold settlement run, metric references, `fold_stack_evidence_ref`, and `fold_stack_status = complete_layer_01_10`;
 - non-empty guardrail refs with `guardrail_status = passed`;
-- incumbent comparison ref with `incumbent_comparison_status = passed`;
+- incumbent comparison ref with `incumbent_comparison_status = passed`; for the first model bootstrap, the comparison ref is the bootstrap baseline settlement run created by evaluation;
 - advisory `promotion-evaluation-review` ref with `agent_review_recommendation = eligible_for_shadow`;
 - pinned Layer 1-10 candidate model/config refs;
 - rollback ref;
@@ -23,3 +23,5 @@ Agent review can support readiness only through the fixed `promotion-evaluation-
 Promotion readiness records must not activate models, write active model config pointers, place orders, call brokers, mutate accounts, call providers, or perform storage lifecycle mutation.
 
 `trading-execution` consumes promoted readiness records during market-hours shadow cycles and owns active model selection after live/shadow evidence matures.
+
+For `first_model_bootstrap = true`, readiness admits the first promoted bundle into shadow as the initial baseline candidate. It still must not write the active pointer; execution activation remains gated by market-hours shadow evidence and `execution_active_model_config_write`.

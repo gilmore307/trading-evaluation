@@ -112,7 +112,7 @@ The validator requires the metric ref to match the settlement run, core metric f
 
 `promotion_eligibility_decision` states whether settlement evidence makes a candidate eligible for execution shadow review.
 
-An `eligible` decision must include frozen replay validation evidence, complete Layer 1-10 fold-stack evidence, non-empty metric refs, passed guardrail evidence, incumbent comparison evidence, and advisory `promotion-evaluation-review` evidence with `agent_review_recommendation = eligible_for_shadow`.
+An `eligible` decision must include frozen replay validation evidence, complete Layer 1-10 fold-stack evidence, non-empty metric refs, passed guardrail evidence, incumbent comparison evidence, and advisory `promotion-evaluation-review` evidence with `agent_review_recommendation = eligible_for_shadow`. For the first accepted model bundle, `first_model_bootstrap = true` allows the candidate's own frozen settlement run to serve as the bootstrap baseline for later anonymous incumbent comparisons.
 
 Agent review evidence may support this decision only when it follows the fixed `promotion-evaluation-review` skill. The review is advisory and must not change the sealed replay, write active config pointers, or replace deterministic validation.
 
@@ -140,6 +140,7 @@ Required fields:
 - `incumbent_comparison_status = passed`
 - `agent_review_ref`
 - `agent_review_recommendation = eligible_for_shadow`
+- optional `first_model_bootstrap = true` with `bootstrap_baseline_ref` for the first promoted baseline only
 - `created_at_utc`
 
 It must report `model_activation_performed = false`, `active_model_config_written = false`, `broker_execution_performed = false`, and `account_mutation_performed = false`.

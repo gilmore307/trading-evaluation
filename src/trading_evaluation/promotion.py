@@ -67,6 +67,8 @@ def build_promotion_eligibility_decision(
     incumbent_comparison_status: str | None = None,
     agent_review_ref: str | None = None,
     agent_review_recommendation: str | None = None,
+    first_model_bootstrap: bool = False,
+    bootstrap_baseline_ref: str | None = None,
     decision_id: str | None = None,
     created_at_utc: str | None = None,
 ) -> dict[str, Any]:
@@ -95,6 +97,8 @@ def build_promotion_eligibility_decision(
         "incumbent_comparison_status": incumbent_comparison_status or "",
         "agent_review_ref": agent_review_ref or "",
         "agent_review_recommendation": agent_review_recommendation or "",
+        "first_model_bootstrap": bool(first_model_bootstrap),
+        "bootstrap_baseline_ref": bootstrap_baseline_ref or "",
         "created_at_utc": created_at_utc or _now_utc(),
     }
     validation = validate_promotion_eligibility_decision(payload)
@@ -209,6 +213,8 @@ def build_promotion_readiness_record(
         "incumbent_comparison_status": promotion_eligibility_decision["incumbent_comparison_status"],
         "agent_review_ref": promotion_eligibility_decision["agent_review_ref"],
         "agent_review_recommendation": promotion_eligibility_decision["agent_review_recommendation"],
+        "first_model_bootstrap": bool(promotion_eligibility_decision.get("first_model_bootstrap", False)),
+        "bootstrap_baseline_ref": str(promotion_eligibility_decision.get("bootstrap_baseline_ref") or ""),
         "created_at_utc": created_at_utc or _now_utc(),
         "model_activation_performed": False,
         "active_model_config_written": False,

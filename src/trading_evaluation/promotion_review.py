@@ -194,6 +194,8 @@ def build_promotion_review_result(
         incumbent_comparison_status="passed" if comparison_result_ref or first_model_bootstrap else "",
         agent_review_ref=str(review_path),
         agent_review_recommendation=str(review["recommendation"]),
+        first_model_bootstrap=first_model_bootstrap,
+        bootstrap_baseline_ref=settlement_run_ref if first_model_bootstrap else "",
         created_at_utc=str(review["created_at_utc"]),
     )
     review_path.write_text(json.dumps(review, indent=2, sort_keys=True) + "\n", encoding="utf-8")

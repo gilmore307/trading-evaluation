@@ -97,6 +97,8 @@ class PromotionEvaluationReviewTests(unittest.TestCase):
             self.assertEqual(result.review["identity_blinding_status"], "not_applicable")
             self.assertEqual(result.review["comparison_status"], "not_applicable")
             self.assertEqual(result.eligibility_decision["decision_status"], "eligible")
+            self.assertTrue(result.eligibility_decision["first_model_bootstrap"])
+            self.assertEqual(result.eligibility_decision["bootstrap_baseline_ref"], "storage://settlement/bootstrap")
             self.assertEqual(result.eligibility_decision["incumbent_comparison_ref"], "storage://settlement/bootstrap")
             self.assertEqual(result.eligibility_decision["fold_stack_status"], "complete_layer_01_10")
 
