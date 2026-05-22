@@ -1,4 +1,7 @@
 import sys
+import json
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -40,6 +43,31 @@ class EvaluationExecutionRuntimeTests(unittest.TestCase):
         self.assertEqual(records["simulated_fill_event"]["fill_status"], "simulated_filled")
         self.assertFalse(result["side_effects"]["broker_mutation_performed"])
         self.assertFalse(result["side_effects"]["account_mutation_performed"])
+
+    def test_replay_dry_run_cli_writes_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "dry_run.json"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/evaluation/run_replay_runtime_dry_run.py",
+                    "--account-sleeve-id",
+                    "crypto_spot_account",
+                    "--target-ref",
+                    "ETH",
+                    "--output-path",
+                    str(output_path),
+                ],
+                cwd=Path(__file__).resolve().parents[1],
+                env={"PYTHONPATH": "src"},
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["contract_type"], "evaluation_replay_runtime_dry_run")
+            self.assertEqual(payload["target_ref"], "ETH")
+            self.assertEqual(json.loads(output_path.read_text(encoding="utf-8"))["validation_status"], "passed")
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ The preparation step writes runtime artifacts under `trading-storage/storage/05_
 - `feed_acquisition_plan.csv`
 - `coverage_summary.csv`
 
-This step is not a replay freeze and does not use the manager task/request route. It performs no provider calls, SQL mutation, model training, activation, broker execution, or account mutation.
+This preparation step is not a replay freeze and does not use the manager task/request route. It performs no provider calls, SQL mutation, model training, activation, broker execution, or account mutation. The freeze step is a separate storage-side contract mutation that validates coverage, writes `replay_freeze_receipt.json`, and marks the manifest `freeze_status = frozen`.
 
 ## Current Inputs
 
@@ -51,6 +51,26 @@ All replay, fold settlement, promotion eligibility comparison, guardrail replay,
 Replay evaluation uses `trading-execution`'s `execution_runtime_component_graph` under a historical clock and Replay adapters. The runner should feed the frozen point-in-time market, event, liquidity, and account-context inputs through the same task-level components used for live/shadow decision making. It must not use the model training pipeline, a training feature-generation route, or a separate evaluation-owned decision graph as the replay execution path. Layer 10 is reached only through the Failure Explanation Component after observed model or trade failure.
 
 ThetaData option-chain snapshots remain replay-triggered. During historical realtime replay, a model buy or option-expression decision creates the point-in-time option snapshot request; selected-contract tracking expands from the concrete expiration/right/strike result. This keeps replay close to live behavior while preserving one frozen underlying/event/liquidity data substrate.
+
+To freeze a prepared replay dataset after accepted coverage:
+
+```bash
+PYTHONPATH=src python3 scripts/evaluation/freeze_replay_dataset.py \
+  --dataset-root /root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy
+```
+
+The freeze command accepts complete source rows and the known candidate-dependent Alpaca deferred rows whose symbols materialize point-in-time during replay. It rejects any missing acquisition count or unexpected deferred source.
+
+To smoke-test that evaluation can call the execution-owned Replay route:
+
+```bash
+PYTHONPATH=src python3 scripts/evaluation/run_replay_runtime_dry_run.py \
+  --account-sleeve-id crypto_spot_account \
+  --target-ref SOL \
+  --output-path /root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy/replay_runtime_dry_run_receipt.json
+```
+
+This smoke test is not a 60-month replay. It proves the side-effect-free execution component graph call path and writes a receipt for readiness evidence.
 
 To plan or execute bounded one-shot acquisitions from the generated plan:
 

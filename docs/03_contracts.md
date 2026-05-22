@@ -51,6 +51,8 @@ The preparation bundle may write files under the `trading-storage/storage/05_rep
 
 After accepted acquisition coverage, the replay contract references one frozen reusable data snapshot. All replay and downstream evaluation artifacts for that contract must consume that snapshot. Candidate-specific data download, source reinterpretation, or training-flow feature generation is not allowed for replay judgment.
 
+`replay_dataset_freeze_receipt` records the accepted storage-side freeze. It requires local coverage validation, `missing_feed_acquisition_count = 0`, and only accepted candidate-dependent deferred source ids. It marks the manifest `freeze_status = frozen` and reports safety flags proving no provider calls, SQL mutation, model training, activation, broker execution, or account mutation occurred.
+
 Replay uses the execution runtime component graph with a historical clock. It consumes point-in-time market, event, liquidity, and account-context inputs from the frozen snapshot, calls the same task-level components used by live/shadow execution, and then settles the emitted decision rows. Layer 10 is called only through execution's `failure_explanation_component` after observed model or trade failure; normal entry and lifecycle event risk comes from Layer 4. Option-chain snapshots are requested only when replayed model decisions create buy or option-expression points.
 
 ## Fold Settlement Run

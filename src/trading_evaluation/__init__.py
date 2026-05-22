@@ -7,11 +7,15 @@ from .replay import (
     validate_replay_contract,
 )
 from .replay_dataset import (
+    ACCEPTED_DEFERRED_SOURCE_IDS,
     REPLAY_COVERAGE_SUMMARY_CONTRACT,
     REPLAY_DATASET_PREPARATION_MANIFEST_CONTRACT,
+    REPLAY_DATASET_FREEZE_RECEIPT_CONTRACT,
     REPLAY_FEED_ACQUISITION_PLAN_CONTRACT,
     REPLAY_WINDOW_MANIFEST_CONTRACT,
+    FrozenReplayDataset,
     PreparedReplayDataset,
+    freeze_replay_dataset,
     prepare_replay_dataset,
 )
 from .promotion import (
@@ -38,8 +42,10 @@ from .execution_runtime import (
 __all__ = [
     "ReplayContract",
     "ReplayValidation",
+    "ACCEPTED_DEFERRED_SOURCE_IDS",
     "REPLAY_COVERAGE_SUMMARY_CONTRACT",
     "REPLAY_DATASET_PREPARATION_MANIFEST_CONTRACT",
+    "REPLAY_DATASET_FREEZE_RECEIPT_CONTRACT",
     "REPLAY_FEED_ACQUISITION_PLAN_CONTRACT",
     "REPLAY_WINDOW_MANIFEST_CONTRACT",
     "PROMOTION_ELIGIBILITY_DECISION_CONTRACT",
@@ -48,6 +54,7 @@ __all__ = [
     "FOLD_SETTLEMENT_RUN_CONTRACT",
     "EXECUTION_REPLAY_ROUTE_REF",
     "REPLAY_RUNTIME_DRY_RUN_CONTRACT",
+    "FrozenReplayDataset",
     "PreparedReplayDataset",
     "build_replay_runtime_dry_run",
     "build_promotion_eligibility_decision",
@@ -55,6 +62,7 @@ __all__ = [
     "build_fold_settlement_run",
     "is_training_fold_blocked_by_replay",
     "load_decision_rows",
+    "freeze_replay_dataset",
     "prepare_replay_dataset",
     "validate_replay_contract",
     "validate_fold_settlement_run",

@@ -1,8 +1,8 @@
-"""Replay dataset preparation manifests.
+"""Replay dataset preparation and freeze manifests.
 
 This module turns an accepted candidate-policy replay contract into
 concrete storage-side preparation artifacts. It does not call providers, mutate
-SQL, freeze the replay, select option contracts, or write active model state.
+SQL, select option contracts, or write active model state.
 """
 
 from __future__ import annotations
@@ -20,10 +20,12 @@ REPLAY_DATASET_PREPARATION_MANIFEST_CONTRACT = "replay_dataset_preparation_manif
 REPLAY_WINDOW_MANIFEST_CONTRACT = "replay_window_manifest"
 REPLAY_FEED_ACQUISITION_PLAN_CONTRACT = "replay_feed_acquisition_plan"
 REPLAY_COVERAGE_SUMMARY_CONTRACT = "replay_coverage_summary"
+REPLAY_DATASET_FREEZE_RECEIPT_CONTRACT = "replay_dataset_freeze_receipt"
 DEFAULT_OUTPUT_ROOT = Path("/root/projects/trading-storage/storage/05_replay_datasets")
 DEFAULT_DATA_ROOT = Path("/root/projects/trading-storage/storage/01_source_data")
 DEFAULT_SOURCE_CONTRACT_REF = "trading-evaluation/replays/promotion_replay_candidate_policy.json"
 CRYPTO_SPOT_INSTRUMENT_REFS = ("BTC-USDT", "ETH-USDT", "SOL-USDT")
+ACCEPTED_DEFERRED_SOURCE_IDS = frozenset({"alpaca_bars", "alpaca_liquidity", "alpaca_news"})
 
 REPLAY_WINDOW_FIELDS = [
     "contract_id",
@@ -76,6 +78,15 @@ class PreparedReplayDataset:
     feed_acquisition_plan_path: Path
     coverage_summary_path: Path
     manifest: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class FrozenReplayDataset:
+    """Paths and receipt for a frozen replay dataset contract."""
+
+    manifest_path: Path
+    freeze_receipt_path: Path
+    freeze_receipt: dict[str, Any]
 
 def prepare_replay_dataset(
     payload: Mapping[str, Any],
@@ -156,6 +167,94 @@ def prepare_replay_dataset(
         feed_acquisition_plan_path=feed_acquisition_plan_path,
         coverage_summary_path=coverage_summary_path,
         manifest=manifest,
+    )
+
+
+def freeze_replay_dataset(
+    dataset_root: Path,
+    *,
+    frozen_at_utc: str | None = None,
+    freeze_reason: str = "accepted_candidate_policy_replay_source_coverage",
+) -> FrozenReplayDataset:
+    """Freeze a prepared replay dataset after local coverage validation.
+
+    The freeze is a storage-side contract mutation only. It validates the
+    prepared manifest and coverage summary, writes a freeze receipt, and marks
+    the dataset manifest as frozen. It never calls providers, mutates SQL,
+    trains or activates models, or touches broker/account state.
+    """
+
+    manifest_path = dataset_root / "dataset_manifest.json"
+    coverage_summary_path = dataset_root / "coverage_summary.csv"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"dataset manifest not found: {manifest_path}")
+    if not coverage_summary_path.exists():
+        raise FileNotFoundError(f"coverage summary not found: {coverage_summary_path}")
+
+    manifest = _load_json_object(manifest_path)
+    coverage_rows = _read_coverage_summary(coverage_summary_path)
+    errors = _freeze_validation_errors(manifest, coverage_rows)
+    if errors:
+        raise ValueError("replay dataset freeze validation failed: " + "; ".join(errors))
+
+    frozen_at = frozen_at_utc or _now_utc()
+    freeze_receipt_path = dataset_root / "replay_freeze_receipt.json"
+    complete_sources = sorted(row["source_id"] for row in coverage_rows if row["coverage_status"] == "complete")
+    deferred_sources = sorted(row["source_id"] for row in coverage_rows if row["coverage_status"] == "deferred")
+    freeze_receipt = {
+        "contract_type": REPLAY_DATASET_FREEZE_RECEIPT_CONTRACT,
+        "contract_id": manifest["contract_id"],
+        "freeze_status": "frozen",
+        "freeze_reason": freeze_reason,
+        "frozen_at_utc": frozen_at,
+        "dataset_root": str(dataset_root),
+        "dataset_manifest_ref": str(manifest_path),
+        "coverage_summary_ref": str(coverage_summary_path),
+        "complete_source_ids": complete_sources,
+        "accepted_deferred_source_ids": deferred_sources,
+        "known_deferred_requirements": manifest.get("known_deferred_requirements", []),
+        "validation": {
+            "validation_status": "passed",
+            "missing_feed_acquisition_count": int(manifest.get("missing_feed_acquisition_count", 0)),
+            "deferred_feed_acquisition_count": int(manifest.get("deferred_feed_acquisition_count", 0)),
+            "accepted_deferred_policy": "candidate_universe_materializes_point_in_time_during_replay",
+        },
+        "safety": {
+            "provider_calls_performed": False,
+            "sql_mutation_performed": False,
+            "replay_freeze_performed": True,
+            "model_training_performed": False,
+            "model_activation_performed": False,
+            "broker_execution_performed": False,
+            "account_mutation_performed": False,
+            "manager_request_route_used": False,
+        },
+    }
+
+    updated_manifest = dict(manifest)
+    updated_manifest.update(
+        {
+            "freeze_status": "frozen",
+            "frozen_at_utc": frozen_at,
+            "freeze_reason": freeze_reason,
+            "replay_freeze_receipt_ref": str(freeze_receipt_path),
+        }
+    )
+    updated_safety = dict(updated_manifest.get("safety") or {})
+    updated_safety["replay_freeze_performed"] = True
+    updated_manifest["safety"] = updated_safety
+    artifact_refs = list(updated_manifest.get("artifact_refs") or [])
+    if str(freeze_receipt_path) not in artifact_refs:
+        artifact_refs.append(str(freeze_receipt_path))
+    updated_manifest["artifact_refs"] = artifact_refs
+
+    freeze_receipt_path.write_text(json.dumps(freeze_receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    manifest_path.write_text(json.dumps(updated_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    return FrozenReplayDataset(
+        manifest_path=manifest_path,
+        freeze_receipt_path=freeze_receipt_path,
+        freeze_receipt=freeze_receipt,
     )
 
 
@@ -432,6 +531,51 @@ def _write_csv(path: Path, fieldnames: list[str], rows: Iterable[Mapping[str, An
         writer.writerows(rows)
 
 
+def _load_json_object(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"expected JSON object: {path}")
+    return payload
+
+
+def _read_coverage_summary(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="", encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _freeze_validation_errors(manifest: Mapping[str, Any], coverage_rows: Iterable[Mapping[str, str]]) -> list[str]:
+    errors: list[str] = []
+    if manifest.get("contract_type") != REPLAY_DATASET_PREPARATION_MANIFEST_CONTRACT:
+        errors.append("dataset manifest contract_type is not replay_dataset_preparation_manifest")
+    if manifest.get("freeze_status") not in {"not_frozen", "frozen"}:
+        errors.append("dataset manifest freeze_status must be not_frozen or frozen")
+    try:
+        missing_count = int(manifest.get("missing_feed_acquisition_count", -1))
+    except (TypeError, ValueError):
+        missing_count = -1
+    if missing_count != 0:
+        errors.append(f"missing_feed_acquisition_count must be 0, got {manifest.get('missing_feed_acquisition_count')}")
+
+    rows = list(coverage_rows)
+    if not rows:
+        errors.append("coverage summary is empty")
+    for row in rows:
+        source_id = row.get("source_id", "")
+        status = row.get("coverage_status", "")
+        try:
+            missing = int(row.get("missing_acquisition_count", "-1"))
+        except ValueError:
+            missing = -1
+        if missing != 0:
+            errors.append(f"{source_id} has missing_acquisition_count={row.get('missing_acquisition_count')}")
+        if status == "complete":
+            continue
+        if status == "deferred" and source_id in ACCEPTED_DEFERRED_SOURCE_IDS:
+            continue
+        errors.append(f"{source_id} has non-freezable coverage_status={status}")
+    return errors
+
+
 def _join(values: Iterable[str]) -> str:
     return ";".join(values)
 
@@ -441,10 +585,14 @@ def _now_utc() -> str:
 
 
 __all__ = [
+    "ACCEPTED_DEFERRED_SOURCE_IDS",
     "REPLAY_COVERAGE_SUMMARY_CONTRACT",
     "REPLAY_DATASET_PREPARATION_MANIFEST_CONTRACT",
+    "REPLAY_DATASET_FREEZE_RECEIPT_CONTRACT",
     "REPLAY_FEED_ACQUISITION_PLAN_CONTRACT",
     "REPLAY_WINDOW_MANIFEST_CONTRACT",
+    "FrozenReplayDataset",
     "PreparedReplayDataset",
+    "freeze_replay_dataset",
     "prepare_replay_dataset",
 ]

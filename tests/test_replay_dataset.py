@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from trading_evaluation import prepare_replay_dataset
+from trading_evaluation import freeze_replay_dataset, prepare_replay_dataset
 
 
 VALID_DATASET_CONTRACT = {
@@ -144,6 +144,144 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             payload = json.loads(result.stdout)
             self.assertEqual(payload["preparation_status"], "prepared_candidate_policy_replay_acquisition_bundle")
             self.assertEqual(payload["feed_acquisition_count"], 480)
+
+    def test_freeze_replay_dataset_accepts_complete_and_candidate_deferred_sources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset_root = Path(tmp) / "dataset"
+            dataset_root.mkdir()
+            manifest_path = dataset_root / "dataset_manifest.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "contract_type": "replay_dataset_preparation_manifest",
+                        "contract_id": "promotion_replay_dataset_test",
+                        "freeze_status": "not_frozen",
+                        "feed_acquisition_count": 480,
+                        "available_feed_acquisition_count": 300,
+                        "deferred_feed_acquisition_count": 180,
+                        "missing_feed_acquisition_count": 0,
+                        "known_deferred_requirements": [
+                            "candidate_universe_materializes_point_in_time_during_replay"
+                        ],
+                        "artifact_refs": [],
+                        "safety": {
+                            "provider_calls_performed": False,
+                            "sql_mutation_performed": False,
+                            "replay_freeze_performed": False,
+                            "model_training_performed": False,
+                            "model_activation_performed": False,
+                            "broker_execution_performed": False,
+                            "account_mutation_performed": False,
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (dataset_root / "coverage_summary.csv").write_text(
+                "\n".join(
+                    [
+                        ",".join(
+                            [
+                                "contract_id",
+                                "source_id",
+                                "required_acquisition_count",
+                                "available_acquisition_count",
+                                "deferred_acquisition_count",
+                                "missing_acquisition_count",
+                                "coverage_status",
+                                "notes",
+                            ]
+                        ),
+                        "promotion_replay_dataset_test,gdelt_news,60,60,0,0,complete,ok",
+                        "promotion_replay_dataset_test,trading_economics_calendar_web,60,60,0,0,complete,ok",
+                        "promotion_replay_dataset_test,okx_crypto_market_data,180,180,0,0,complete,ok",
+                        "promotion_replay_dataset_test,alpaca_bars,60,0,60,0,deferred,ok",
+                        "promotion_replay_dataset_test,alpaca_liquidity,60,0,60,0,deferred,ok",
+                        "promotion_replay_dataset_test,alpaca_news,60,0,60,0,deferred,ok",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            frozen = freeze_replay_dataset(
+                dataset_root,
+                frozen_at_utc="2026-05-22T00:00:00Z",
+            )
+
+            self.assertEqual(frozen.freeze_receipt["freeze_status"], "frozen")
+            self.assertEqual(frozen.freeze_receipt["validation"]["validation_status"], "passed")
+            self.assertFalse(frozen.freeze_receipt["safety"]["provider_calls_performed"])
+            self.assertFalse(frozen.freeze_receipt["safety"]["broker_execution_performed"])
+            updated_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(updated_manifest["freeze_status"], "frozen")
+            self.assertTrue(updated_manifest["safety"]["replay_freeze_performed"])
+
+    def test_freeze_replay_dataset_rejects_missing_coverage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset_root = Path(tmp) / "dataset"
+            dataset_root.mkdir()
+            (dataset_root / "dataset_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "contract_type": "replay_dataset_preparation_manifest",
+                        "contract_id": "promotion_replay_dataset_test",
+                        "freeze_status": "not_frozen",
+                        "missing_feed_acquisition_count": 1,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (dataset_root / "coverage_summary.csv").write_text(
+                "contract_id,source_id,required_acquisition_count,available_acquisition_count,deferred_acquisition_count,missing_acquisition_count,coverage_status,notes\n"
+                "promotion_replay_dataset_test,gdelt_news,60,59,0,1,incomplete,missing\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(ValueError):
+                freeze_replay_dataset(dataset_root)
+
+    def test_freeze_replay_dataset_cli(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset_root = Path(tmp) / "dataset"
+            dataset_root.mkdir()
+            (dataset_root / "dataset_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "contract_type": "replay_dataset_preparation_manifest",
+                        "contract_id": "promotion_replay_dataset_test",
+                        "freeze_status": "not_frozen",
+                        "missing_feed_acquisition_count": 0,
+                        "deferred_feed_acquisition_count": 0,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (dataset_root / "coverage_summary.csv").write_text(
+                "contract_id,source_id,required_acquisition_count,available_acquisition_count,deferred_acquisition_count,missing_acquisition_count,coverage_status,notes\n"
+                "promotion_replay_dataset_test,gdelt_news,60,60,0,0,complete,ok\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/evaluation/freeze_replay_dataset.py",
+                    "--dataset-root",
+                    str(dataset_root),
+                ],
+                cwd=Path(__file__).resolve().parents[1],
+                env={"PYTHONPATH": "src"},
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["contract_type"], "replay_dataset_freeze_receipt")
+            self.assertEqual(payload["freeze_status"], "frozen")
 
 
 if __name__ == "__main__":
