@@ -52,6 +52,11 @@ frozen replay contract
 
 The promotion replay is a frozen historical-clock candidate-policy replay over the canonical fixed window `2021-01-01` through `2026-01-01` end-exclusive, covering the full 2021-2025 calendar years and 1255 expected NYSE trading days. The candidate model generates candidates from the accepted candidate policy, ranks and selects targets, and runs through `trading-execution`'s `execution_runtime_component_graph` with Replay adapters against the frozen snapshot and cost model. The active execution runner covers the fixed crypto sleeve and writes settlement-ready decision rows; full equity/options candidate materialization remains active work. Guardrail replays may exist for overfit detection, but they do not replace the primary replay leaderboard unless a new replay contract is explicitly accepted.
 
+Replay is not shadow. Replay uses fixed historical data to decide whether a
+training output deserves promotion readiness. Shadow uses realtime data during
+live market hours to compare already-promoted models and choose the production
+active model inside `trading-execution`.
+
 Current settlement status is `review_required` for the crypto fixed-sleeve Replay because AUROC is below the minimum gate. Current settlement evidence therefore does not support promotion readiness.
 
 Agent review, when used, must follow the workspace skill `skills/openclaw/promotion-evaluation-review`. The reviewer produces advisory structured evidence only; deterministic evaluation code validates eligibility and writes promotion readiness records.

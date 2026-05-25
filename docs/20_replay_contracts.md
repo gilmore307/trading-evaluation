@@ -27,6 +27,7 @@ Required properties:
 - replay acquisition and event/source normalization are one-time construction phases that produce a frozen reusable data snapshot for the contract.
 - all replay, settlement, promotion eligibility, guardrail, and regression checks must reuse that frozen data snapshot instead of rebuilding data per model candidate.
 - replay evaluation must run through the execution runtime component graph under a historical clock, not through the model training pipeline or an evaluation-owned trading decision graph.
+- replay must not run `execution_shadow_cycle_selection`; shadow-cycle selection is a realtime execution mechanism for already-promoted models, not a historical evaluation mechanism for training outputs.
 - reviewed target-context refs available to the candidate policy so non-ETF targets still use the accepted target/proxy mapping route.
 
 Required replay behavior:

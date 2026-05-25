@@ -21,6 +21,12 @@ Status: Accepted
 
 `trading-evaluation` owns offline promotion readiness because manager should remain a scheduler. Runtime active model selection belongs to `trading-execution` after a market-hours shadow cycle compares the active model and promoted-but-not-active candidates.
 
+Replay and shadow are separate mechanisms. Replay uses a fixed historical
+window and frozen historical data to evaluate whether a training output has
+promotion value. Shadow uses realtime market data during live market hours to
+compare already-promoted models for production active-model selection. Replay
+must not call execution's shadow-cycle roster selector.
+
 ## D004 - Promotion Replay Freezes Candidate Policy, Not Final Targets
 
 Date: 2026-05-20
@@ -38,5 +44,10 @@ Status: Accepted
 Replay and live/shadow execution use the same task-level execution components and decision contracts. Replay swaps only the adapter profile: historical clock, frozen historical market snapshot, simulated account, simulated execution gate, and fill simulator.
 
 `trading-evaluation` owns replay orchestration, freeze validation, settlement, metrics, promotion eligibility, and promotion readiness. It must not reimplement target selection, entry, position lifecycle, option re-expression, failure explanation, order intent, or execution-gate decisions outside `trading-execution`.
+
+Replay output may admit a candidate to shadow review through promotion
+readiness, but it does not choose among active/shadow production models. That
+choice belongs to the execution-owned shadow cycle after realtime evidence
+matures.
 
 Layer 10 remains an independent model, but Replay reaches it only through execution's Failure Explanation Component after observed model or trade failure. Normal entry and position lifecycle event risk remains Layer 4's forward-risk responsibility.
