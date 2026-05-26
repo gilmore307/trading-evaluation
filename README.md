@@ -57,6 +57,11 @@ training output deserves promotion readiness. Shadow uses realtime data during
 live market hours to compare already-promoted models and choose the production
 active model inside `trading-execution`.
 
+Evaluation evidence is SQL-backed under the `trading_evaluation` schema. Replay
+contracts, replay dataset freeze state, replay execution runs, replay decisions,
+fold settlement, promotion eligibility, promotion readiness, and promoted-model
+parameters are table state; storage artifacts remain detail/report payloads.
+
 Current settlement status is `review_required` for the crypto fixed-sleeve Replay because AUROC is below the minimum gate. Current settlement evidence therefore does not support promotion readiness.
 
 Agent review, when used, must follow the workspace skill `skills/openclaw/promotion-evaluation-review`. The reviewer produces advisory structured evidence only; deterministic evaluation code validates eligibility and writes promotion readiness records.

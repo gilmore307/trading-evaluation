@@ -4,6 +4,12 @@
 
 `evaluation_replay_contract` is the contract type for the frozen replay surface:
 
+Canonical SQL table:
+
+```text
+trading_evaluation.replay_contract
+```
+
 - `contract_id`
 - `replay_mode = candidate_policy_replay`
 - `start_date`
@@ -38,9 +44,25 @@ records safety flags proving no provider call, broker call, account mutation,
 model training, or active config write occurred. This is Replay evidence, not a
 promotion eligibility decision.
 
+Canonical SQL tables:
+
+```text
+trading_evaluation.replay_execution_run
+trading_evaluation.replay_decision
+trading_evaluation.replay_progress
+```
+
 ## Replay Dataset Preparation Manifest
 
 `replay_dataset_preparation_manifest` is the contract type for the runtime preparation bundle for a replay contract under storage ownership.
+
+Canonical SQL tables:
+
+```text
+trading_evaluation.replay_dataset_preparation
+trading_evaluation.replay_dataset_freeze
+trading_evaluation.replay_source_coverage
+```
 
 Required fields include:
 
@@ -67,6 +89,13 @@ Replay uses the execution runtime component graph with a historical clock. It co
 ## Fold Settlement Run
 
 `fold_settlement_run` summarizes one completed fold against one accepted replay contract.
+
+Canonical SQL tables:
+
+```text
+trading_evaluation.fold_settlement_run
+trading_evaluation.fold_settlement_metric
+```
 
 Required run fields:
 
@@ -112,6 +141,12 @@ The validator requires the metric ref to match the settlement run, core metric f
 
 `promotion_eligibility_decision` states whether settlement evidence makes a candidate eligible for execution shadow review.
 
+Canonical SQL table:
+
+```text
+trading_evaluation.promotion_eligibility_decision
+```
+
 An `eligible` decision must include frozen replay validation evidence, complete Layer 1-10 fold-stack evidence, non-empty metric refs, passed guardrail evidence, incumbent comparison evidence, and advisory `promotion-evaluation-review` evidence with `agent_review_recommendation = eligible_for_shadow`. For the first accepted model bundle, `first_model_bootstrap = true` allows the candidate's own frozen settlement run to serve as the bootstrap baseline for later anonymous incumbent comparisons.
 
 Agent review evidence may support this decision only when it follows the fixed `promotion-evaluation-review` skill. The review is advisory and must not change the sealed replay, write active config pointers, or replace deterministic validation.
@@ -119,6 +154,13 @@ Agent review evidence may support this decision only when it follows the fixed `
 ## Promotion Readiness Record
 
 `promotion_readiness_record` admits an eligible candidate to execution-owned shadow review.
+
+Canonical SQL tables:
+
+```text
+trading_evaluation.promotion_readiness_record
+trading_evaluation.promoted_model_parameter
+```
 
 Required fields:
 
