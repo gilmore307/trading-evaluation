@@ -49,7 +49,7 @@ def build_replay_runtime_dry_run(
         generated_at_utc=generated_at_utc,
     )
     entry = runtime["build_entry_decision"](
-        target_allocation_snapshot=allocation,
+        execution_intake_snapshot=allocation,
         target_ref=target_ref,
         account_sleeve_state=account_sleeve_state,
         account_sleeve_risk_budget=account_sleeve_risk_budget,
@@ -68,8 +68,14 @@ def build_replay_runtime_dry_run(
         execution_policy_snapshot=execution_policy_snapshot,
         generated_at_utc=generated_at_utc,
     )
+    execution_gate = runtime["build_execution_gate_result"](
+        execution_order_intent=order_intent,
+        mode="replay",
+        generated_at_utc=generated_at_utc,
+    )
     simulated_fill = runtime["build_simulated_fill_event"](
         execution_order_intent=order_intent,
+        execution_gate_result=execution_gate,
         replay_fill_policy=replay_fill_policy,
         market_snapshot=market_snapshot,
         generated_at_utc=generated_at_utc,
@@ -78,6 +84,7 @@ def build_replay_runtime_dry_run(
         runtime["validate_target_allocation_snapshot"](allocation),
         runtime["validate_entry_decision"](entry),
         runtime["validate_execution_order_intent"](order_intent),
+        runtime["validate_execution_gate_result"](execution_gate),
         runtime["validate_simulated_fill_event"](simulated_fill),
     ]
     return {
@@ -91,6 +98,7 @@ def build_replay_runtime_dry_run(
             "target_allocation_snapshot": allocation,
             "entry_decision": entry,
             "execution_order_intent": order_intent,
+            "execution_gate_result": execution_gate,
             "simulated_fill_event": simulated_fill,
         },
         "validation_status": "passed"
@@ -112,11 +120,13 @@ def _execution_runtime_api() -> dict[str, Any]:
     try:
         from trading_execution.runtime import (  # type: ignore[import-not-found]
             build_entry_decision,
+            build_execution_gate_result,
             build_execution_order_intent,
             build_runtime_component_graph,
             build_simulated_fill_event,
             build_target_allocation_snapshot,
             validate_entry_decision,
+            validate_execution_gate_result,
             validate_execution_order_intent,
             validate_simulated_fill_event,
             validate_target_allocation_snapshot,
@@ -131,9 +141,11 @@ def _execution_runtime_api() -> dict[str, Any]:
         "build_target_allocation_snapshot": build_target_allocation_snapshot,
         "build_entry_decision": build_entry_decision,
         "build_execution_order_intent": build_execution_order_intent,
+        "build_execution_gate_result": build_execution_gate_result,
         "build_simulated_fill_event": build_simulated_fill_event,
         "validate_target_allocation_snapshot": validate_target_allocation_snapshot,
         "validate_entry_decision": validate_entry_decision,
         "validate_execution_order_intent": validate_execution_order_intent,
+        "validate_execution_gate_result": validate_execution_gate_result,
         "validate_simulated_fill_event": validate_simulated_fill_event,
     }

@@ -125,6 +125,7 @@ class ReplayExecutionTests(unittest.TestCase):
             json.dumps(
                 {
                     "contract_type": "replay_dataset_preparation_manifest",
+                    "contract_id": "promotion_replay_candidate_policy",
                     "freeze_status": "frozen",
                     "missing_feed_acquisition_count": 0,
                     "feed_acquisition_plan_ref": str(plan_path),
@@ -134,7 +135,22 @@ class ReplayExecutionTests(unittest.TestCase):
             encoding="utf-8",
         )
         (dataset_root / "replay_freeze_receipt.json").write_text(
-            json.dumps({"freeze_status": "frozen", "validation": {"validation_status": "passed"}}) + "\n",
+            json.dumps(
+                {
+                    "contract_type": "replay_dataset_freeze_receipt",
+                    "contract_id": "promotion_replay_candidate_policy",
+                    "freeze_status": "frozen",
+                    "dataset_manifest_ref": str(dataset_root / "dataset_manifest.json"),
+                    "coverage_summary_ref": str(dataset_root / "coverage_summary.csv"),
+                    "validation": {"validation_status": "passed"},
+                    "safety": {
+                        "provider_calls_performed": False,
+                        "broker_execution_performed": False,
+                        "account_mutation_performed": False,
+                    },
+                }
+            )
+            + "\n",
             encoding="utf-8",
         )
         return dataset_root

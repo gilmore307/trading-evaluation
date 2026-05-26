@@ -16,6 +16,7 @@ class EvaluationExecutionRuntimeTests(unittest.TestCase):
             account_sleeve_id="crypto_spot_account",
             target_ref="SOL",
             alpha_confidence_vector={"alpha_confidence_score": 0.90},
+            underlying_action_plan={"entry_direction": "long", "model_ref": "model_07_underlying_action/unit"},
             trade_risk_cap={
                 "max_loss_usd": 25.0,
                 "max_loss_pct": 0.02,
@@ -39,8 +40,10 @@ class EvaluationExecutionRuntimeTests(unittest.TestCase):
         self.assertEqual(records["target_allocation_snapshot"]["contract_type"], "target_allocation_snapshot")
         self.assertEqual(records["entry_decision"]["contract_type"], "entry_decision")
         self.assertEqual(records["execution_order_intent"]["contract_type"], "execution_order_intent")
+        self.assertEqual(records["execution_gate_result"]["contract_type"], "execution_gate_result")
         self.assertEqual(records["simulated_fill_event"]["contract_type"], "simulated_fill_event")
-        self.assertEqual(records["simulated_fill_event"]["fill_status"], "simulated_filled")
+        self.assertEqual(records["execution_gate_result"]["execution_gate_status"], "rejected_execution_gate")
+        self.assertEqual(records["simulated_fill_event"]["fill_status"], "simulated_rejected")
         self.assertFalse(result["side_effects"]["broker_mutation_performed"])
         self.assertFalse(result["side_effects"]["account_mutation_performed"])
 

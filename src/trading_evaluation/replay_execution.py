@@ -370,6 +370,18 @@ def _trade_risk_cap(reference_price: float) -> dict[str, Any]:
 
 def _validate_frozen_dataset(manifest: Mapping[str, Any], freeze_receipt: Mapping[str, Any]) -> None:
     errors: list[str] = []
+    if manifest.get("contract_type") != "replay_dataset_preparation_manifest":
+        errors.append("dataset manifest contract_type must be replay_dataset_preparation_manifest")
+    if freeze_receipt.get("contract_type") != "replay_dataset_freeze_receipt":
+        errors.append("replay freeze receipt contract_type must be replay_dataset_freeze_receipt")
+    manifest_contract_id = str(manifest.get("contract_id") or "")
+    receipt_contract_id = str(freeze_receipt.get("contract_id") or "")
+    if manifest_contract_id and receipt_contract_id and manifest_contract_id != receipt_contract_id:
+        errors.append("dataset manifest and freeze receipt contract_id must match")
+    if not freeze_receipt.get("dataset_manifest_ref"):
+        errors.append("replay freeze receipt dataset_manifest_ref is required")
+    if not freeze_receipt.get("coverage_summary_ref"):
+        errors.append("replay freeze receipt coverage_summary_ref is required")
     if manifest.get("freeze_status") != "frozen":
         errors.append("dataset manifest freeze_status must be frozen")
     if freeze_receipt.get("freeze_status") != "frozen":
@@ -379,6 +391,16 @@ def _validate_frozen_dataset(manifest: Mapping[str, Any], freeze_receipt: Mappin
         errors.append("replay freeze receipt validation_status must be passed")
     if int(manifest.get("missing_feed_acquisition_count", -1)) != 0:
         errors.append("dataset manifest missing_feed_acquisition_count must be 0")
+    safety = freeze_receipt.get("safety")
+    if not isinstance(safety, Mapping):
+        errors.append("replay freeze receipt safety is required")
+    else:
+        if safety.get("provider_calls_performed") is not False:
+            errors.append("replay freeze receipt must prove no provider calls")
+        if safety.get("broker_execution_performed") is not False:
+            errors.append("replay freeze receipt must prove no broker execution")
+        if safety.get("account_mutation_performed") is not False:
+            errors.append("replay freeze receipt must prove no account mutation")
     if errors:
         raise ValueError("; ".join(errors))
 

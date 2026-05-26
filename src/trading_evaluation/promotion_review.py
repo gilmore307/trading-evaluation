@@ -63,11 +63,11 @@ def build_promotion_evaluation_review(
     if not first_run_evidence_ref and not first_model_bootstrap:
         blocking_issues.append("missing first-run or benchmark query-count evidence")
         required_followups.append("attach first-run/query-count evidence for this candidate lineage")
-    if gate_failures and not first_model_bootstrap:
+    if gate_failures:
         blocking_issues.append("settlement gate failures: " + ", ".join(gate_failures))
 
     recommendation = "insufficient_evidence" if blocking_issues else "eligible_for_shadow"
-    hard_guardrail_status = "passed" if first_model_bootstrap else ("failed" if gate_failures else "passed")
+    hard_guardrail_status = "failed" if gate_failures else "passed"
     comparison_status = "not_applicable" if first_model_bootstrap else ("insufficient_evidence" if not comparison_result_ref else "mixed")
     shadow_status = "ready" if first_model_bootstrap else ("insufficient_evidence" if not candidate_config_ref else "ready")
     uncertainty_status = "acceptable" if first_model_bootstrap else ("insufficient_evidence" if not comparison_result_ref else "acceptable")

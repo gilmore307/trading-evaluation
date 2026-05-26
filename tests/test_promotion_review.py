@@ -82,10 +82,29 @@ class PromotionEvaluationReviewTests(unittest.TestCase):
             self.assertTrue((output_dir / "promotion_evaluation_review.json").exists())
             self.assertTrue((output_dir / "promotion_eligibility_decision.json").exists())
 
-    def test_first_model_bootstrap_is_eligible_baseline(self):
+    def test_first_model_bootstrap_with_gate_failures_is_not_eligible(self):
         with tempfile.TemporaryDirectory() as raw_tmp:
             result = build_promotion_review_result(
                 settlement_run=self._settlement_run(),
+                settlement_run_ref="storage://settlement/bootstrap",
+                benchmark_contract_ref="trading-evaluation/replays/promotion_replay_candidate_policy.json",
+                output_dir=Path(raw_tmp) / "review",
+                first_model_bootstrap=True,
+            )
+
+            self.assertTrue(result.review["first_model_bootstrap"])
+            self.assertEqual(result.review["recommendation"], "insufficient_evidence")
+            self.assertEqual(result.review["hard_guardrail_status"], "failed")
+            self.assertIn("settlement gate failures: auroc_below_minimum", result.review["blocking_issues"])
+            self.assertEqual(result.eligibility_decision["decision_status"], "review_required")
+
+    def test_first_model_bootstrap_without_gate_failures_is_eligible_baseline(self):
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            settlement = dict(self._settlement_run())
+            settlement["gate_failures"] = []
+            settlement["metrics"] = dict(settlement["metrics"], auroc=0.72)
+            result = build_promotion_review_result(
+                settlement_run=settlement,
                 settlement_run_ref="storage://settlement/bootstrap",
                 benchmark_contract_ref="trading-evaluation/replays/promotion_replay_candidate_policy.json",
                 output_dir=Path(raw_tmp) / "review",
