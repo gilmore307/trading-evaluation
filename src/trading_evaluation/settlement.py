@@ -269,6 +269,14 @@ def _validate_optional_nonnegative_number(metrics: Mapping[str, Any], field: str
         errors.append(f"metrics.{field} must be null or a non-negative finite number")
 
 
+def _is_filled_trade_row(row: Mapping[str, Any]) -> bool:
+    fill_status = str(row.get("fill_status") or "").strip().lower()
+    if fill_status in {"simulated_filled", "filled", "executed"}:
+        return True
+    action = str(row.get("action") or row.get("decision") or row.get("decision_action") or "").strip().lower()
+    return action not in {"", "hold", "skip", "no_trade", "reject_entry_thesis", "defer_entry_thesis", "simulated_rejected"}
+
+
 def build_fold_settlement_run(
     *,
     fold_id: str,
@@ -298,8 +306,10 @@ def build_fold_settlement_run(
     labels = [int(label) for label, score in labels_and_scores if label is not None and score is not None]
     scores = [float(score) for label, score in labels_and_scores if label is not None and score is not None]
     auroc = _auroc(labels, scores) if labels and scores else None
-    wins = [value for value in net_returns if value > 0]
-    losses = [value for value in net_returns if value <= 0]
+    filled_indices = [index for index, row in enumerate(rows) if _is_filled_trade_row(row)]
+    filled_net_returns = [net_returns[index] for index in filled_indices]
+    wins = [value for value in filled_net_returns if value > 0]
+    losses = [value for value in filled_net_returns if value <= 0]
     structure = _structure_metrics(rows, feature_columns)
     net_return_total = sum(net_returns)
     baseline_return_total = sum(baseline_returns)
@@ -322,8 +332,8 @@ def build_fold_settlement_run(
         "baseline_return_total": baseline_return_total,
         "excess_return_total": net_return_total - baseline_return_total,
         "max_drawdown": _max_drawdown(cumulative),
-        "turnover_proxy_count": sum(1 for row in rows if str(row.get("action") or row.get("decision") or "").lower() not in {"", "hold", "skip", "no_trade"}),
-        "hit_rate": len(wins) / len(net_returns) if net_returns else None,
+        "turnover_proxy_count": len(filled_indices),
+        "hit_rate": len(wins) / len(filled_net_returns) if filled_net_returns else None,
         "payoff_ratio": (sum(wins) / len(wins)) / abs(sum(losses) / len(losses)) if wins and losses else None,
         "auroc": auroc,
         "auroc_pair_count": len(labels),

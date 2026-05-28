@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Sequence
 
 sys.path.insert(0, "/root/projects/trading-execution/src")
+sys.path.insert(0, "/root/projects/trading-model/src")
 
 from trading_evaluation import build_crypto_replay_execution_run
 

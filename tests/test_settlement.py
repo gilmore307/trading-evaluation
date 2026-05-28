@@ -43,6 +43,8 @@ class SettlementTests(unittest.TestCase):
         self.assertEqual(payload["contract_type"], "fold_settlement_run")
         self.assertEqual(payload["decision_status"], "passed")
         self.assertGreater(payload["metrics"]["auroc"], 0.9)
+        self.assertEqual(payload["metrics"]["turnover_proxy_count"], 20)
+        self.assertEqual(payload["metrics"]["hit_rate"], 1.0)
         self.assertTrue(payload["metrics"]["pca_available"])
         self.assertTrue(payload["metrics"]["pcoa_available"])
         self.assertEqual(validate_fold_settlement_run(payload).validation_status, "passed")

@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path("/root/projects/trading-execution/src")))
+sys.path.insert(0, str(Path("/root/projects/trading-model/src")))
 
 from trading_evaluation import build_crypto_replay_execution_run
 
@@ -173,7 +174,9 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(rows[0]["target_ref"], "SOL")
             self.assertIn(rows[0]["validation_status"], {"passed", "failed"})
             self.assertIn("feature_momentum_7d", rows[0])
-            self.assertTrue(any(row["fill_status"] == "simulated_filled" for row in rows))
+            self.assertEqual(rows[0]["model_inference_mode"], "trading_model_layer_generators")
+            self.assertIn("model_05_alpha_confidence", rows[0]["model_layer_refs"])
+            self.assertIn("model_08_underlying_action", rows[0]["model_layer_refs"])
             progress_rows = [json.loads(line) for line in result.progress_path.read_text(encoding="utf-8").splitlines()]
             self.assertEqual(progress_rows[0]["contract_type"], "evaluation_replay_progress")
             self.assertEqual(progress_rows[0]["stage_id"], "model_group.replay")

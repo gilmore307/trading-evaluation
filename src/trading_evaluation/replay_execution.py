@@ -14,7 +14,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from .execution_runtime import EXECUTION_REPLAY_ROUTE_REF, build_replay_runtime_dry_run
 
@@ -28,6 +28,16 @@ CRYPTO_SYMBOLS_BY_INSTRUMENT = {
     "SOL-USDT": "SOL",
 }
 DEFAULT_DATASET_ROOT = Path("/root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy")
+MODEL_INFERENCE_CHAIN = (
+    "model_01_market_regime_state",
+    "model_02_sector_context_state",
+    "model_03_target_state_vector_state",
+    "model_04_event_failure_risk_state",
+    "model_05_alpha_confidence",
+    "model_06_dynamic_risk_policy",
+    "model_07_position_projection",
+    "model_08_underlying_action",
+)
 
 
 @dataclass(frozen=True)
@@ -184,34 +194,24 @@ def _build_crypto_decision_rows(
             next_bar = target_rows[index + 1]
             date_text = str(bar["date"])
             market_universe = _market_universe_for_date(history_by_target, index_by_target_date, date_text)
-            alpha_score = _alpha_score(target_rows, index)
             reference_price = float(bar["bar_close"])
-            underlying_action_plan = _underlying_action_plan(
+            layer_outputs = _candidate_layer_outputs(
                 target=target,
+                target_rows=target_rows,
+                index=index,
+                market_universe=market_universe,
                 reference_price=reference_price,
-                alpha_score=alpha_score,
                 candidate_model_ref=candidate_model_ref,
             )
             replay_result = build_replay_runtime_dry_run(
                 account_sleeve_id=CRYPTO_SPOT_ACCOUNT_SLEEVE,
                 target_ref=target,
                 market_universe=market_universe,
-                target_context_state={
-                    "model_ref": f"{candidate_model_ref}/target_context_state",
-                    "target_ref": target,
-                    "current_price": reference_price,
-                    "last_price": reference_price,
-                    "mark_price": reference_price,
-                },
-                alpha_confidence_vector={
-                    "model_ref": candidate_model_ref,
-                    "alpha_confidence_score": alpha_score,
-                },
-                dynamic_risk_policy_state={
-                    "model_ref": f"{candidate_model_ref}/dynamic_risk_policy",
-                    "minimum_entry_alpha_confidence": 0.55,
-                },
-                underlying_action_plan=underlying_action_plan,
+                target_context_state=layer_outputs["target_context_state"],
+                event_failure_risk_vector=layer_outputs["event_failure_risk_vector"],
+                alpha_confidence_vector=layer_outputs["alpha_confidence_vector"],
+                dynamic_risk_policy_state=layer_outputs["dynamic_risk_policy_state"],
+                underlying_action_plan=layer_outputs["underlying_action_plan"],
                 trade_risk_cap=_trade_risk_cap(reference_price),
                 market_snapshot={
                     "market_snapshot_ref": f"storage://replay/okx/{target}/{date_text}",
@@ -250,7 +250,7 @@ def _build_crypto_decision_rows(
                     "decision_action": entry["decision_action"],
                     "action": entry["decision_action"],
                     "fill_status": fill["fill_status"],
-                    "prediction_score": alpha_score,
+                    "prediction_score": layer_outputs["prediction_score"],
                     "outcome_label": 1 if gross_return > 0 else 0,
                     "realized_return": realized_return,
                     "baseline_return": 0.0,
@@ -261,6 +261,9 @@ def _build_crypto_decision_rows(
                     "feature_momentum_7d": _window_return(target_rows, index, 7),
                     "feature_momentum_30d": _window_return(target_rows, index, 30),
                     "feature_volume_rank_30d": _volume_rank(target_rows, index, 30),
+                    "model_inference_chain": list(MODEL_INFERENCE_CHAIN),
+                    "model_inference_mode": "trading_model_layer_generators",
+                    "model_layer_refs": layer_outputs["model_layer_refs"],
                     "validation_status": replay_result["validation_status"],
                     "side_effects": replay_result["side_effects"],
                 }
@@ -335,57 +338,368 @@ def _read_bar_csv(path: Path) -> list[dict[str, Any]]:
         return rows
 
 
-def _alpha_score(rows: Sequence[Mapping[str, Any]], index: int) -> float:
+def _candidate_layer_outputs(
+    *,
+    target: str,
+    target_rows: Sequence[Mapping[str, Any]],
+    index: int,
+    market_universe: Sequence[Mapping[str, Any]],
+    reference_price: float,
+    candidate_model_ref: str,
+) -> dict[str, Any]:
+    generators = _trading_model_generators()
+    available_time = str(target_rows[index]["timestamp"])
+    target_candidate_id = _target_candidate_id(target=target, available_time=available_time, candidate_model_ref=candidate_model_ref)
+    market_state = _market_context_state(market_universe=market_universe, candidate_model_ref=candidate_model_ref, available_time=available_time)
+    sector_state = _sector_context_state(candidate_model_ref=candidate_model_ref, available_time=available_time)
+    target_state = _target_context_state(
+        target=target,
+        rows=target_rows,
+        index=index,
+        target_candidate_id=target_candidate_id,
+        candidate_model_ref=candidate_model_ref,
+        reference_price=reference_price,
+    )
+    event_state = _event_failure_risk_state(candidate_model_ref=candidate_model_ref, available_time=available_time)
+    quality_state = _quality_calibration_state()
+
+    alpha_row = generators["model_05_alpha_confidence"](
+        [
+            {
+                "available_time": available_time,
+                "tradeable_time": available_time,
+                "target_candidate_id": target_candidate_id,
+                "market_context_state": market_state,
+                "sector_context_state": sector_state,
+                "target_context_state": target_state,
+                "event_failure_risk_vector": event_state,
+                "quality_calibration_state": quality_state,
+            }
+        ]
+    )[0]
+    alpha_vector = dict(alpha_row["alpha_confidence_vector"])
+    alpha_score = _resolved_alpha_score(alpha_vector)
+    alpha_vector.update(
+        {
+            "model_ref": f"{candidate_model_ref}/model_05_alpha_confidence/{alpha_row['alpha_confidence_vector_ref']}",
+            "alpha_confidence_score": alpha_score,
+            "score": alpha_score,
+        }
+    )
+
+    policy_row = generators["model_06_dynamic_risk_policy"](
+        [
+            {
+                "available_time": available_time,
+                "tradeable_time": available_time,
+                "target_candidate_id": target_candidate_id,
+                "policy_scope": "target_candidate",
+                "market_context_state": market_state,
+                "systemic_event_risk_state": event_state,
+                "alpha_confidence_vector": alpha_vector,
+                "portfolio_exposure_state": _flat_portfolio_state(),
+                "account_capacity_state": _account_capacity_state(),
+            }
+        ]
+    )[0]
+    risk_policy = dict(policy_row["dynamic_risk_policy_state"])
+    risk_policy.update(
+        {
+            "model_ref": f"{candidate_model_ref}/model_06_dynamic_risk_policy/{policy_row['dynamic_risk_policy_state_ref']}",
+            "minimum_entry_alpha_confidence": 0.55,
+        }
+    )
+
+    projection_row = generators["model_07_position_projection"](
+        [
+            {
+                "available_time": available_time,
+                "tradeable_time": available_time,
+                "target_candidate_id": target_candidate_id,
+                "alpha_confidence_vector": alpha_vector,
+                "current_position_state": {"current_position_exposure_score": 0.0},
+                "pending_position_state": {"pending_exposure_score": 0.0, "pending_order_fill_probability_estimate": 0.0},
+                "position_level_friction": {"spread_cost_score": 0.05, "cost_to_adjust_position_score": 0.05},
+                "price_location_state": {
+                    "current_price": reference_price,
+                    "reference_price": reference_price,
+                    "alpha_reference_price": reference_price,
+                    "thesis_intact_score": 1.0,
+                },
+                "portfolio_exposure_state": _flat_portfolio_state(),
+                "risk_budget_state": {"risk_budget_fit_score": risk_policy.get("6_resolved_new_exposure_permission_score", 0.7)},
+                "policy_gate_state": {},
+            }
+        ]
+    )[0]
+    projection_vector = dict(projection_row["position_projection_vector"])
+
+    underlying_row = generators["model_08_underlying_action"](
+        [
+            {
+                "available_time": available_time,
+                "tradeable_time": available_time,
+                "target_candidate_id": target_candidate_id,
+                "alpha_confidence_vector": alpha_vector,
+                "position_projection_vector": projection_vector,
+                "current_underlying_position_state": {"current_underlying_exposure_score": 0.0},
+                "pending_underlying_order_state": {"pending_underlying_exposure_score": 0.0, "pending_fill_probability_estimate": 0.0},
+                "underlying_quote_state": {"reference_price": reference_price, "last_price": reference_price, "halt_status": "active"},
+                "underlying_liquidity_state": {"spread_bps": 10.0, "dollar_volume": _dollar_volume(target_rows[index])},
+                "risk_budget_state": {"risk_budget_fit_score": risk_policy.get("6_resolved_new_exposure_permission_score", 0.7)},
+                "policy_gate_state": {},
+            }
+        ]
+    )[0]
+    underlying_plan = _execution_underlying_plan(
+        plan=underlying_row["underlying_action_plan"],
+        candidate_model_ref=candidate_model_ref,
+        plan_ref=str(underlying_row["underlying_action_plan_ref"]),
+        reference_price=reference_price,
+    )
+    target_state_for_execution = dict(target_state)
+    target_state_for_execution.update({"current_price": reference_price, "last_price": reference_price, "mark_price": reference_price})
+    return {
+        "target_context_state": target_state_for_execution,
+        "event_failure_risk_vector": event_state,
+        "alpha_confidence_vector": alpha_vector,
+        "dynamic_risk_policy_state": risk_policy,
+        "underlying_action_plan": underlying_plan,
+        "prediction_score": alpha_score,
+        "model_layer_refs": {
+            "model_05_alpha_confidence": alpha_row["alpha_confidence_vector_ref"],
+            "model_06_dynamic_risk_policy": policy_row["dynamic_risk_policy_state_ref"],
+            "model_07_position_projection": projection_row["position_projection_vector_ref"],
+            "model_08_underlying_action": underlying_row["underlying_action_plan_ref"],
+        },
+    }
+
+
+def _trading_model_generators() -> dict[str, Callable[[Iterable[Mapping[str, Any]]], list[dict[str, Any]]]]:
+    try:
+        from models.model_05_alpha_confidence.generator import generate_rows as generate_alpha_confidence
+        from models.model_06_dynamic_risk_policy.generator import generate_rows as generate_dynamic_risk_policy
+        from models.model_07_position_projection.generator import generate_rows as generate_position_projection
+        from models.model_08_underlying_action.generator import generate_rows as generate_underlying_action
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "trading-model must be importable for model-group replay inference; "
+            "include /root/projects/trading-model/src on PYTHONPATH"
+        ) from exc
+    return {
+        "model_05_alpha_confidence": generate_alpha_confidence,
+        "model_06_dynamic_risk_policy": generate_dynamic_risk_policy,
+        "model_07_position_projection": generate_position_projection,
+        "model_08_underlying_action": generate_underlying_action,
+    }
+
+
+def _target_candidate_id(*, target: str, available_time: str, candidate_model_ref: str) -> str:
+    token = f"{candidate_model_ref}:{target}:{available_time}".encode("utf-8")
+    import hashlib
+
+    return f"replay_{target.lower()}_{hashlib.sha256(token).hexdigest()[:16]}"
+
+
+def _market_context_state(*, market_universe: Sequence[Mapping[str, Any]], candidate_model_ref: str, available_time: str) -> dict[str, Any]:
+    prices = [float(row["reference_price"]) for row in market_universe if row.get("reference_price") is not None]
+    dispersion = 0.0
+    if prices:
+        mean_price = sum(prices) / len(prices)
+        dispersion = 0.0 if mean_price <= 0 else min(max((max(prices) - min(prices)) / mean_price, 0.0), 1.0)
+    return {
+        "model_ref": f"{candidate_model_ref}/model_01_market_regime_state/{available_time}",
+        "1_market_risk_stress_score": min(0.25 + dispersion * 0.2, 0.75),
+        "1_market_liquidity_support_score": 0.75,
+        "1_transition_risk_score": min(0.20 + dispersion * 0.15, 0.70),
+        "1_state_quality_score": 0.70,
+    }
+
+
+def _sector_context_state(*, candidate_model_ref: str, available_time: str) -> dict[str, Any]:
+    return {
+        "model_ref": f"{candidate_model_ref}/model_02_sector_context_state/{available_time}",
+        "2_sector_context_support_quality_score": 0.60,
+        "2_state_quality_score": 0.70,
+    }
+
+
+def _target_context_state(
+    *,
+    target: str,
+    rows: Sequence[Mapping[str, Any]],
+    index: int,
+    target_candidate_id: str,
+    candidate_model_ref: str,
+    reference_price: float,
+) -> dict[str, Any]:
     momentum_7d = _window_return(rows, index, 7)
     momentum_30d = _window_return(rows, index, 30)
     daily = _daily_return(rows, index)
-    score = 0.52 + momentum_7d * 2.0 + momentum_30d * 0.5 + daily
-    return max(0.05, min(0.95, score))
-
-
-def _underlying_action_plan(
-    *,
-    target: str,
-    reference_price: float,
-    alpha_score: float,
-    candidate_model_ref: str,
-) -> dict[str, Any]:
-    if alpha_score < 0.55:
-        return {
-            "model_ref": f"{candidate_model_ref}/underlying_action_plan",
-            "target_ref": target,
-            "planned_underlying_action_type": "no_trade",
-            "action_side": "none",
-            "current_price": reference_price,
-            "underlying_action_score": alpha_score,
-            "reason_codes": ["alpha_confidence_below_entry_threshold"],
-        }
-    target_move = max(0.012, min(0.08, (alpha_score - 0.50) * 0.16))
-    stop_move = max(0.006, min(0.035, target_move * 0.45))
+    direction_1d = _clip_signed(daily * 8.0 + momentum_7d * 3.0)
+    direction_1w = _clip_signed(momentum_7d * 4.0 + momentum_30d)
+    trend_quality = _clip01(0.5 + abs(momentum_7d) * 8.0 + abs(momentum_30d) * 2.0)
+    liquidity = _volume_rank(rows, index, 30)
     return {
-        "model_ref": f"{candidate_model_ref}/underlying_action_plan",
+        "model_ref": f"{candidate_model_ref}/model_03_target_state_vector/{target_candidate_id}",
         "target_ref": target,
-        "planned_underlying_action_type": "increase_long",
-        "action_side": "long",
-        "entry_direction": "long",
+        "target_candidate_id": target_candidate_id,
+        "3_target_direction_score_10min": direction_1d,
+        "3_target_direction_score_1h": direction_1d,
+        "3_target_direction_score_1D": direction_1d,
+        "3_target_direction_score_1W": direction_1w,
+        "3_target_trend_quality_score_10min": trend_quality,
+        "3_target_trend_quality_score_1h": trend_quality,
+        "3_target_trend_quality_score_1D": trend_quality,
+        "3_target_trend_quality_score_1W": trend_quality,
+        "3_target_path_stability_score_10min": _clip01(0.65 - abs(daily) * 4.0),
+        "3_target_path_stability_score_1h": _clip01(0.65 - abs(daily) * 4.0),
+        "3_target_path_stability_score_1D": _clip01(0.65 - abs(daily) * 4.0),
+        "3_target_path_stability_score_1W": _clip01(0.65 - abs(momentum_7d) * 2.0),
+        "3_target_noise_score_10min": _clip01(abs(daily) * 4.0),
+        "3_target_noise_score_1h": _clip01(abs(daily) * 4.0),
+        "3_target_noise_score_1D": _clip01(abs(daily) * 4.0),
+        "3_target_noise_score_1W": _clip01(abs(momentum_7d) * 2.0),
+        "3_target_transition_risk_score_10min": _clip01(abs(daily - momentum_7d) * 2.0),
+        "3_target_transition_risk_score_1h": _clip01(abs(daily - momentum_7d) * 2.0),
+        "3_target_transition_risk_score_1D": _clip01(abs(daily - momentum_7d) * 2.0),
+        "3_target_transition_risk_score_1W": _clip01(abs(momentum_7d - momentum_30d) * 2.0),
+        "3_context_direction_alignment_score_10min": direction_1d,
+        "3_context_direction_alignment_score_1h": direction_1d,
+        "3_context_direction_alignment_score_1D": direction_1d,
+        "3_context_direction_alignment_score_1W": direction_1w,
+        "3_context_support_quality_score_10min": 0.60,
+        "3_context_support_quality_score_1h": 0.60,
+        "3_context_support_quality_score_1D": 0.60,
+        "3_context_support_quality_score_1W": 0.60,
+        "3_tradability_score_10min": liquidity,
+        "3_tradability_score_1h": liquidity,
+        "3_tradability_score_1D": liquidity,
+        "3_tradability_score_1W": liquidity,
+        "3_target_liquidity_tradability_score": liquidity,
+        "3_state_quality_score": 0.70,
         "current_price": reference_price,
-        "entry_zone": {
-            "low": reference_price * 0.995,
-            "high": reference_price * 1.005,
-        },
-        "target_price": reference_price * (1.0 + target_move),
-        "take_profit_zone": {
-            "low": reference_price * (1.0 + target_move * 0.75),
-            "high": reference_price * (1.0 + target_move * 1.25),
-        },
-        "model_invalidation_price": reference_price * (1.0 - stop_move),
-        "hard_stop_price": reference_price * (1.0 - stop_move * 1.25),
-        "expected_horizon": "1D",
-        "underlying_action_score": alpha_score,
-        "entry_thesis_score": alpha_score,
-        "setup_quality_score": alpha_score,
-        "reason_codes": ["alpha_confidence_supports_crypto_spot_long_entry"],
+        "last_price": reference_price,
+        "mark_price": reference_price,
     }
+
+
+def _event_failure_risk_state(*, candidate_model_ref: str, available_time: str) -> dict[str, Any]:
+    state = {"model_ref": f"{candidate_model_ref}/model_04_event_failure_risk/{available_time}"}
+    for suffix in ("10min", "1h", "1D", "1W"):
+        state.update(
+            {
+                f"4_event_applicability_confidence_score_{suffix}": 0.0,
+                f"4_event_strategy_failure_risk_score_{suffix}": 0.0,
+                f"4_event_entry_block_pressure_score_{suffix}": 0.0,
+                f"4_event_evidence_quality_score_{suffix}": 0.75,
+                f"4_event_strategy_disable_pressure_score_{suffix}": 0.0,
+                f"4_event_path_risk_amplifier_score_{suffix}": 0.0,
+                f"4_event_session_gap_risk_score_{suffix}": 0.0,
+                f"4_event_exposure_cap_pressure_score_{suffix}": 0.0,
+            }
+        )
+    return state
+
+
+def _quality_calibration_state() -> dict[str, float]:
+    return {
+        "state_neighborhood_sample_count_score": 0.60,
+        "state_neighborhood_outcome_stability": 0.55,
+        "model_ensemble_agreement_score": 0.60,
+        "model_disagreement_score": 0.25,
+        "out_of_distribution_score": 0.20,
+        "data_quality_score": 0.70,
+    }
+
+
+def _flat_portfolio_state() -> dict[str, float]:
+    return {
+        "correlation_concentration_score": 0.20,
+        "concentration_score": 0.20,
+        "gross_exposure_capacity_score": 0.80,
+    }
+
+
+def _account_capacity_state() -> dict[str, float]:
+    return {
+        "drawdown_pressure_score": 0.10,
+        "cash_capacity_score": 0.85,
+        "premium_capacity_score": 0.80,
+    }
+
+
+def _execution_underlying_plan(
+    *,
+    plan: Mapping[str, Any],
+    candidate_model_ref: str,
+    plan_ref: str,
+    reference_price: float,
+) -> dict[str, Any]:
+    entry = _as_mapping(plan.get("entry_plan"))
+    path = _as_mapping(plan.get("price_path_expectation"))
+    risk = _as_mapping(plan.get("risk_plan"))
+    action_side = str(plan.get("action_side") or "").strip()
+    entry_price = _safe_float(entry.get("expected_entry_price")) or reference_price
+    worst_price = _safe_float(entry.get("worst_acceptable_entry_price")) or entry_price
+    target_low = _safe_float(path.get("target_price_low"))
+    target_high = _safe_float(path.get("target_price_high"))
+    target_price = _safe_float(path.get("expected_target_price")) or _safe_float(risk.get("take_profit_price"))
+    stop_price = _safe_float(risk.get("stop_loss_price"))
+    invalidation_price = _safe_float(risk.get("thesis_invalidation_price")) or stop_price
+    output = dict(plan)
+    output.update(
+        {
+            "model_ref": f"{candidate_model_ref}/model_08_underlying_action/{plan_ref}",
+            "entry_direction": "long" if action_side == "long" else "short" if action_side == "short" else None,
+            "entry_zone": {"low": min(entry_price, worst_price), "high": max(entry_price, worst_price)},
+            "target_price": target_price,
+            "take_profit_zone": {"low": min(target_low, target_high), "high": max(target_low, target_high)}
+            if target_low is not None and target_high is not None
+            else None,
+            "model_invalidation_price": invalidation_price,
+            "hard_stop_price": stop_price,
+            "expected_horizon": plan.get("dominant_horizon"),
+            "current_price": reference_price,
+            "reference_price": reference_price,
+        }
+    )
+    return output
+
+
+def _resolved_alpha_score(alpha_vector: Mapping[str, Any]) -> float:
+    for key in ("5_alpha_confidence_score_1D", "5_alpha_confidence_score_1W", "5_alpha_confidence_score_1h", "5_alpha_confidence_score_10min"):
+        value = _safe_float(alpha_vector.get(key))
+        if value is not None:
+            return _clip01(value)
+    return 0.0
+
+
+def _as_mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _dollar_volume(row: Mapping[str, Any]) -> float:
+    close = _safe_float(row.get("bar_close")) or 0.0
+    volume = _safe_float(row.get("bar_volume")) or 0.0
+    return close * volume
+
+
+def _safe_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _clip01(value: float) -> float:
+    return max(0.0, min(1.0, value))
+
+
+def _clip_signed(value: float) -> float:
+    return max(-1.0, min(1.0, value))
 
 
 def _daily_return(rows: Sequence[Mapping[str, Any]], index: int) -> float:
