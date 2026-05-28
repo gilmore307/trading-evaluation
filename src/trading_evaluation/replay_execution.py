@@ -186,10 +186,23 @@ def _build_crypto_decision_rows(
             market_universe = _market_universe_for_date(history_by_target, index_by_target_date, date_text)
             alpha_score = _alpha_score(target_rows, index)
             reference_price = float(bar["bar_close"])
+            underlying_action_plan = _underlying_action_plan(
+                target=target,
+                reference_price=reference_price,
+                alpha_score=alpha_score,
+                candidate_model_ref=candidate_model_ref,
+            )
             replay_result = build_replay_runtime_dry_run(
                 account_sleeve_id=CRYPTO_SPOT_ACCOUNT_SLEEVE,
                 target_ref=target,
                 market_universe=market_universe,
+                target_context_state={
+                    "model_ref": f"{candidate_model_ref}/target_context_state",
+                    "target_ref": target,
+                    "current_price": reference_price,
+                    "last_price": reference_price,
+                    "mark_price": reference_price,
+                },
                 alpha_confidence_vector={
                     "model_ref": candidate_model_ref,
                     "alpha_confidence_score": alpha_score,
@@ -198,6 +211,7 @@ def _build_crypto_decision_rows(
                     "model_ref": f"{candidate_model_ref}/dynamic_risk_policy",
                     "minimum_entry_alpha_confidence": 0.55,
                 },
+                underlying_action_plan=underlying_action_plan,
                 trade_risk_cap=_trade_risk_cap(reference_price),
                 market_snapshot={
                     "market_snapshot_ref": f"storage://replay/okx/{target}/{date_text}",
@@ -327,6 +341,51 @@ def _alpha_score(rows: Sequence[Mapping[str, Any]], index: int) -> float:
     daily = _daily_return(rows, index)
     score = 0.52 + momentum_7d * 2.0 + momentum_30d * 0.5 + daily
     return max(0.05, min(0.95, score))
+
+
+def _underlying_action_plan(
+    *,
+    target: str,
+    reference_price: float,
+    alpha_score: float,
+    candidate_model_ref: str,
+) -> dict[str, Any]:
+    if alpha_score < 0.55:
+        return {
+            "model_ref": f"{candidate_model_ref}/underlying_action_plan",
+            "target_ref": target,
+            "planned_underlying_action_type": "no_trade",
+            "action_side": "none",
+            "current_price": reference_price,
+            "underlying_action_score": alpha_score,
+            "reason_codes": ["alpha_confidence_below_entry_threshold"],
+        }
+    target_move = max(0.012, min(0.08, (alpha_score - 0.50) * 0.16))
+    stop_move = max(0.006, min(0.035, target_move * 0.45))
+    return {
+        "model_ref": f"{candidate_model_ref}/underlying_action_plan",
+        "target_ref": target,
+        "planned_underlying_action_type": "increase_long",
+        "action_side": "long",
+        "entry_direction": "long",
+        "current_price": reference_price,
+        "entry_zone": {
+            "low": reference_price * 0.995,
+            "high": reference_price * 1.005,
+        },
+        "target_price": reference_price * (1.0 + target_move),
+        "take_profit_zone": {
+            "low": reference_price * (1.0 + target_move * 0.75),
+            "high": reference_price * (1.0 + target_move * 1.25),
+        },
+        "model_invalidation_price": reference_price * (1.0 - stop_move),
+        "hard_stop_price": reference_price * (1.0 - stop_move * 1.25),
+        "expected_horizon": "1D",
+        "underlying_action_score": alpha_score,
+        "entry_thesis_score": alpha_score,
+        "setup_quality_score": alpha_score,
+        "reason_codes": ["alpha_confidence_supports_crypto_spot_long_entry"],
+    }
 
 
 def _daily_return(rows: Sequence[Mapping[str, Any]], index: int) -> float:

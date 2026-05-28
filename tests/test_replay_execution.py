@@ -173,6 +173,7 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(rows[0]["target_ref"], "SOL")
             self.assertIn(rows[0]["validation_status"], {"passed", "failed"})
             self.assertIn("feature_momentum_7d", rows[0])
+            self.assertTrue(any(row["fill_status"] == "simulated_filled" for row in rows))
             progress_rows = [json.loads(line) for line in result.progress_path.read_text(encoding="utf-8").splitlines()]
             self.assertEqual(progress_rows[0]["contract_type"], "evaluation_replay_progress")
             self.assertEqual(progress_rows[0]["stage_id"], "model_group.replay")
