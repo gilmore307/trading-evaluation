@@ -40,7 +40,7 @@ MODEL_INFERENCE_CHAIN = (
     "model_07_position_projection",
     "model_08_underlying_action",
 )
-DEFAULT_ENTRY_ALPHA_THRESHOLD = 0.55
+DEFAULT_ENTRY_ALPHA_THRESHOLD = 0.50
 DEFAULT_MINIMUM_TRADE_INTENSITY = 0.05
 REPLAY_COST_PER_FILLED_DECISION = 0.0015
 
@@ -230,7 +230,7 @@ def _build_entry_calibration(
         "candidate_model_ref": candidate_model_ref,
         "replay_contract_ref": replay_contract_ref,
         "generated_at_utc": generated_at_utc,
-        "calibration_method": "validation_grid_search_on_layer_5_7_8_candidate_outputs",
+        "calibration_method": "fixed_layer_5_neutral_score_with_validation_trade_intensity_selection",
         "validation_months": validation_months,
         "validation_observation_count": len(validation_rows),
         "total_observation_count": len(observations),
@@ -239,8 +239,9 @@ def _build_entry_calibration(
         "calibration_status": selected["status"],
         "candidate_threshold_count": selected["candidate_threshold_count"],
         "notes": [
-            "entry thresholds are selected before replay execution from validation rows",
-            "selection uses Layer 5 alpha, Layer 8 trade intensity, positive expected-return direction, and next-bar validation utility after replay costs",
+            "Layer 5 alpha uses the normalized after-cost score boundary: 0.5 is neutral, above 0.5 is positive edge",
+            "validation may select Layer 8 trade intensity, but it does not move the Layer 5 economic neutral boundary",
+            "selection uses Layer 8 trade intensity, positive expected-return direction, and next-bar validation utility after replay costs",
             "Layer 10 remains post-replay attribution and is not used for same-run entry decisions",
         ],
     }
@@ -299,7 +300,7 @@ def _entry_calibration_observations(
 
 
 def _select_entry_thresholds(validation_rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    alpha_thresholds = [round(value / 100.0, 2) for value in range(25, 61)]
+    alpha_thresholds = [DEFAULT_ENTRY_ALPHA_THRESHOLD]
     intensity_thresholds = [round(value / 1000.0, 3) for value in range(1, 31)]
     min_trade_count = max(3, math.ceil(len(validation_rows) * 0.02))
     candidates: list[dict[str, Any]] = []
@@ -1008,6 +1009,10 @@ def _execution_underlying_plan(
 
 
 def _resolved_alpha_score(alpha_vector: Mapping[str, Any]) -> float:
+    for key in ("5_after_cost_alpha_score_1D", "5_after_cost_alpha_score_1W", "5_after_cost_alpha_score_1h", "5_after_cost_alpha_score_10min"):
+        value = _safe_float(alpha_vector.get(key))
+        if value is not None:
+            return _clip01(value)
     for key in ("5_alpha_confidence_score_1D", "5_alpha_confidence_score_1W", "5_alpha_confidence_score_1h", "5_alpha_confidence_score_10min"):
         value = _safe_float(alpha_vector.get(key))
         if value is not None:
