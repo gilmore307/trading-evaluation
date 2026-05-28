@@ -342,7 +342,13 @@ def _acquisition_row(
     suffix = acquisition_suffix or month
     acquisition_id = _acquisition_id(contract.contract_id, source["source_id"], suffix)
     source_output_root = _coverage_output_root(data_root, source["source_id"], contract.contract_id, suffix)
-    receipt_path = source_output_root / "completion_receipt.json"
+    receipt_path = _coverage_receipt_path(
+        data_root=data_root,
+        source_id=source["source_id"],
+        contract_id=contract.contract_id,
+        suffix=suffix,
+        source_output_root=source_output_root,
+    )
     params = _feed_params(contract, source, window)
     params.update(dict(params_extra or {}))
     coverage_status = coverage_status_override or ("available" if _receipt_succeeded(receipt_path) else "missing")
@@ -500,7 +506,34 @@ def _coverage_rows(contract: ReplayContract, acquisition_rows: Iterable[Mapping[
 
 
 def _coverage_output_root(data_root: Path, source_id: str, contract_id: str, month: str) -> Path:
+    if source_id == "trading_economics_calendar_web":
+        return data_root / "monthly_backfill" / source_id / month
     return data_root / "replay" / source_id / contract_id / month
+
+
+def _coverage_receipt_path(
+    *,
+    data_root: Path,
+    source_id: str,
+    contract_id: str,
+    suffix: str,
+    source_output_root: Path,
+) -> Path:
+    if source_id == "trading_economics_calendar_web":
+        canonical_root = data_root / "monthly_backfill" / source_id / suffix
+        return _latest_succeeded_receipt(canonical_root) or (canonical_root / "completion_receipt.json")
+    return source_output_root / "completion_receipt.json"
+
+
+def _latest_succeeded_receipt(root: Path) -> Path | None:
+    candidates = [root / "completion_receipt.json"]
+    runs_root = root / "runs"
+    if runs_root.exists():
+        candidates.extend(sorted(runs_root.glob("*/completion_receipt.json")))
+    succeeded: list[Path] = [path for path in candidates if _receipt_succeeded(path)]
+    if not succeeded:
+        return None
+    return max(succeeded, key=lambda path: path.stat().st_mtime)
 
 
 def _receipt_succeeded(path: Path) -> bool:

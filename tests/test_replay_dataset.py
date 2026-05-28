@@ -128,6 +128,42 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
                 prepared.manifest["known_deferred_requirements"],
             )
 
+    def test_prepare_replay_dataset_uses_canonical_trading_economics_monthly_receipts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_root = root / "data"
+            canonical_receipt = (
+                data_root
+                / "monthly_backfill"
+                / "trading_economics_calendar_web"
+                / "2021-01"
+                / "runs"
+                / "canonical_te_run"
+                / "completion_receipt.json"
+            )
+            canonical_receipt.parent.mkdir(parents=True)
+            canonical_receipt.write_text(json.dumps({"runs": [{"status": "succeeded"}]}) + "\n", encoding="utf-8")
+
+            prepared = prepare_replay_dataset(
+                VALID_DATASET_CONTRACT,
+                output_root=root / "storage" / "replay",
+                data_root=data_root,
+                prepared_at_utc="2026-05-20T00:00:00Z",
+            )
+
+            self.assertEqual(prepared.manifest["available_feed_acquisition_count"], 1)
+            self.assertEqual(prepared.manifest["missing_feed_acquisition_count"], 299)
+            with prepared.feed_acquisition_plan_path.open(newline="", encoding="utf-8") as handle:
+                acquisition_rows = list(csv.DictReader(handle))
+            te_jan = next(
+                row
+                for row in acquisition_rows
+                if row["source_id"] == "trading_economics_calendar_web" and row["month"] == "2021-01"
+            )
+            self.assertEqual(te_jan["coverage_status"], "available")
+            self.assertEqual(te_jan["output_root"], str(canonical_receipt.parents[2]))
+            self.assertEqual(te_jan["coverage_receipt_path"], str(canonical_receipt))
+
     def test_prepare_replay_dataset_cli(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
