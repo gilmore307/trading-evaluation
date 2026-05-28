@@ -292,7 +292,7 @@ def build_fold_settlement_run(
 ) -> dict[str, Any]:
     """Build deterministic fold-settlement metrics from replay decision rows."""
 
-    rows = [dict(row) for row in decision_rows]
+    rows = [dict(row) for row in decision_rows if str(row.get("entry_threshold_calibration_role") or "test") != "validation"]
     realized_returns = [_float(row, "net_return", "realized_return", "candidate_return") for row in rows]
     baseline_returns = [_float(row, "baseline_return", "replay_return", "incumbent_return") for row in rows]
     costs = [_float(row, "cost", "trading_cost", "cost_drag") for row in rows]

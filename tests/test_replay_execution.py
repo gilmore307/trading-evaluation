@@ -168,6 +168,15 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(result.receipt["contract_type"], "evaluation_replay_execution_run")
             self.assertEqual(result.receipt["decision_row_count"], 2)
             self.assertEqual(result.receipt["completed_replay_month_count"], 1)
+            self.assertIn(
+                result.receipt["entry_threshold_calibration_status"],
+                {
+                    "selected_positive_validation_threshold",
+                    "selected_best_available_nonpositive_validation_threshold",
+                    "fallback_no_validation_threshold_candidate",
+                },
+            )
+            self.assertTrue(Path(result.receipt["entry_threshold_calibration_ref"]).exists())
             self.assertFalse(result.receipt["side_effects"]["account_mutation_performed"])
             rows = [json.loads(line) for line in result.decision_rows_path.read_text(encoding="utf-8").splitlines()]
             self.assertEqual(rows[0]["contract_type"], "evaluation_replay_decision_row")
@@ -177,6 +186,11 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(rows[0]["model_inference_mode"], "trading_model_layer_generators")
             self.assertIn("model_05_alpha_confidence", rows[0]["model_layer_refs"])
             self.assertIn("model_08_underlying_action", rows[0]["model_layer_refs"])
+            self.assertIn("model_05_alpha_confidence", rows[0]["model_layer_diagnostics"])
+            self.assertIn("model_07_position_projection", rows[0]["model_layer_diagnostics"])
+            self.assertIn("model_08_underlying_action", rows[0]["model_layer_diagnostics"])
+            self.assertIn(rows[0]["entry_threshold_calibration_role"], {"validation", "test"})
+            self.assertIn("entry_minimum_trade_intensity", rows[0])
             progress_rows = [json.loads(line) for line in result.progress_path.read_text(encoding="utf-8").splitlines()]
             self.assertEqual(progress_rows[0]["contract_type"], "evaluation_replay_progress")
             self.assertEqual(progress_rows[0]["stage_id"], "model_group.replay")

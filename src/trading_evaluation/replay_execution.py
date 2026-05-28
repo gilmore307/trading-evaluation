@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -21,6 +22,7 @@ from .execution_runtime import EXECUTION_REPLAY_ROUTE_REF, build_replay_runtime_
 REPLAY_EXECUTION_RUN_CONTRACT = "evaluation_replay_execution_run"
 REPLAY_DECISION_ROW_CONTRACT = "evaluation_replay_decision_row"
 REPLAY_PROGRESS_CONTRACT = "evaluation_replay_progress"
+ENTRY_THRESHOLD_CALIBRATION_CONTRACT = "validation_entry_threshold_calibration"
 CRYPTO_SPOT_ACCOUNT_SLEEVE = "crypto_spot_account"
 CRYPTO_SYMBOLS_BY_INSTRUMENT = {
     "BTC-USDT": "BTC",
@@ -38,6 +40,9 @@ MODEL_INFERENCE_CHAIN = (
     "model_07_position_projection",
     "model_08_underlying_action",
 )
+DEFAULT_ENTRY_ALPHA_THRESHOLD = 0.55
+DEFAULT_MINIMUM_TRADE_INTENSITY = 0.05
+REPLAY_COST_PER_FILLED_DECISION = 0.0015
 
 
 @dataclass(frozen=True)
@@ -50,6 +55,22 @@ class ReplayExecutionResult:
     receipt: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class EntryCalibration:
+    """Validation-selected entry gates for replay action conversion."""
+
+    artifact: dict[str, Any]
+    path: Path
+
+    @property
+    def minimum_entry_alpha_confidence(self) -> float:
+        return float(self.artifact["selected_thresholds"]["minimum_entry_alpha_confidence"])
+
+    @property
+    def minimum_trade_intensity(self) -> float:
+        return float(self.artifact["selected_thresholds"]["minimum_trade_intensity"])
+
+
 def build_crypto_replay_execution_run(
     *,
     dataset_root: Path = DEFAULT_DATASET_ROOT,
@@ -60,6 +81,7 @@ def build_crypto_replay_execution_run(
     max_decision_rows: int | None = None,
     generated_at_utc: str | None = None,
     progress_path: Path | None = None,
+    calibration_window_month_count: int = 1,
 ) -> ReplayExecutionResult:
     """Run the frozen crypto sleeve through the execution-owned Replay route."""
 
@@ -73,9 +95,19 @@ def build_crypto_replay_execution_run(
     decision_rows_path = output_dir / "decision_rows.jsonl"
     receipt_path = output_dir / "replay_execution_receipt.json"
     progress_path = progress_path or dataset_root / "replay_progress.jsonl"
+    calibration_path = output_dir / "entry_threshold_calibration.json"
 
     bars_by_target = _load_crypto_bars(Path(str(manifest["feed_acquisition_plan_ref"])))
     market_dates = sorted({row["date"] for rows in bars_by_target.values() for row in rows})
+    entry_calibration = _build_entry_calibration(
+        bars_by_target=bars_by_target,
+        candidate_model_ref=candidate_model_ref,
+        replay_contract_ref=replay_contract_ref,
+        generated_at_utc=generated_at,
+        output_path=calibration_path,
+        validation_month_count=calibration_window_month_count,
+        max_decision_rows=max_decision_rows,
+    )
     decision_rows = _build_crypto_decision_rows(
         bars_by_target=bars_by_target,
         market_dates=market_dates,
@@ -83,6 +115,7 @@ def build_crypto_replay_execution_run(
         candidate_model_ref=candidate_model_ref,
         replay_contract_ref=replay_contract_ref,
         max_decision_rows=max_decision_rows,
+        entry_calibration=entry_calibration,
     )
     _write_jsonl(decision_rows_path, decision_rows)
     progress_rows = _build_replay_progress_rows(
@@ -104,6 +137,9 @@ def build_crypto_replay_execution_run(
         "replay_freeze_receipt_ref": str(dataset_root / "replay_freeze_receipt.json"),
         "decision_rows_ref": str(decision_rows_path),
         "progress_ref": str(progress_path),
+        "entry_threshold_calibration_ref": str(entry_calibration.path),
+        "entry_threshold_calibration_status": entry_calibration.artifact["calibration_status"],
+        "entry_thresholds": entry_calibration.artifact["selected_thresholds"],
         "decision_row_count": len(decision_rows),
         "completed_replay_month_count": len(progress_rows),
         "target_refs": sorted(bars_by_target),
@@ -171,6 +207,186 @@ def _build_replay_progress_rows(
     return progress_rows
 
 
+def _build_entry_calibration(
+    *,
+    bars_by_target: Mapping[str, Sequence[Mapping[str, Any]]],
+    candidate_model_ref: str,
+    replay_contract_ref: str,
+    generated_at_utc: str,
+    output_path: Path,
+    validation_month_count: int,
+    max_decision_rows: int | None,
+) -> EntryCalibration:
+    observations = _entry_calibration_observations(
+        bars_by_target=bars_by_target,
+        candidate_model_ref=candidate_model_ref,
+        max_decision_rows=max_decision_rows,
+    )
+    validation_months = sorted({str(row["replay_month"]) for row in observations})[: max(validation_month_count, 1)]
+    validation_rows = [row for row in observations if row["replay_month"] in set(validation_months)]
+    selected = _select_entry_thresholds(validation_rows)
+    artifact = {
+        "contract_type": ENTRY_THRESHOLD_CALIBRATION_CONTRACT,
+        "candidate_model_ref": candidate_model_ref,
+        "replay_contract_ref": replay_contract_ref,
+        "generated_at_utc": generated_at_utc,
+        "calibration_method": "validation_grid_search_on_layer_5_7_8_candidate_outputs",
+        "validation_months": validation_months,
+        "validation_observation_count": len(validation_rows),
+        "total_observation_count": len(observations),
+        "selected_thresholds": selected["thresholds"],
+        "selected_metrics": selected["metrics"],
+        "calibration_status": selected["status"],
+        "candidate_threshold_count": selected["candidate_threshold_count"],
+        "notes": [
+            "entry thresholds are selected before replay execution from validation rows",
+            "selection uses Layer 5 alpha, Layer 8 trade intensity, positive expected-return direction, and next-bar validation utility after replay costs",
+            "Layer 10 remains post-replay attribution and is not used for same-run entry decisions",
+        ],
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return EntryCalibration(artifact=artifact, path=output_path)
+
+
+def _entry_calibration_observations(
+    *,
+    bars_by_target: Mapping[str, Sequence[Mapping[str, Any]]],
+    candidate_model_ref: str,
+    max_decision_rows: int | None,
+) -> list[dict[str, Any]]:
+    observations: list[dict[str, Any]] = []
+    history_by_target = {target: list(bars) for target, bars in bars_by_target.items()}
+    index_by_target_date = {
+        target: {str(row["date"]): index for index, row in enumerate(target_rows)}
+        for target, target_rows in history_by_target.items()
+    }
+    for target in sorted(history_by_target):
+        target_rows = history_by_target[target]
+        for index, bar in enumerate(target_rows[:-1]):
+            if max_decision_rows is not None and len(observations) >= max_decision_rows:
+                return observations
+            next_bar = target_rows[index + 1]
+            reference_price = float(bar["bar_close"])
+            layer_outputs = _candidate_layer_outputs(
+                target=target,
+                target_rows=target_rows,
+                index=index,
+                market_universe=_market_universe_for_date(history_by_target, index_by_target_date, str(bar["date"])),
+                reference_price=reference_price,
+                candidate_model_ref=candidate_model_ref,
+                entry_calibration=_raw_entry_calibration(),
+            )
+            diagnostics = layer_outputs["model_layer_diagnostics"]
+            layer8 = diagnostics["model_08_underlying_action"]
+            dominant = layer8["dominant_horizon_scores"]
+            gross_return = (float(next_bar["bar_close"]) - reference_price) / reference_price
+            observations.append(
+                {
+                    "target_ref": target,
+                    "timestamp": bar["timestamp"],
+                    "replay_month": str(bar["timestamp"])[:7],
+                    "alpha_confidence": float(layer_outputs["prediction_score"]),
+                    "trade_intensity": float(dominant["trade_intensity_score"]),
+                    "action_confidence": float(dominant["action_confidence_score"]),
+                    "action_direction": float(dominant["action_direction_score"]),
+                    "expected_return_score": float(dominant["expected_return_score"]),
+                    "gross_return": gross_return,
+                    "return_after_cost": gross_return - REPLAY_COST_PER_FILLED_DECISION,
+                }
+            )
+    return observations
+
+
+def _select_entry_thresholds(validation_rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    alpha_thresholds = [round(value / 100.0, 2) for value in range(25, 61)]
+    intensity_thresholds = [round(value / 1000.0, 3) for value in range(1, 31)]
+    min_trade_count = max(3, math.ceil(len(validation_rows) * 0.02))
+    candidates: list[dict[str, Any]] = []
+    for alpha_threshold in alpha_thresholds:
+        for intensity_threshold in intensity_thresholds:
+            selected = [
+                row
+                for row in validation_rows
+                if float(row["alpha_confidence"]) >= alpha_threshold
+                and float(row["trade_intensity"]) >= intensity_threshold
+                and float(row["action_direction"]) > 0
+                and float(row["expected_return_score"]) > 0
+            ]
+            if len(selected) < min_trade_count:
+                continue
+            returns = [float(row["return_after_cost"]) for row in selected]
+            metrics = _threshold_metrics(returns)
+            objective = metrics["average_return_after_cost"] * math.sqrt(len(returns)) - metrics["max_drawdown"] * 0.05
+            candidates.append(
+                {
+                    "thresholds": {
+                        "minimum_entry_alpha_confidence": alpha_threshold,
+                        "minimum_trade_intensity": intensity_threshold,
+                    },
+                    "metrics": metrics,
+                    "objective_score": objective,
+                }
+            )
+    positive = [item for item in candidates if item["metrics"]["total_return_after_cost"] > 0 and item["metrics"]["average_return_after_cost"] > 0]
+    if positive:
+        selected = max(
+            positive,
+            key=lambda item: (
+                item["objective_score"],
+                item["metrics"]["trade_count"],
+                -item["thresholds"]["minimum_entry_alpha_confidence"],
+                -item["thresholds"]["minimum_trade_intensity"],
+            ),
+        )
+        return {
+            "status": "selected_positive_validation_threshold",
+            "thresholds": selected["thresholds"],
+            "metrics": selected["metrics"],
+            "candidate_threshold_count": len(candidates),
+        }
+    if candidates:
+        selected = max(candidates, key=lambda item: (item["objective_score"], item["metrics"]["average_return_after_cost"]))
+        return {
+            "status": "selected_best_available_nonpositive_validation_threshold",
+            "thresholds": selected["thresholds"],
+            "metrics": selected["metrics"],
+            "candidate_threshold_count": len(candidates),
+        }
+    return {
+        "status": "fallback_no_validation_threshold_candidate",
+        "thresholds": {
+            "minimum_entry_alpha_confidence": DEFAULT_ENTRY_ALPHA_THRESHOLD,
+            "minimum_trade_intensity": DEFAULT_MINIMUM_TRADE_INTENSITY,
+        },
+        "metrics": {
+            "trade_count": 0,
+            "win_rate_after_cost": 0.0,
+            "average_return_after_cost": 0.0,
+            "total_return_after_cost": 0.0,
+            "max_drawdown": 0.0,
+        },
+        "candidate_threshold_count": 0,
+    }
+
+
+def _threshold_metrics(returns: Sequence[float]) -> dict[str, Any]:
+    cumulative = 0.0
+    peak = 0.0
+    max_drawdown = 0.0
+    for value in returns:
+        cumulative += value
+        peak = max(peak, cumulative)
+        max_drawdown = max(max_drawdown, peak - cumulative)
+    return {
+        "trade_count": len(returns),
+        "win_rate_after_cost": sum(1 for value in returns if value > 0) / len(returns) if returns else 0.0,
+        "average_return_after_cost": sum(returns) / len(returns) if returns else 0.0,
+        "total_return_after_cost": sum(returns),
+        "max_drawdown": max_drawdown,
+    }
+
+
 def _build_crypto_decision_rows(
     *,
     bars_by_target: Mapping[str, Sequence[Mapping[str, Any]]],
@@ -179,6 +395,7 @@ def _build_crypto_decision_rows(
     candidate_model_ref: str,
     replay_contract_ref: str,
     max_decision_rows: int | None,
+    entry_calibration: EntryCalibration,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     history_by_target = {target: list(bars) for target, bars in bars_by_target.items()}
@@ -202,6 +419,7 @@ def _build_crypto_decision_rows(
                 market_universe=market_universe,
                 reference_price=reference_price,
                 candidate_model_ref=candidate_model_ref,
+                entry_calibration=entry_calibration.artifact,
             )
             replay_result = build_replay_runtime_dry_run(
                 account_sleeve_id=CRYPTO_SPOT_ACCOUNT_SLEEVE,
@@ -230,7 +448,7 @@ def _build_crypto_decision_rows(
             fill = replay_result["decision_records"]["simulated_fill_event"]
             gross_return = (float(next_bar["bar_close"]) - reference_price) / reference_price
             filled = fill.get("fill_status") == "simulated_filled"
-            cost = 0.0015 if filled else 0.0
+            cost = REPLAY_COST_PER_FILLED_DECISION if filled else 0.0
             realized_return = gross_return if filled else 0.0
             rows.append(
                 {
@@ -261,9 +479,18 @@ def _build_crypto_decision_rows(
                     "feature_momentum_7d": _window_return(target_rows, index, 7),
                     "feature_momentum_30d": _window_return(target_rows, index, 30),
                     "feature_volume_rank_30d": _volume_rank(target_rows, index, 30),
+                    "entry_threshold_calibration_ref": str(entry_calibration.path),
+                    "entry_threshold_calibration_status": entry_calibration.artifact["calibration_status"],
+                    "entry_threshold_calibration_role": _entry_calibration_role(
+                        timestamp=str(bar["timestamp"]),
+                        entry_calibration=entry_calibration.artifact,
+                    ),
+                    "entry_minimum_alpha_confidence": entry_calibration.minimum_entry_alpha_confidence,
+                    "entry_minimum_trade_intensity": entry_calibration.minimum_trade_intensity,
                     "model_inference_chain": list(MODEL_INFERENCE_CHAIN),
                     "model_inference_mode": "trading_model_layer_generators",
                     "model_layer_refs": layer_outputs["model_layer_refs"],
+                    "model_layer_diagnostics": layer_outputs["model_layer_diagnostics"],
                     "validation_status": replay_result["validation_status"],
                     "side_effects": replay_result["side_effects"],
                 }
@@ -346,6 +573,7 @@ def _candidate_layer_outputs(
     market_universe: Sequence[Mapping[str, Any]],
     reference_price: float,
     candidate_model_ref: str,
+    entry_calibration: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     generators = _trading_model_generators()
     available_time = str(target_rows[index]["timestamp"])
@@ -403,12 +631,15 @@ def _candidate_layer_outputs(
         ]
     )[0]
     risk_policy = dict(policy_row["dynamic_risk_policy_state"])
+    selected_thresholds = _selected_entry_thresholds(entry_calibration)
     risk_policy.update(
         {
             "model_ref": f"{candidate_model_ref}/model_06_dynamic_risk_policy/{policy_row['dynamic_risk_policy_state_ref']}",
-            "minimum_entry_alpha_confidence": 0.55,
+            "minimum_entry_alpha_confidence": selected_thresholds["minimum_entry_alpha_confidence"],
+            "minimum_trade_intensity": selected_thresholds["minimum_trade_intensity"],
         }
     )
+    policy_gate_state = _entry_policy_gate_state(entry_calibration)
 
     projection_row = generators["model_07_position_projection"](
         [
@@ -428,7 +659,7 @@ def _candidate_layer_outputs(
                 },
                 "portfolio_exposure_state": _flat_portfolio_state(),
                 "risk_budget_state": {"risk_budget_fit_score": risk_policy.get("6_resolved_new_exposure_permission_score", 0.7)},
-                "policy_gate_state": {},
+                "policy_gate_state": policy_gate_state,
             }
         ]
     )[0]
@@ -447,7 +678,7 @@ def _candidate_layer_outputs(
                 "underlying_quote_state": {"reference_price": reference_price, "last_price": reference_price, "halt_status": "active"},
                 "underlying_liquidity_state": {"spread_bps": 10.0, "dollar_volume": _dollar_volume(target_rows[index])},
                 "risk_budget_state": {"risk_budget_fit_score": risk_policy.get("6_resolved_new_exposure_permission_score", 0.7)},
-                "policy_gate_state": {},
+                "policy_gate_state": policy_gate_state,
             }
         ]
     )[0]
@@ -472,6 +703,13 @@ def _candidate_layer_outputs(
             "model_07_position_projection": projection_row["position_projection_vector_ref"],
             "model_08_underlying_action": underlying_row["underlying_action_plan_ref"],
         },
+        "model_layer_diagnostics": _model_layer_diagnostics(
+            alpha_vector=alpha_vector,
+            risk_policy=risk_policy,
+            projection_vector=projection_vector,
+            underlying_plan=underlying_row["underlying_action_plan"],
+            entry_calibration=entry_calibration,
+        ),
     }
 
 
@@ -491,6 +729,105 @@ def _trading_model_generators() -> dict[str, Callable[[Iterable[Mapping[str, Any
         "model_06_dynamic_risk_policy": generate_dynamic_risk_policy,
         "model_07_position_projection": generate_position_projection,
         "model_08_underlying_action": generate_underlying_action,
+    }
+
+
+def _selected_entry_thresholds(entry_calibration: Mapping[str, Any] | None) -> dict[str, float]:
+    selected = _as_mapping(entry_calibration.get("selected_thresholds") if entry_calibration else None)
+    minimum_entry_alpha = _safe_float(selected.get("minimum_entry_alpha_confidence"))
+    minimum_trade_intensity = _safe_float(selected.get("minimum_trade_intensity"))
+    return {
+        "minimum_entry_alpha_confidence": minimum_entry_alpha if minimum_entry_alpha is not None else DEFAULT_ENTRY_ALPHA_THRESHOLD,
+        "minimum_trade_intensity": minimum_trade_intensity if minimum_trade_intensity is not None else DEFAULT_MINIMUM_TRADE_INTENSITY,
+    }
+
+
+def _raw_entry_calibration() -> dict[str, Any]:
+    return {
+        "calibration_status": "raw_candidate_observation",
+        "selected_thresholds": {
+            "minimum_entry_alpha_confidence": 0.0,
+            "minimum_trade_intensity": 0.0,
+        },
+    }
+
+
+def _entry_policy_gate_state(entry_calibration: Mapping[str, Any] | None) -> dict[str, Any]:
+    selected = _selected_entry_thresholds(entry_calibration)
+    return {
+        "minimum_entry_alpha_confidence": selected["minimum_entry_alpha_confidence"],
+        "minimum_trade_intensity": selected["minimum_trade_intensity"],
+        "entry_threshold_calibration_status": str((entry_calibration or {}).get("calibration_status") or "uncalibrated_default"),
+    }
+
+
+def _entry_calibration_role(*, timestamp: str, entry_calibration: Mapping[str, Any]) -> str:
+    replay_month = timestamp[:7]
+    validation_months = {
+        str(month)
+        for month in entry_calibration.get("validation_months", [])
+        if isinstance(month, (str, int, float))
+    }
+    return "validation" if replay_month in validation_months else "test"
+
+
+def _model_layer_diagnostics(
+    *,
+    alpha_vector: Mapping[str, Any],
+    risk_policy: Mapping[str, Any],
+    projection_vector: Mapping[str, Any],
+    underlying_plan: Mapping[str, Any],
+    entry_calibration: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    dominant_horizon = str(underlying_plan.get("dominant_horizon") or projection_vector.get("7_dominant_projection_horizon") or "1D")
+    dominant_suffix = dominant_horizon if dominant_horizon in {"1D", "1W"} else {"10min": "10min", "1h": "1h"}.get(dominant_horizon, "1D")
+    diagnostics = _as_mapping(underlying_plan.get("diagnostics"))
+    horizon_scores = _as_mapping(diagnostics.get("horizon_scores"))
+    dominant_scores = _as_mapping(horizon_scores.get(dominant_horizon))
+    return {
+        "entry_thresholds": _selected_entry_thresholds(entry_calibration),
+        "model_05_alpha_confidence": {
+            "alpha_confidence_score": _safe_float(alpha_vector.get(f"5_alpha_confidence_score_{dominant_suffix}")),
+            "expected_return_score": _safe_float(alpha_vector.get(f"5_expected_return_score_{dominant_suffix}")),
+            "alpha_direction_score": _safe_float(alpha_vector.get(f"5_alpha_direction_score_{dominant_suffix}")),
+            "path_quality_score": _safe_float(alpha_vector.get(f"5_path_quality_score_{dominant_suffix}")),
+            "reversal_risk_score": _safe_float(alpha_vector.get(f"5_reversal_risk_score_{dominant_suffix}")),
+            "drawdown_risk_score": _safe_float(alpha_vector.get(f"5_drawdown_risk_score_{dominant_suffix}")),
+        },
+        "model_06_dynamic_risk_policy": {
+            "minimum_entry_alpha_confidence": _safe_float(risk_policy.get("minimum_entry_alpha_confidence")),
+            "minimum_trade_intensity": _safe_float(risk_policy.get("minimum_trade_intensity")),
+            "new_exposure_permission_score": _safe_float(risk_policy.get("6_resolved_new_exposure_permission_score")),
+        },
+        "model_07_position_projection": {
+            "dominant_projection_horizon": projection_vector.get("7_dominant_projection_horizon"),
+            "target_exposure_score": _safe_float(projection_vector.get(f"7_target_exposure_score_{dominant_suffix}")),
+            "position_gap_score": _safe_float(projection_vector.get(f"7_position_gap_score_{dominant_suffix}")),
+            "expected_position_utility_score": _safe_float(projection_vector.get(f"7_expected_position_utility_score_{dominant_suffix}")),
+            "projection_confidence_score": _safe_float(projection_vector.get(f"7_projection_confidence_score_{dominant_suffix}")),
+            "risk_budget_fit_score": _safe_float(projection_vector.get(f"7_risk_budget_fit_score_{dominant_suffix}")),
+            "cost_to_adjust_position_score": _safe_float(projection_vector.get(f"7_cost_to_adjust_position_score_{dominant_suffix}")),
+        },
+        "model_08_underlying_action": {
+            "resolved_underlying_action_type": underlying_plan.get("planned_underlying_action_type"),
+            "resolved_action_side": underlying_plan.get("action_side"),
+            "dominant_horizon": dominant_horizon,
+            "reason_codes": underlying_plan.get("reason_codes") or [],
+            "hard_gate_reason_codes": diagnostics.get("hard_gate_reason_codes") or [],
+            "soft_gate_reason_codes": dominant_scores.get("soft_gate_reason_codes") or [],
+            "dominant_horizon_scores": {
+                "trade_eligibility_score": _safe_float(dominant_scores.get("trade_eligibility_score")) or 0.0,
+                "trade_intensity_score": _safe_float(dominant_scores.get("trade_intensity_score")) or 0.0,
+                "entry_quality_score": _safe_float(dominant_scores.get("entry_quality_score")) or 0.0,
+                "action_confidence_score": _safe_float(dominant_scores.get("action_confidence_score")) or 0.0,
+                "action_direction_score": _safe_float(dominant_scores.get("action_direction_score")) or 0.0,
+                "expected_return_score": _safe_float(dominant_scores.get("expected_return_score")) or 0.0,
+                "reward_risk_score": _safe_float(dominant_scores.get("reward_risk_score")) or 0.0,
+                "adverse_risk_score": _safe_float(dominant_scores.get("adverse_risk_score")) or 0.0,
+                "minimum_entry_alpha_confidence": _safe_float(dominant_scores.get("minimum_entry_alpha_confidence")),
+                "minimum_trade_intensity": _safe_float(dominant_scores.get("minimum_trade_intensity")),
+            },
+        },
     }
 
 
@@ -652,7 +989,10 @@ def _execution_underlying_plan(
         {
             "model_ref": f"{candidate_model_ref}/model_08_underlying_action/{plan_ref}",
             "entry_direction": "long" if action_side == "long" else "short" if action_side == "short" else None,
-            "entry_zone": {"low": min(entry_price, worst_price), "high": max(entry_price, worst_price)},
+            "entry_zone": {
+                "low": min(entry_price, worst_price, reference_price),
+                "high": max(entry_price, worst_price, reference_price),
+            },
             "target_price": target_price,
             "take_profit_zone": {"low": min(target_low, target_high), "high": max(target_low, target_high)}
             if target_low is not None and target_high is not None

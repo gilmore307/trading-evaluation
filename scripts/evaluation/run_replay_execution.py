@@ -34,6 +34,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--max-decision-rows", type=int)
     parser.add_argument("--progress-path", type=Path)
+    parser.add_argument("--calibration-window-month-count", type=int, default=1)
     args = parser.parse_args(argv)
 
     result = build_crypto_replay_execution_run(
@@ -44,6 +45,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         replay_contract_ref=args.replay_contract_ref,
         max_decision_rows=args.max_decision_rows,
         progress_path=args.progress_path,
+        calibration_window_month_count=args.calibration_window_month_count,
     )
     print(json.dumps(result.receipt, indent=2, sort_keys=True))
     return 0
