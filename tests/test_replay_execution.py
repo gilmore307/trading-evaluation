@@ -10,6 +10,8 @@ sys.path.insert(0, str(Path("/root/projects/trading-execution/src")))
 sys.path.insert(0, str(Path("/root/projects/trading-model/src")))
 
 from trading_evaluation import build_crypto_replay_execution_run
+from models.model_05_alpha_confidence import train_after_cost_alpha_model
+from models.model_05_alpha_confidence.contract import HORIZONS
 
 
 class ReplayExecutionTests(unittest.TestCase):
@@ -162,6 +164,8 @@ class ReplayExecutionTests(unittest.TestCase):
             result = build_crypto_replay_execution_run(
                 dataset_root=dataset_root,
                 run_id="test_run",
+                candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                after_cost_alpha_model=_after_cost_alpha_model(),
                 max_decision_rows=2,
             )
 
@@ -203,6 +207,7 @@ class ReplayExecutionTests(unittest.TestCase):
             dataset_root = self._dataset(root)
             output_dir = root / "out"
             progress_path = root / "progress" / "replay_progress.jsonl"
+            artifact_path = _write_after_cost_alpha_model(root)
             result = subprocess.run(
                 [
                     sys.executable,
@@ -213,6 +218,10 @@ class ReplayExecutionTests(unittest.TestCase):
                     str(output_dir),
                     "--run-id",
                     "cli_run",
+                    "--candidate-model-ref",
+                    "storage://trading-manager/model_group/test_fold",
+                    "--after-cost-alpha-model-json",
+                    str(artifact_path),
                     "--max-decision-rows",
                     "1",
                     "--progress-path",
@@ -230,6 +239,111 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(payload["decision_row_count"], 1)
             self.assertTrue((output_dir / "decision_rows.jsonl").exists())
             self.assertTrue(progress_path.exists())
+
+    def test_rejects_deterministic_placeholder_candidate_model_ref(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset_root = self._dataset(Path(tmp))
+
+            with self.assertRaisesRegex(ValueError, "deterministic placeholder"):
+                build_crypto_replay_execution_run(
+                    dataset_root=dataset_root,
+                    run_id="bad_candidate_ref",
+                    candidate_model_ref="trading-model://candidate_policy_replay/current_deterministic_crypto_policy",
+                    after_cost_alpha_model=_after_cost_alpha_model(),
+                    max_decision_rows=1,
+                )
+
+    def test_cli_requires_candidate_model_ref(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dataset_root = self._dataset(root)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/evaluation/run_replay_execution.py",
+                    "--dataset-root",
+                    str(dataset_root),
+                    "--run-id",
+                    "missing_ref",
+                    "--max-decision-rows",
+                    "1",
+                ],
+                cwd=Path(__file__).resolve().parents[1],
+                env={"PYTHONPATH": "src"},
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("--candidate-model-ref", result.stderr)
+
+
+def _write_after_cost_alpha_model(root: Path) -> Path:
+    path = root / "after_cost_alpha_model.json"
+    path.write_text(json.dumps(_after_cost_alpha_model(), sort_keys=True), encoding="utf-8")
+    return path
+
+
+def _after_cost_alpha_model() -> dict[str, object]:
+    training_rows = [_training_row(direction=-0.6, realized_return=-0.03), _training_row(direction=0.0, realized_return=0.0), _training_row(direction=0.6, realized_return=0.03)]
+    try:
+        return {
+            "artifacts_by_horizon": {
+                horizon: train_after_cost_alpha_model(
+                    training_rows,
+                    horizon=horizon,
+                    label_field=f"after_cost_return_{horizon}",
+                    iterations=25,
+                )
+                for horizon in HORIZONS
+            }
+        }
+    except RuntimeError as error:
+        raise unittest.SkipTest(str(error)) from error
+
+
+def _training_row(*, direction: float, realized_return: float) -> dict[str, object]:
+    return {
+        "market_context_state": {
+            "1_market_risk_stress_score": 0.20,
+            "1_market_liquidity_support_score": 0.85,
+            "1_state_quality_score": 0.90,
+        },
+        "sector_context_state": {
+            "2_sector_context_support_quality_score": 0.80,
+            "2_state_quality_score": 0.88,
+        },
+        "target_context_state": _target_state(direction=direction),
+        "event_failure_risk_vector": {},
+        "quality_calibration_state": {
+            "sample_support_score": 0.85,
+            "walk_forward_reliability_score": 0.80,
+            "model_ensemble_agreement_score": 0.85,
+            "model_disagreement_score": 0.10,
+            "out_of_distribution_score": 0.10,
+            "data_quality_score": 0.90,
+        },
+        **{f"after_cost_return_{horizon}": realized_return for horizon in HORIZONS},
+    }
+
+
+def _target_state(*, direction: float) -> dict[str, object]:
+    state: dict[str, object] = {"3_state_quality_score": 0.90}
+    for horizon in HORIZONS:
+        state.update(
+            {
+                f"3_target_direction_score_{horizon}": direction,
+                f"3_target_trend_quality_score_{horizon}": 0.75,
+                f"3_target_path_stability_score_{horizon}": 0.80,
+                f"3_target_noise_score_{horizon}": 0.20,
+                f"3_target_transition_risk_score_{horizon}": 0.15,
+                f"3_context_direction_alignment_score_{horizon}": 0.70 if direction >= 0 else -0.70,
+                f"3_context_support_quality_score_{horizon}": 0.80,
+                f"3_tradability_score_{horizon}": 0.85,
+                f"3_beta_dependency_score_{horizon}": 0.20,
+            }
+        )
+    return state
 
 
 if __name__ == "__main__":

@@ -26,8 +26,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--run-id")
     parser.add_argument(
         "--candidate-model-ref",
-        default="trading-model://candidate_policy_replay/current_deterministic_crypto_policy",
+        required=True,
     )
+    parser.add_argument("--after-cost-alpha-model-json", type=Path, required=True)
     parser.add_argument(
         "--replay-contract-ref",
         default="trading-evaluation/replays/promotion_replay_candidate_policy.json",
@@ -36,12 +37,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--progress-path", type=Path)
     parser.add_argument("--calibration-window-month-count", type=int, default=1)
     args = parser.parse_args(argv)
+    after_cost_alpha_model = json.loads(args.after_cost_alpha_model_json.read_text(encoding="utf-8"))
 
     result = build_crypto_replay_execution_run(
         dataset_root=args.dataset_root,
         output_dir=args.output_dir,
         run_id=args.run_id,
         candidate_model_ref=args.candidate_model_ref,
+        after_cost_alpha_model=after_cost_alpha_model,
+        after_cost_alpha_model_ref=str(args.after_cost_alpha_model_json),
         replay_contract_ref=args.replay_contract_ref,
         max_decision_rows=args.max_decision_rows,
         progress_path=args.progress_path,

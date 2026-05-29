@@ -43,6 +43,9 @@ MODEL_INFERENCE_CHAIN = (
 DEFAULT_ENTRY_ALPHA_THRESHOLD = 0.50
 DEFAULT_MINIMUM_TRADE_INTENSITY = 0.05
 REPLAY_COST_PER_FILLED_DECISION = 0.0015
+DISALLOWED_PLACEHOLDER_CANDIDATE_MODEL_REFS = (
+    "trading-model://candidate_policy_replay/current_deterministic_crypto_policy",
+)
 
 
 @dataclass(frozen=True)
@@ -76,7 +79,9 @@ def build_crypto_replay_execution_run(
     dataset_root: Path = DEFAULT_DATASET_ROOT,
     output_dir: Path | None = None,
     run_id: str | None = None,
-    candidate_model_ref: str = "trading-model://candidate_policy_replay/current_deterministic_crypto_policy",
+    candidate_model_ref: str,
+    after_cost_alpha_model: Mapping[str, Any] | None,
+    after_cost_alpha_model_ref: str | None = None,
     replay_contract_ref: str = "trading-evaluation/replays/promotion_replay_candidate_policy.json",
     max_decision_rows: int | None = None,
     generated_at_utc: str | None = None,
@@ -85,6 +90,9 @@ def build_crypto_replay_execution_run(
 ) -> ReplayExecutionResult:
     """Run the frozen crypto sleeve through the execution-owned Replay route."""
 
+    candidate_model_ref = _require_candidate_model_ref(candidate_model_ref)
+    if after_cost_alpha_model is None:
+        raise ValueError("after_cost_alpha_model is required for replay Layer 5 inference")
     manifest = _load_json(dataset_root / "dataset_manifest.json")
     freeze_receipt = _load_json(dataset_root / "replay_freeze_receipt.json")
     _validate_frozen_dataset(manifest, freeze_receipt)
@@ -102,6 +110,7 @@ def build_crypto_replay_execution_run(
     entry_calibration = _build_entry_calibration(
         bars_by_target=bars_by_target,
         candidate_model_ref=candidate_model_ref,
+        after_cost_alpha_model=after_cost_alpha_model,
         replay_contract_ref=replay_contract_ref,
         generated_at_utc=generated_at,
         output_path=calibration_path,
@@ -113,6 +122,7 @@ def build_crypto_replay_execution_run(
         market_dates=market_dates,
         run_id=run_id,
         candidate_model_ref=candidate_model_ref,
+        after_cost_alpha_model=after_cost_alpha_model,
         replay_contract_ref=replay_contract_ref,
         max_decision_rows=max_decision_rows,
         entry_calibration=entry_calibration,
@@ -130,6 +140,7 @@ def build_crypto_replay_execution_run(
         "replay_execution_run_id": run_id,
         "execution_scope": "crypto_spot_account_fixed_candidate_pool",
         "candidate_model_ref": candidate_model_ref,
+        "after_cost_alpha_model_ref": after_cost_alpha_model_ref,
         "replay_contract_ref": replay_contract_ref,
         "replay_route_ref": EXECUTION_REPLAY_ROUTE_REF,
         "dataset_root": str(dataset_root),
@@ -168,6 +179,15 @@ def build_crypto_replay_execution_run(
         progress_path=progress_path,
         receipt=receipt,
     )
+
+
+def _require_candidate_model_ref(candidate_model_ref: str) -> str:
+    text = str(candidate_model_ref or "").strip()
+    if not text:
+        raise ValueError("candidate_model_ref is required")
+    if text in DISALLOWED_PLACEHOLDER_CANDIDATE_MODEL_REFS:
+        raise ValueError("candidate_model_ref must point to a concrete model-group candidate, not the deterministic placeholder")
+    return text
 
 
 def _build_replay_progress_rows(
@@ -211,6 +231,7 @@ def _build_entry_calibration(
     *,
     bars_by_target: Mapping[str, Sequence[Mapping[str, Any]]],
     candidate_model_ref: str,
+    after_cost_alpha_model: Mapping[str, Any],
     replay_contract_ref: str,
     generated_at_utc: str,
     output_path: Path,
@@ -220,6 +241,7 @@ def _build_entry_calibration(
     observations = _entry_calibration_observations(
         bars_by_target=bars_by_target,
         candidate_model_ref=candidate_model_ref,
+        after_cost_alpha_model=after_cost_alpha_model,
         max_decision_rows=max_decision_rows,
     )
     validation_months = sorted({str(row["replay_month"]) for row in observations})[: max(validation_month_count, 1)]
@@ -254,6 +276,7 @@ def _entry_calibration_observations(
     *,
     bars_by_target: Mapping[str, Sequence[Mapping[str, Any]]],
     candidate_model_ref: str,
+    after_cost_alpha_model: Mapping[str, Any],
     max_decision_rows: int | None,
 ) -> list[dict[str, Any]]:
     observations: list[dict[str, Any]] = []
@@ -276,6 +299,7 @@ def _entry_calibration_observations(
                 market_universe=_market_universe_for_date(history_by_target, index_by_target_date, str(bar["date"])),
                 reference_price=reference_price,
                 candidate_model_ref=candidate_model_ref,
+                after_cost_alpha_model=after_cost_alpha_model,
                 entry_calibration=_raw_entry_calibration(),
             )
             diagnostics = layer_outputs["model_layer_diagnostics"]
@@ -394,6 +418,7 @@ def _build_crypto_decision_rows(
     market_dates: Sequence[str],
     run_id: str,
     candidate_model_ref: str,
+    after_cost_alpha_model: Mapping[str, Any],
     replay_contract_ref: str,
     max_decision_rows: int | None,
     entry_calibration: EntryCalibration,
@@ -420,6 +445,7 @@ def _build_crypto_decision_rows(
                 market_universe=market_universe,
                 reference_price=reference_price,
                 candidate_model_ref=candidate_model_ref,
+                after_cost_alpha_model=after_cost_alpha_model,
                 entry_calibration=entry_calibration.artifact,
             )
             replay_result = build_replay_runtime_dry_run(
@@ -574,6 +600,7 @@ def _candidate_layer_outputs(
     market_universe: Sequence[Mapping[str, Any]],
     reference_price: float,
     candidate_model_ref: str,
+    after_cost_alpha_model: Mapping[str, Any],
     entry_calibration: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     generators = _trading_model_generators()
@@ -604,7 +631,8 @@ def _candidate_layer_outputs(
                 "event_failure_risk_vector": event_state,
                 "quality_calibration_state": quality_state,
             }
-        ]
+        ],
+        after_cost_alpha_model=after_cost_alpha_model,
     )[0]
     alpha_vector = dict(alpha_row["alpha_confidence_vector"])
     alpha_score = _resolved_alpha_score(alpha_vector)
