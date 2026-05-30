@@ -48,6 +48,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--option-feature-database-url", help="Load point-in-time Layer 9 option feature rows from PostgreSQL.")
     parser.add_argument("--option-feature-schema", default="trading_data")
     parser.add_argument("--option-feature-table", default="m09_option_expression_feature_generation")
+    parser.add_argument("--option-contract-path-table", default="m09_option_expression_data_acquisition_contract_path")
     args = parser.parse_args(argv)
     after_cost_alpha_model = json.loads(args.after_cost_alpha_model_json.read_text(encoding="utf-8"))
 
@@ -69,6 +70,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         option_feature_database_url=args.option_feature_database_url,
         option_feature_schema=args.option_feature_schema,
         option_feature_table=args.option_feature_table,
+        option_contract_path_table=args.option_contract_path_table,
     )
     print(json.dumps(result.receipt, indent=2, sort_keys=True))
     return 0

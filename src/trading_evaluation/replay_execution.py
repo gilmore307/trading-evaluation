@@ -130,6 +130,7 @@ def build_candidate_policy_replay_execution_run(
     option_feature_database_url: str | None = None,
     option_feature_schema: str = "trading_data",
     option_feature_table: str = "m09_option_expression_feature_generation",
+    option_contract_path_table: str = "m09_option_expression_data_acquisition_contract_path",
 ) -> ReplayExecutionResult:
     """Run candidate-policy replay over frozen crypto plus materialized equity bars."""
 
@@ -164,6 +165,12 @@ def build_candidate_policy_replay_execution_run(
         table=option_feature_table,
         targets=bars_by_target.keys(),
     )
+    option_contract_paths_by_symbol = _load_option_contract_path_bars(
+        database_url=resolved_option_feature_database_url,
+        schema=option_feature_schema,
+        table=option_contract_path_table,
+        targets=bars_by_target.keys(),
+    )
     market_dates = sorted({row["date"] for rows in bars_by_target.values() for row in rows})
     entry_calibration = _build_entry_calibration(
         bars_by_target=bars_by_target,
@@ -185,6 +192,7 @@ def build_candidate_policy_replay_execution_run(
         max_decision_rows=max_decision_rows,
         entry_calibration=entry_calibration,
         option_candidates_by_underlying_time=option_candidates_by_underlying_time,
+        option_contract_paths_by_symbol=option_contract_paths_by_symbol,
     )
     _write_jsonl(decision_rows_path, decision_rows)
     progress_rows = _build_replay_progress_rows(
@@ -217,6 +225,9 @@ def build_candidate_policy_replay_execution_run(
         "option_feature_table_ref": None if not resolved_option_feature_database_url else f"{option_feature_schema}.{option_feature_table}",
         "option_feature_snapshot_count": len(option_candidates_by_underlying_time),
         "option_feature_candidate_count": sum(len(rows) for rows in option_candidates_by_underlying_time.values()),
+        "option_contract_path_table_ref": None if not resolved_option_feature_database_url else f"{option_feature_schema}.{option_contract_path_table}",
+        "option_contract_path_symbol_count": len(option_contract_paths_by_symbol),
+        "option_contract_path_bar_count": sum(len(rows) for rows in option_contract_paths_by_symbol.values()),
         "market_date_count": len(market_dates),
         "generated_at_utc": generated_at,
         "validation_status": "passed",
@@ -231,7 +242,7 @@ def build_candidate_policy_replay_execution_run(
         "notes": [
             "candidate-policy replay over frozen OKX crypto bars and materialized Alpaca equity bars",
             "equity/options account uses direct-underlying fallback when option surface status is optionable_chain_missing",
-            "true option-contract replay still requires m09/source_05 option-expression acquisition",
+            "listed option decisions use source_06 selected-contract paths when available and zero realized return when selected-contract exit data is missing",
             "this run emits settlement-ready decision rows but is not a promotion eligibility decision",
         ],
     }
@@ -487,6 +498,7 @@ def _build_candidate_policy_decision_rows(
     max_decision_rows: int | None,
     entry_calibration: EntryCalibration,
     option_candidates_by_underlying_time: Mapping[tuple[str, str], Sequence[Mapping[str, Any]]],
+    option_contract_paths_by_symbol: Mapping[str, Sequence[Mapping[str, Any]]],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     history_by_target = {target: list(bars) for target, bars in bars_by_target.items()}
@@ -549,8 +561,30 @@ def _build_candidate_policy_decision_rows(
             entry = replay_result["decision_records"]["entry_decision"]
             order_intent = replay_result["decision_records"]["execution_order_intent"]
             fill = replay_result["decision_records"]["simulated_fill_event"]
-            gross_return = (float(next_bar["bar_close"]) - reference_price) / reference_price
             filled = fill.get("fill_status") == "simulated_filled"
+            selected_contract = _as_mapping(_as_mapping(option_expression_plan).get("selected_contract"))
+            selected_option_contract_ref = str(selected_contract.get("contract_ref") or selected_contract.get("option_symbol") or "")
+            option_path_result = _option_contract_path_return(
+                selected_option_contract_ref=selected_option_contract_ref,
+                entry_timestamp=str(bar["timestamp"]),
+                exit_timestamp=str(next_bar["timestamp"]),
+                option_contract_paths_by_symbol=option_contract_paths_by_symbol,
+            )
+            gross_return = (float(next_bar["bar_close"]) - reference_price) / reference_price
+            return_source = "underlying_next_bar"
+            option_contract_path_status = "not_applicable"
+            option_entry_price = option_exit_price = None
+            if selected_option_contract_ref:
+                if option_path_result:
+                    gross_return = float(option_path_result["gross_return"])
+                    return_source = "source_06_selected_contract_path"
+                    option_contract_path_status = "available"
+                    option_entry_price = option_path_result["entry_price"]
+                    option_exit_price = option_path_result["exit_price"]
+                else:
+                    gross_return = 0.0
+                    return_source = "option_contract_path_missing"
+                    option_contract_path_status = "missing"
             cost = REPLAY_COST_PER_FILLED_DECISION if filled else 0.0
             realized_return = gross_return if filled else 0.0
             rows.append(
@@ -569,8 +603,12 @@ def _build_candidate_policy_decision_rows(
                     "asset_expression_route": str(_as_mapping(option_expression_plan).get("asset_expression_route") or ""),
                     "option_surface_status": str(_as_mapping(option_expression_plan).get("option_surface_status") or ""),
                     "selected_option_expression_type": _as_mapping(option_expression_plan).get("selected_expression_type"),
-                    "selected_option_contract_ref": _as_mapping(_as_mapping(option_expression_plan).get("selected_contract")).get("contract_ref"),
-                    "selected_option_mid_price": _as_mapping(_as_mapping(option_expression_plan).get("selected_contract")).get("mid_price"),
+                    "selected_option_contract_ref": selected_option_contract_ref or None,
+                    "selected_option_mid_price": selected_contract.get("mid_price"),
+                    "option_contract_path_status": option_contract_path_status,
+                    "option_entry_price": option_entry_price,
+                    "option_exit_price": option_exit_price,
+                    "return_source": return_source,
                     "timestamp": bar["timestamp"],
                     "next_timestamp": next_bar["timestamp"],
                     "decision_status": entry["decision_status"],
@@ -719,6 +757,63 @@ def _load_option_candidate_features(
             }
         )
     return rows_by_key
+
+
+def _load_option_contract_path_bars(
+    *,
+    database_url: str | None,
+    schema: str,
+    table: str,
+    targets: Iterable[str],
+) -> dict[str, list[dict[str, Any]]]:
+    if not database_url:
+        return {}
+    _validate_identifier(schema)
+    _validate_identifier(table)
+    target_filter = sorted({str(target).upper() for target in targets if target})
+    if not target_filter:
+        return {}
+    try:
+        import psycopg  # type: ignore
+        from psycopg.rows import dict_row  # type: ignore
+    except ModuleNotFoundError as exc:  # pragma: no cover
+        raise RuntimeError("psycopg is required to load replay option contract path rows") from exc
+    rows_by_symbol: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    with psycopg.connect(database_url, row_factory=dict_row) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT to_regclass(%s) AS table_ref", (f"{schema}.{table}",))
+            exists = cursor.fetchone()
+            if not exists or exists.get("table_ref") is None:
+                return {}
+            cursor.execute(
+                f"""
+                SELECT
+                  p."underlying",
+                  p."option_symbol",
+                  p."timestamp",
+                  p."bar_close"
+                FROM "{schema}"."{table}" AS p
+                WHERE p."underlying" = ANY(%s)
+                  AND p."bar_close" IS NOT NULL
+                ORDER BY p."option_symbol" ASC, p."timestamp" ASC
+                """,
+                (target_filter,),
+            )
+            path_rows = [dict(row) for row in cursor.fetchall()]
+    for row in path_rows:
+        option_symbol = str(row.get("option_symbol") or "").upper()
+        timestamp_key = _time_key(row.get("timestamp"))
+        close = _safe_float(row.get("bar_close"))
+        if not option_symbol or not timestamp_key or close is None or close <= 0:
+            continue
+        rows_by_symbol[option_symbol].append(
+            {
+                "option_symbol": option_symbol,
+                "timestamp": timestamp_key,
+                "bar_close": close,
+            }
+        )
+    return rows_by_symbol
 
 
 def _default_option_feature_database_url() -> str | None:
@@ -880,6 +975,52 @@ def _replay_market_snapshot(
         "reference_price": reference_price,
         "close_price": reference_price,
     }
+
+
+def _option_contract_path_return(
+    *,
+    selected_option_contract_ref: str,
+    entry_timestamp: str,
+    exit_timestamp: str,
+    option_contract_paths_by_symbol: Mapping[str, Sequence[Mapping[str, Any]]],
+) -> dict[str, float] | None:
+    rows = list(option_contract_paths_by_symbol.get(str(selected_option_contract_ref).upper(), ()))
+    if not rows:
+        return None
+    entry_row = _first_row_at_or_after(rows, entry_timestamp)
+    exit_row = _last_row_at_or_before(rows, exit_timestamp) or _first_row_at_or_after(rows, exit_timestamp)
+    if not entry_row or not exit_row:
+        return None
+    entry_price = _safe_float(entry_row.get("bar_close"))
+    exit_price = _safe_float(exit_row.get("bar_close"))
+    if entry_price is None or exit_price is None or entry_price <= 0:
+        return None
+    return {
+        "entry_price": entry_price,
+        "exit_price": exit_price,
+        "gross_return": (exit_price - entry_price) / entry_price,
+    }
+
+
+def _first_row_at_or_after(rows: Sequence[Mapping[str, Any]], timestamp: str) -> Mapping[str, Any] | None:
+    target = _timestamp_sort_key(timestamp)
+    for row in rows:
+        row_key = _timestamp_sort_key(row.get("timestamp"))
+        if row_key >= target:
+            return row
+    return None
+
+
+def _last_row_at_or_before(rows: Sequence[Mapping[str, Any]], timestamp: str) -> Mapping[str, Any] | None:
+    target = _timestamp_sort_key(timestamp)
+    selected: Mapping[str, Any] | None = None
+    for row in rows:
+        row_key = _timestamp_sort_key(row.get("timestamp"))
+        if row_key <= target:
+            selected = row
+        else:
+            break
+    return selected
 
 
 def _asset_class_counts(bars_by_target: Mapping[str, Sequence[Mapping[str, Any]]]) -> dict[str, int]:
@@ -1402,6 +1543,19 @@ def _time_key(value: Any) -> str:
         except (TypeError, ValueError):
             return str(value or "")
     return parsed.isoformat()
+
+
+def _timestamp_sort_key(value: Any) -> float:
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return 0.0
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.timestamp()
 
 
 def _validate_identifier(identifier: str) -> None:
