@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path("/root/projects/trading-execution/src")))
 sys.path.insert(0, str(Path("/root/projects/trading-model/src")))
 
-from trading_evaluation import build_crypto_replay_execution_run
+from trading_evaluation import build_candidate_policy_replay_execution_run, build_crypto_replay_execution_run
 from models.model_05_alpha_confidence import train_after_cost_alpha_model
 from models.model_05_alpha_confidence.contract import HORIZONS
 
@@ -158,6 +158,69 @@ class ReplayExecutionTests(unittest.TestCase):
         )
         return dataset_root
 
+    def _equity_source_root(self, root: Path) -> Path:
+        source_root = root / "alpaca_bars"
+        bar_path = source_root / "AAPL" / "2021-01" / "runs" / "run" / "saved" / "equity_bar.csv"
+        bar_path.parent.mkdir(parents=True)
+        with bar_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(
+                handle,
+                fieldnames=[
+                    "symbol",
+                    "timeframe",
+                    "timestamp",
+                    "bar_open",
+                    "bar_high",
+                    "bar_low",
+                    "bar_close",
+                    "bar_volume",
+                    "bar_vwap",
+                    "bar_trade_count",
+                ],
+            )
+            writer.writeheader()
+            writer.writerows(
+                [
+                    {
+                        "symbol": "AAPL",
+                        "timeframe": "1Min",
+                        "timestamp": "2021-01-04T09:30:00-05:00",
+                        "bar_open": "100.0",
+                        "bar_high": "101.0",
+                        "bar_low": "99.0",
+                        "bar_close": "100.5",
+                        "bar_volume": "1000",
+                        "bar_vwap": "",
+                        "bar_trade_count": "",
+                    },
+                    {
+                        "symbol": "AAPL",
+                        "timeframe": "1Min",
+                        "timestamp": "2021-01-04T15:59:00-05:00",
+                        "bar_open": "100.5",
+                        "bar_high": "102.0",
+                        "bar_low": "100.0",
+                        "bar_close": "101.5",
+                        "bar_volume": "2000",
+                        "bar_vwap": "",
+                        "bar_trade_count": "",
+                    },
+                    {
+                        "symbol": "AAPL",
+                        "timeframe": "1Min",
+                        "timestamp": "2021-01-05T15:59:00-05:00",
+                        "bar_open": "101.5",
+                        "bar_high": "104.0",
+                        "bar_low": "101.0",
+                        "bar_close": "103.0",
+                        "bar_volume": "3000",
+                        "bar_vwap": "",
+                        "bar_trade_count": "",
+                    },
+                ]
+            )
+        return source_root
+
     def test_builds_crypto_replay_decision_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
             dataset_root = self._dataset(Path(tmp))
@@ -201,6 +264,30 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(progress_rows[0]["month"], "2021-01")
             self.assertEqual(progress_rows[0]["status"], "completed")
 
+    def test_candidate_policy_replay_includes_materialized_equity_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dataset_root = self._dataset(root)
+            equity_source_root = self._equity_source_root(root)
+            result = build_candidate_policy_replay_execution_run(
+                dataset_root=dataset_root,
+                run_id="test_candidate_policy",
+                candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                after_cost_alpha_model=_after_cost_alpha_model(),
+                equity_source_root=equity_source_root,
+                equity_symbols=["AAPL"],
+                max_decision_rows=1,
+            )
+
+            self.assertEqual(result.receipt["execution_scope"], "candidate_policy_replay_materialized_market_data")
+            self.assertEqual(result.receipt["asset_class_counts"]["us_equity"], 1)
+            rows = [json.loads(line) for line in result.decision_rows_path.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(rows[0]["target_ref"], "AAPL")
+            self.assertEqual(rows[0]["asset_class"], "us_equity")
+            self.assertEqual(rows[0]["account_sleeve_id"], "equity_options_account")
+            self.assertEqual(rows[0]["asset_expression_route"], "direct_underlying_fallback")
+            self.assertEqual(rows[0]["option_surface_status"], "optionable_chain_missing")
+
     def test_cli_writes_replay_execution_receipt(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -226,6 +313,7 @@ class ReplayExecutionTests(unittest.TestCase):
                     "1",
                     "--progress-path",
                     str(progress_path),
+                    "--exclude-equity",
                 ],
                 cwd=Path(__file__).resolve().parents[1],
                 env={"PYTHONPATH": "src"},

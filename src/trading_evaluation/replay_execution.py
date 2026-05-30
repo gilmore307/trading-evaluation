@@ -24,11 +24,13 @@ REPLAY_DECISION_ROW_CONTRACT = "evaluation_replay_decision_row"
 REPLAY_PROGRESS_CONTRACT = "evaluation_replay_progress"
 ENTRY_THRESHOLD_CALIBRATION_CONTRACT = "validation_entry_threshold_calibration"
 CRYPTO_SPOT_ACCOUNT_SLEEVE = "crypto_spot_account"
+EQUITY_OPTIONS_ACCOUNT_SLEEVE = "equity_options_account"
 CRYPTO_SYMBOLS_BY_INSTRUMENT = {
     "BTC-USDT": "BTC",
     "ETH-USDT": "ETH",
     "SOL-USDT": "SOL",
 }
+EQUITY_SOURCE_ROOT = Path("/root/projects/trading-storage/storage/01_source_data/monthly_backfill/alpaca_bars")
 DEFAULT_DATASET_ROOT = Path("/root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy")
 MODEL_INFERENCE_CHAIN = (
     "model_01_market_regime_state",
@@ -89,6 +91,40 @@ def build_crypto_replay_execution_run(
     calibration_window_month_count: int = 1,
 ) -> ReplayExecutionResult:
     """Run the frozen crypto sleeve through the execution-owned Replay route."""
+    return build_candidate_policy_replay_execution_run(
+        dataset_root=dataset_root,
+        output_dir=output_dir,
+        run_id=run_id,
+        candidate_model_ref=candidate_model_ref,
+        after_cost_alpha_model=after_cost_alpha_model,
+        after_cost_alpha_model_ref=after_cost_alpha_model_ref,
+        replay_contract_ref=replay_contract_ref,
+        max_decision_rows=max_decision_rows,
+        generated_at_utc=generated_at_utc,
+        progress_path=progress_path,
+        calibration_window_month_count=calibration_window_month_count,
+        include_equity=False,
+    )
+
+
+def build_candidate_policy_replay_execution_run(
+    *,
+    dataset_root: Path = DEFAULT_DATASET_ROOT,
+    output_dir: Path | None = None,
+    run_id: str | None = None,
+    candidate_model_ref: str,
+    after_cost_alpha_model: Mapping[str, Any] | None,
+    after_cost_alpha_model_ref: str | None = None,
+    replay_contract_ref: str = "trading-evaluation/replays/promotion_replay_candidate_policy.json",
+    max_decision_rows: int | None = None,
+    generated_at_utc: str | None = None,
+    progress_path: Path | None = None,
+    calibration_window_month_count: int = 1,
+    include_equity: bool = True,
+    equity_source_root: Path = EQUITY_SOURCE_ROOT,
+    equity_symbols: Sequence[str] | None = None,
+) -> ReplayExecutionResult:
+    """Run candidate-policy replay over frozen crypto plus materialized equity bars."""
 
     candidate_model_ref = _require_candidate_model_ref(candidate_model_ref)
     if after_cost_alpha_model is None:
@@ -97,7 +133,7 @@ def build_crypto_replay_execution_run(
     freeze_receipt = _load_json(dataset_root / "replay_freeze_receipt.json")
     _validate_frozen_dataset(manifest, freeze_receipt)
     generated_at = generated_at_utc or _now_utc()
-    run_id = run_id or f"crypto_spot_replay_{generated_at.replace(':', '').replace('-', '').replace('Z', 'Z')}"
+    run_id = run_id or f"candidate_policy_replay_{generated_at.replace(':', '').replace('-', '').replace('Z', 'Z')}"
     output_dir = output_dir or dataset_root / "replay_execution_runs" / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
     decision_rows_path = output_dir / "decision_rows.jsonl"
@@ -105,7 +141,14 @@ def build_crypto_replay_execution_run(
     progress_path = progress_path or dataset_root / "replay_progress.jsonl"
     calibration_path = output_dir / "entry_threshold_calibration.json"
 
-    bars_by_target = _load_crypto_bars(Path(str(manifest["feed_acquisition_plan_ref"])))
+    bars_by_target = _load_candidate_policy_bars(
+        plan_path=Path(str(manifest["feed_acquisition_plan_ref"])),
+        include_equity=include_equity,
+        equity_source_root=equity_source_root,
+        equity_symbols=equity_symbols,
+    )
+    if not bars_by_target:
+        raise ValueError("candidate-policy replay found no materialized market bars")
     market_dates = sorted({row["date"] for rows in bars_by_target.values() for row in rows})
     entry_calibration = _build_entry_calibration(
         bars_by_target=bars_by_target,
@@ -117,7 +160,7 @@ def build_crypto_replay_execution_run(
         validation_month_count=calibration_window_month_count,
         max_decision_rows=max_decision_rows,
     )
-    decision_rows = _build_crypto_decision_rows(
+    decision_rows = _build_candidate_policy_decision_rows(
         bars_by_target=bars_by_target,
         market_dates=market_dates,
         run_id=run_id,
@@ -138,7 +181,7 @@ def build_crypto_replay_execution_run(
     receipt = {
         "contract_type": REPLAY_EXECUTION_RUN_CONTRACT,
         "replay_execution_run_id": run_id,
-        "execution_scope": "crypto_spot_account_fixed_candidate_pool",
+        "execution_scope": "candidate_policy_replay_materialized_market_data",
         "candidate_model_ref": candidate_model_ref,
         "after_cost_alpha_model_ref": after_cost_alpha_model_ref,
         "replay_contract_ref": replay_contract_ref,
@@ -154,6 +197,7 @@ def build_crypto_replay_execution_run(
         "decision_row_count": len(decision_rows),
         "completed_replay_month_count": len(progress_rows),
         "target_refs": sorted(bars_by_target),
+        "asset_class_counts": _asset_class_counts(bars_by_target),
         "market_date_count": len(market_dates),
         "generated_at_utc": generated_at,
         "validation_status": "passed",
@@ -166,8 +210,9 @@ def build_crypto_replay_execution_run(
             "active_model_config_written": False,
         },
         "notes": [
-            "crypto sleeve replay over frozen OKX daily bars",
-            "equity/options Alpaca rows remain candidate-dependent and deferred until point-in-time candidate materialization",
+            "candidate-policy replay over frozen OKX crypto bars and materialized Alpaca equity bars",
+            "equity/options account uses direct-underlying fallback when option surface status is optionable_chain_missing",
+            "true option-contract replay still requires m09/source_05 option-expression acquisition",
             "this run emits settlement-ready decision rows but is not a promotion eligibility decision",
         ],
     }
@@ -216,7 +261,7 @@ def _build_replay_progress_rows(
                 "month": replay_month,
                 "replay_month": replay_month,
                 "replay_execution_run_id": run_id,
-                "execution_scope": "crypto_spot_account_fixed_candidate_pool",
+                "execution_scope": "candidate_policy_replay_materialized_market_data",
                 "decision_row_count": len(month_rows),
                 "target_refs": sorted({str(row.get("target_ref") or "") for row in month_rows if row.get("target_ref")}),
                 "receipt_ref": str(receipt_path),
@@ -412,7 +457,7 @@ def _threshold_metrics(returns: Sequence[float]) -> dict[str, Any]:
     }
 
 
-def _build_crypto_decision_rows(
+def _build_candidate_policy_decision_rows(
     *,
     bars_by_target: Mapping[str, Sequence[Mapping[str, Any]]],
     market_dates: Sequence[str],
@@ -438,6 +483,11 @@ def _build_crypto_decision_rows(
             date_text = str(bar["date"])
             market_universe = _market_universe_for_date(history_by_target, index_by_target_date, date_text)
             reference_price = float(bar["bar_close"])
+            option_expression_plan = _option_expression_plan_for_bar(
+                bar=bar,
+                candidate_model_ref=candidate_model_ref,
+                timestamp=str(bar["timestamp"]),
+            )
             layer_outputs = _candidate_layer_outputs(
                 target=target,
                 target_rows=target_rows,
@@ -449,7 +499,7 @@ def _build_crypto_decision_rows(
                 entry_calibration=entry_calibration.artifact,
             )
             replay_result = build_replay_runtime_dry_run(
-                account_sleeve_id=CRYPTO_SPOT_ACCOUNT_SLEEVE,
+                account_sleeve_id=_account_sleeve_for_bar(bar),
                 target_ref=target,
                 market_universe=market_universe,
                 target_context_state=layer_outputs["target_context_state"],
@@ -457,14 +507,15 @@ def _build_crypto_decision_rows(
                 alpha_confidence_vector=layer_outputs["alpha_confidence_vector"],
                 dynamic_risk_policy_state=layer_outputs["dynamic_risk_policy_state"],
                 underlying_action_plan=layer_outputs["underlying_action_plan"],
+                option_expression_plan=option_expression_plan,
                 trade_risk_cap=_trade_risk_cap(reference_price),
                 market_snapshot={
-                    "market_snapshot_ref": f"storage://replay/okx/{target}/{date_text}",
+                    "market_snapshot_ref": f"storage://replay/{bar.get('source_id', 'market')}/{target}/{date_text}",
                     "reference_price": reference_price,
                     "close_price": reference_price,
                 },
                 replay_fill_policy={
-                    "replay_fill_policy_ref": "replay_fill_policy://crypto_spot_daily_close/slippage_10_fee_5_bps",
+                    "replay_fill_policy_ref": f"replay_fill_policy://{bar.get('asset_class', 'market')}_daily_close/slippage_10_fee_5_bps",
                     "slippage_bps": 10,
                     "fee_bps": 5,
                 },
@@ -486,9 +537,12 @@ def _build_crypto_decision_rows(
                     "source_fill_event_id": fill["simulated_fill_event_id"],
                     "candidate_model_ref": candidate_model_ref,
                     "replay_contract_ref": replay_contract_ref,
-                    "account_sleeve_id": CRYPTO_SPOT_ACCOUNT_SLEEVE,
+                    "account_sleeve_id": _account_sleeve_for_bar(bar),
                     "target_ref": target,
                     "instrument_ref": entry["instrument_ref"],
+                    "asset_class": entry.get("asset_class") or bar.get("asset_class"),
+                    "asset_expression_route": str(_as_mapping(option_expression_plan).get("asset_expression_route") or ""),
+                    "option_surface_status": str(_as_mapping(option_expression_plan).get("option_surface_status") or ""),
                     "timestamp": bar["timestamp"],
                     "next_timestamp": next_bar["timestamp"],
                     "decision_status": entry["decision_status"],
@@ -540,11 +594,26 @@ def _market_universe_for_date(
             {
                 "target_ref": target,
                 "instrument_ref": bar["symbol"],
-                "asset_class": "crypto_spot",
+                "asset_class": str(bar.get("asset_class") or "crypto_spot"),
                 "reference_price": bar["bar_close"],
             }
         )
     return rows
+
+
+def _load_candidate_policy_bars(
+    *,
+    plan_path: Path,
+    include_equity: bool,
+    equity_source_root: Path,
+    equity_symbols: Sequence[str] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    rows_by_target = _load_crypto_bars(plan_path)
+    if include_equity:
+        for target, rows in _load_equity_bars(equity_source_root=equity_source_root, equity_symbols=equity_symbols).items():
+            if rows:
+                rows_by_target[target] = rows
+    return rows_by_target
 
 
 def _load_crypto_bars(plan_path: Path) -> dict[str, list[dict[str, Any]]]:
@@ -561,12 +630,83 @@ def _load_crypto_bars(plan_path: Path) -> dict[str, list[dict[str, Any]]]:
                 for bar in _read_bar_csv(path):
                     target = CRYPTO_SYMBOLS_BY_INSTRUMENT.get(str(bar["symbol"]).upper())
                     if target:
+                        bar["symbol"] = str(bar["symbol"]).upper()
+                        bar["asset_class"] = "crypto_spot"
+                        bar["source_id"] = "okx_crypto_market_data"
                         rows_by_target[target].append(bar)
     deduped: dict[str, list[dict[str, Any]]] = {}
     for target, rows in rows_by_target.items():
         by_timestamp = {str(row["timestamp"]): row for row in rows}
         deduped[target] = sorted(by_timestamp.values(), key=lambda row: str(row["timestamp"]))
     return deduped
+
+
+def _load_equity_bars(*, equity_source_root: Path, equity_symbols: Sequence[str] | None = None) -> dict[str, list[dict[str, Any]]]:
+    rows_by_target: dict[str, list[dict[str, Any]]] = {}
+    if not equity_source_root.exists():
+        return rows_by_target
+    symbol_filter = {str(symbol).upper() for symbol in equity_symbols or []}
+    for symbol_dir in sorted(path for path in equity_source_root.iterdir() if path.is_dir()):
+        symbol = symbol_dir.name.upper()
+        if symbol_filter and symbol not in symbol_filter:
+            continue
+        daily: dict[str, dict[str, Any]] = {}
+        for csv_path in sorted(symbol_dir.glob("*/runs/*/saved/equity_bar.csv")):
+            for row in _read_bar_csv(csv_path):
+                timestamp = str(row["timestamp"])
+                year_month = timestamp[:7]
+                if year_month < "2021-01" or year_month > "2025-12":
+                    continue
+                date_text = str(row["date"])
+                current = daily.get(date_text)
+                if current is None:
+                    daily[date_text] = {
+                        "symbol": symbol,
+                        "asset_class": "us_equity",
+                        "source_id": "alpaca_bars",
+                        "timeframe": "1Day",
+                        "timestamp": f"{date_text}T16:00:00-05:00",
+                        "date": date_text,
+                        "bar_open": float(row["bar_open"]),
+                        "bar_high": float(row["bar_high"]),
+                        "bar_low": float(row["bar_low"]),
+                        "bar_close": float(row["bar_close"]),
+                        "bar_volume": float(row["bar_volume"]),
+                    }
+                    continue
+                current["bar_high"] = max(float(current["bar_high"]), float(row["bar_high"]))
+                current["bar_low"] = min(float(current["bar_low"]), float(row["bar_low"]))
+                current["bar_close"] = float(row["bar_close"])
+                current["bar_volume"] = float(current["bar_volume"]) + float(row["bar_volume"])
+        rows = sorted(daily.values(), key=lambda row: str(row["timestamp"]))
+        if len(rows) >= 2:
+            rows_by_target[symbol] = rows
+    return rows_by_target
+
+
+def _account_sleeve_for_bar(bar: Mapping[str, Any]) -> str:
+    return CRYPTO_SPOT_ACCOUNT_SLEEVE if str(bar.get("asset_class") or "") == "crypto_spot" else EQUITY_OPTIONS_ACCOUNT_SLEEVE
+
+
+def _option_expression_plan_for_bar(*, bar: Mapping[str, Any], candidate_model_ref: str, timestamp: str) -> dict[str, Any] | None:
+    if str(bar.get("asset_class") or "") == "crypto_spot":
+        return None
+    target = str(bar.get("symbol") or "").upper()
+    return {
+        "model_ref": f"{candidate_model_ref}/model_09_option_expression/{target}/{timestamp}",
+        "target_ref": target,
+        "asset_expression_route": "direct_underlying_fallback",
+        "option_surface_status": "optionable_chain_missing",
+        "reason_codes": ["option_expression_source_missing_direct_underlying_replay_fallback"],
+    }
+
+
+def _asset_class_counts(bars_by_target: Mapping[str, Sequence[Mapping[str, Any]]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for rows in bars_by_target.values():
+        asset_class = str(rows[0].get("asset_class") or "unknown") if rows else "unknown"
+        counts[asset_class] = counts.get(asset_class, 0) + 1
+    return counts
 
 
 def _latest_succeeded_outputs(receipt: Mapping[str, Any]) -> list[str]:
@@ -1174,5 +1314,6 @@ __all__ = [
     "REPLAY_DECISION_ROW_CONTRACT",
     "REPLAY_EXECUTION_RUN_CONTRACT",
     "ReplayExecutionResult",
+    "build_candidate_policy_replay_execution_run",
     "build_crypto_replay_execution_run",
 ]

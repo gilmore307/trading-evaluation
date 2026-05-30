@@ -12,7 +12,7 @@ from typing import Sequence
 sys.path.insert(0, "/root/projects/trading-execution/src")
 sys.path.insert(0, "/root/projects/trading-model/src")
 
-from trading_evaluation import build_crypto_replay_execution_run
+from trading_evaluation import build_candidate_policy_replay_execution_run
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -36,10 +36,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--max-decision-rows", type=int)
     parser.add_argument("--progress-path", type=Path)
     parser.add_argument("--calibration-window-month-count", type=int, default=1)
+    parser.add_argument("--exclude-equity", action="store_true", help="Run only the fixed crypto sleeve.")
+    parser.add_argument("--equity-source-root", type=Path, default=Path("/root/projects/trading-storage/storage/01_source_data/monthly_backfill/alpaca_bars"))
+    parser.add_argument(
+        "--equity-symbol",
+        action="append",
+        dest="equity_symbols",
+        help="Limit materialized Alpaca equity replay to one symbol. Repeat for multiple symbols.",
+    )
     args = parser.parse_args(argv)
     after_cost_alpha_model = json.loads(args.after_cost_alpha_model_json.read_text(encoding="utf-8"))
 
-    result = build_crypto_replay_execution_run(
+    result = build_candidate_policy_replay_execution_run(
         dataset_root=args.dataset_root,
         output_dir=args.output_dir,
         run_id=args.run_id,
@@ -50,6 +58,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_decision_rows=args.max_decision_rows,
         progress_path=args.progress_path,
         calibration_window_month_count=args.calibration_window_month_count,
+        include_equity=not args.exclude_equity,
+        equity_source_root=args.equity_source_root,
+        equity_symbols=args.equity_symbols,
     )
     print(json.dumps(result.receipt, indent=2, sort_keys=True))
     return 0

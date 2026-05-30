@@ -49,6 +49,7 @@ from .replay_execution import (
     REPLAY_EXECUTION_RUN_CONTRACT,
     REPLAY_PROGRESS_CONTRACT,
     ReplayExecutionResult,
+    build_candidate_policy_replay_execution_run,
     build_crypto_replay_execution_run,
 )
 
@@ -75,6 +76,7 @@ __all__ = [
     "PreparedReplayDataset",
     "PromotionEvaluationReviewResult",
     "ReplayExecutionResult",
+    "build_candidate_policy_replay_execution_run",
     "build_promotion_evaluation_review",
     "build_replay_runtime_dry_run",
     "build_crypto_replay_execution_run",
