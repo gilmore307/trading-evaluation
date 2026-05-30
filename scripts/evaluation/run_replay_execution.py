@@ -36,6 +36,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--max-decision-rows", type=int)
     parser.add_argument("--progress-path", type=Path)
     parser.add_argument("--calibration-window-month-count", type=int, default=1)
+    parser.add_argument("--exclude-crypto", action="store_true", help="Run only the materialized equity/option sleeve.")
     parser.add_argument("--exclude-equity", action="store_true", help="Run only the fixed crypto sleeve.")
     parser.add_argument("--equity-source-root", type=Path, default=Path("/root/projects/trading-storage/storage/01_source_data/monthly_backfill/alpaca_bars"))
     parser.add_argument(
@@ -44,6 +45,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         dest="equity_symbols",
         help="Limit materialized Alpaca equity replay to one symbol. Repeat for multiple symbols.",
     )
+    parser.add_argument("--option-feature-database-url", help="Load point-in-time Layer 9 option feature rows from PostgreSQL.")
+    parser.add_argument("--option-feature-schema", default="trading_data")
+    parser.add_argument("--option-feature-table", default="m09_option_expression_feature_generation")
     args = parser.parse_args(argv)
     after_cost_alpha_model = json.loads(args.after_cost_alpha_model_json.read_text(encoding="utf-8"))
 
@@ -58,9 +62,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_decision_rows=args.max_decision_rows,
         progress_path=args.progress_path,
         calibration_window_month_count=args.calibration_window_month_count,
+        include_crypto=not args.exclude_crypto,
         include_equity=not args.exclude_equity,
         equity_source_root=args.equity_source_root,
         equity_symbols=args.equity_symbols,
+        option_feature_database_url=args.option_feature_database_url,
+        option_feature_schema=args.option_feature_schema,
+        option_feature_table=args.option_feature_table,
     )
     print(json.dumps(result.receipt, indent=2, sort_keys=True))
     return 0

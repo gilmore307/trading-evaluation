@@ -41,6 +41,7 @@ MODEL_INFERENCE_CHAIN = (
     "model_06_dynamic_risk_policy",
     "model_07_position_projection",
     "model_08_underlying_action",
+    "model_09_option_expression",
 )
 DEFAULT_ENTRY_ALPHA_THRESHOLD = 0.50
 DEFAULT_MINIMUM_TRADE_INTENSITY = 0.05
@@ -120,9 +121,13 @@ def build_candidate_policy_replay_execution_run(
     generated_at_utc: str | None = None,
     progress_path: Path | None = None,
     calibration_window_month_count: int = 1,
+    include_crypto: bool = True,
     include_equity: bool = True,
     equity_source_root: Path = EQUITY_SOURCE_ROOT,
     equity_symbols: Sequence[str] | None = None,
+    option_feature_database_url: str | None = None,
+    option_feature_schema: str = "trading_data",
+    option_feature_table: str = "m09_option_expression_feature_generation",
 ) -> ReplayExecutionResult:
     """Run candidate-policy replay over frozen crypto plus materialized equity bars."""
 
@@ -143,12 +148,19 @@ def build_candidate_policy_replay_execution_run(
 
     bars_by_target = _load_candidate_policy_bars(
         plan_path=Path(str(manifest["feed_acquisition_plan_ref"])),
+        include_crypto=include_crypto,
         include_equity=include_equity,
         equity_source_root=equity_source_root,
         equity_symbols=equity_symbols,
     )
     if not bars_by_target:
         raise ValueError("candidate-policy replay found no materialized market bars")
+    option_candidates_by_underlying_time = _load_option_candidate_features(
+        database_url=option_feature_database_url,
+        schema=option_feature_schema,
+        table=option_feature_table,
+        targets=bars_by_target.keys(),
+    )
     market_dates = sorted({row["date"] for rows in bars_by_target.values() for row in rows})
     entry_calibration = _build_entry_calibration(
         bars_by_target=bars_by_target,
@@ -169,6 +181,7 @@ def build_candidate_policy_replay_execution_run(
         replay_contract_ref=replay_contract_ref,
         max_decision_rows=max_decision_rows,
         entry_calibration=entry_calibration,
+        option_candidates_by_underlying_time=option_candidates_by_underlying_time,
     )
     _write_jsonl(decision_rows_path, decision_rows)
     progress_rows = _build_replay_progress_rows(
@@ -198,6 +211,9 @@ def build_candidate_policy_replay_execution_run(
         "completed_replay_month_count": len(progress_rows),
         "target_refs": sorted(bars_by_target),
         "asset_class_counts": _asset_class_counts(bars_by_target),
+        "option_feature_table_ref": None if not option_feature_database_url else f"{option_feature_schema}.{option_feature_table}",
+        "option_feature_snapshot_count": len(option_candidates_by_underlying_time),
+        "option_feature_candidate_count": sum(len(rows) for rows in option_candidates_by_underlying_time.values()),
         "market_date_count": len(market_dates),
         "generated_at_utc": generated_at,
         "validation_status": "passed",
@@ -467,6 +483,7 @@ def _build_candidate_policy_decision_rows(
     replay_contract_ref: str,
     max_decision_rows: int | None,
     entry_calibration: EntryCalibration,
+    option_candidates_by_underlying_time: Mapping[tuple[str, str], Sequence[Mapping[str, Any]]],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     history_by_target = {target: list(bars) for target, bars in bars_by_target.items()}
@@ -483,11 +500,6 @@ def _build_candidate_policy_decision_rows(
             date_text = str(bar["date"])
             market_universe = _market_universe_for_date(history_by_target, index_by_target_date, date_text)
             reference_price = float(bar["bar_close"])
-            option_expression_plan = _option_expression_plan_for_bar(
-                bar=bar,
-                candidate_model_ref=candidate_model_ref,
-                timestamp=str(bar["timestamp"]),
-            )
             layer_outputs = _candidate_layer_outputs(
                 target=target,
                 target_rows=target_rows,
@@ -498,6 +510,20 @@ def _build_candidate_policy_decision_rows(
                 after_cost_alpha_model=after_cost_alpha_model,
                 entry_calibration=entry_calibration.artifact,
             )
+            option_expression_plan = _option_expression_plan_for_bar(
+                bar=bar,
+                candidate_model_ref=candidate_model_ref,
+                timestamp=str(bar["timestamp"]),
+                layer_outputs=layer_outputs,
+                option_candidates=option_candidates_by_underlying_time.get((target.upper(), _time_key(bar["timestamp"])), ()),
+            )
+            replay_market_snapshot = _replay_market_snapshot(
+                bar=bar,
+                target=target,
+                date_text=date_text,
+                option_expression_plan=option_expression_plan,
+            )
+            replay_trade_risk_cap = _trade_risk_cap(float(replay_market_snapshot["reference_price"]))
             replay_result = build_replay_runtime_dry_run(
                 account_sleeve_id=_account_sleeve_for_bar(bar),
                 target_ref=target,
@@ -508,12 +534,8 @@ def _build_candidate_policy_decision_rows(
                 dynamic_risk_policy_state=layer_outputs["dynamic_risk_policy_state"],
                 underlying_action_plan=layer_outputs["underlying_action_plan"],
                 option_expression_plan=option_expression_plan,
-                trade_risk_cap=_trade_risk_cap(reference_price),
-                market_snapshot={
-                    "market_snapshot_ref": f"storage://replay/{bar.get('source_id', 'market')}/{target}/{date_text}",
-                    "reference_price": reference_price,
-                    "close_price": reference_price,
-                },
+                trade_risk_cap=replay_trade_risk_cap,
+                market_snapshot=replay_market_snapshot,
                 replay_fill_policy={
                     "replay_fill_policy_ref": f"replay_fill_policy://{bar.get('asset_class', 'market')}_daily_close/slippage_10_fee_5_bps",
                     "slippage_bps": 10,
@@ -543,6 +565,9 @@ def _build_candidate_policy_decision_rows(
                     "asset_class": entry.get("asset_class") or bar.get("asset_class"),
                     "asset_expression_route": str(_as_mapping(option_expression_plan).get("asset_expression_route") or ""),
                     "option_surface_status": str(_as_mapping(option_expression_plan).get("option_surface_status") or ""),
+                    "selected_option_expression_type": _as_mapping(option_expression_plan).get("selected_expression_type"),
+                    "selected_option_contract_ref": _as_mapping(_as_mapping(option_expression_plan).get("selected_contract")).get("contract_ref"),
+                    "selected_option_mid_price": _as_mapping(_as_mapping(option_expression_plan).get("selected_contract")).get("mid_price"),
                     "timestamp": bar["timestamp"],
                     "next_timestamp": next_bar["timestamp"],
                     "decision_status": entry["decision_status"],
@@ -604,16 +629,93 @@ def _market_universe_for_date(
 def _load_candidate_policy_bars(
     *,
     plan_path: Path,
+    include_crypto: bool,
     include_equity: bool,
     equity_source_root: Path,
     equity_symbols: Sequence[str] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    rows_by_target = _load_crypto_bars(plan_path)
+    rows_by_target = _load_crypto_bars(plan_path) if include_crypto else {}
     if include_equity:
         for target, rows in _load_equity_bars(equity_source_root=equity_source_root, equity_symbols=equity_symbols).items():
             if rows:
                 rows_by_target[target] = rows
     return rows_by_target
+
+
+def _load_option_candidate_features(
+    *,
+    database_url: str | None,
+    schema: str,
+    table: str,
+    targets: Iterable[str],
+) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    if not database_url:
+        return {}
+    _validate_identifier(schema)
+    _validate_identifier(table)
+    target_filter = sorted({str(target).upper() for target in targets if target})
+    if not target_filter:
+        return {}
+    try:
+        import psycopg  # type: ignore
+        from psycopg.rows import dict_row  # type: ignore
+    except ModuleNotFoundError as exc:  # pragma: no cover
+        raise RuntimeError("psycopg is required to load replay option feature rows") from exc
+    rows_by_key: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    with psycopg.connect(database_url, row_factory=dict_row) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT to_regclass(%s) AS table_ref", (f"{schema}.{table}",))
+            exists = cursor.fetchone()
+            if not exists or exists.get("table_ref") is None:
+                return {}
+            cursor.execute(
+                f"""
+                SELECT
+                  f."underlying",
+                  f."snapshot_time",
+                  f."snapshot_type",
+                  f."option_symbol",
+                  f."feature_payload_json",
+                  f."feature_quality_diagnostics"
+                FROM "{schema}"."{table}" AS f
+                WHERE f."underlying" = ANY(%s)
+                  AND COALESCE(f."snapshot_type", 'entry') = 'entry'
+                ORDER BY f."underlying" ASC, f."snapshot_time" ASC, f."option_symbol" ASC
+                """,
+                (target_filter,),
+            )
+            feature_rows = [dict(row) for row in cursor.fetchall()]
+    for row in feature_rows:
+        underlying = str(row.get("underlying") or "").upper()
+        snapshot_time = _time_key(row.get("snapshot_time"))
+        contract_ref = str(row.get("option_symbol") or "")
+        payload = _coerce_json_mapping(row.get("feature_payload_json"))
+        diagnostics = _coerce_json_mapping(row.get("feature_quality_diagnostics"))
+        if not underlying or not snapshot_time or not contract_ref:
+            continue
+        option_right = payload.get("option_right") or payload.get("right") or payload.get("option_right_type")
+        expiration = payload.get("expiration") or row.get("expiration")
+        dte = payload.get("dte") or payload.get("days_to_expiration")
+        mid = payload.get("mid_price") or payload.get("mid")
+        implied_vol = payload.get("iv") or payload.get("implied_volatility") or payload.get("implied_vol")
+        rows_by_key[(underlying, snapshot_time)].append(
+            {
+                "contract_ref": contract_ref,
+                "option_symbol": contract_ref,
+                "option_right": option_right,
+                "right": option_right,
+                "expiration": expiration,
+                "dte": dte,
+                "days_to_expiration": dte,
+                "mid_price": mid,
+                "mid": mid,
+                "iv": implied_vol,
+                "implied_volatility": implied_vol,
+                "candidate_quality_diagnostics": diagnostics,
+                **payload,
+            }
+        )
+    return rows_by_key
 
 
 def _load_crypto_bars(plan_path: Path) -> dict[str, list[dict[str, Any]]]:
@@ -688,16 +790,82 @@ def _account_sleeve_for_bar(bar: Mapping[str, Any]) -> str:
     return CRYPTO_SPOT_ACCOUNT_SLEEVE if str(bar.get("asset_class") or "") == "crypto_spot" else EQUITY_OPTIONS_ACCOUNT_SLEEVE
 
 
-def _option_expression_plan_for_bar(*, bar: Mapping[str, Any], candidate_model_ref: str, timestamp: str) -> dict[str, Any] | None:
+def _option_expression_plan_for_bar(
+    *,
+    bar: Mapping[str, Any],
+    candidate_model_ref: str,
+    timestamp: str,
+    layer_outputs: Mapping[str, Any],
+    option_candidates: Sequence[Mapping[str, Any]],
+) -> dict[str, Any] | None:
     if str(bar.get("asset_class") or "") == "crypto_spot":
         return None
     target = str(bar.get("symbol") or "").upper()
+    if option_candidates:
+        generators = _trading_model_generators()
+        model_row = generators["model_09_option_expression"](
+            [
+                {
+                    "available_time": timestamp,
+                    "tradeable_time": timestamp,
+                    "target_candidate_id": layer_outputs["target_candidate_id"],
+                    "underlying_action_plan_ref": _as_mapping(layer_outputs["underlying_action_plan"]).get("model_ref"),
+                    "underlying_action_plan": layer_outputs["underlying_action_plan"],
+                    "layer_8_underlying_handoff": _as_mapping(layer_outputs["underlying_action_plan"]).get("handoff_to_layer_9") or {},
+                    "market_context_state": layer_outputs["market_context_state"],
+                    "event_context_vector": layer_outputs["event_failure_risk_vector"],
+                    "option_expression_policy": {},
+                    "option_contract_candidates": list(option_candidates),
+                    "option_surface_status": "optionable_chain_available",
+                    "option_chain_snapshot_ref": f"m09_option_expression_feature_generation:{target}:{_time_key(timestamp)}",
+                    "option_quote_available_time": timestamp,
+                    "underlying_quote_snapshot_ref": _as_mapping(layer_outputs["target_context_state"]).get("model_ref"),
+                    "underlying_reference_price": bar.get("bar_close"),
+                }
+            ]
+        )[0]
+        plan = dict(model_row["option_expression_plan"])
+        selected_contract = _as_mapping(plan.get("selected_contract"))
+        plan.update(
+            {
+                "model_ref": f"{candidate_model_ref}/model_09_option_expression/{model_row['option_expression_plan_ref']}",
+                "target_ref": target,
+                "asset_expression_route": "listed_option_contract" if selected_contract else "option_expression_unfilled",
+                "option_surface_status": model_row.get("option_surface_status") or "optionable_chain_available",
+            }
+        )
+        return plan
     return {
         "model_ref": f"{candidate_model_ref}/model_09_option_expression/{target}/{timestamp}",
         "target_ref": target,
         "asset_expression_route": "direct_underlying_fallback",
         "option_surface_status": "optionable_chain_missing",
         "reason_codes": ["option_expression_source_missing_direct_underlying_replay_fallback"],
+    }
+
+
+def _replay_market_snapshot(
+    *,
+    bar: Mapping[str, Any],
+    target: str,
+    date_text: str,
+    option_expression_plan: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    selected_contract = _as_mapping(_as_mapping(option_expression_plan).get("selected_contract"))
+    option_mid = _safe_float(selected_contract.get("mid_price"))
+    if option_mid is not None and option_mid > 0:
+        contract_ref = str(selected_contract.get("contract_ref") or selected_contract.get("option_symbol") or target)
+        return {
+            "market_snapshot_ref": f"storage://replay/option_expression/{target}/{contract_ref}/{date_text}",
+            "reference_price": option_mid,
+            "close_price": option_mid,
+            "underlying_reference_price": float(bar["bar_close"]),
+        }
+    reference_price = float(bar["bar_close"])
+    return {
+        "market_snapshot_ref": f"storage://replay/{bar.get('source_id', 'market')}/{target}/{date_text}",
+        "reference_price": reference_price,
+        "close_price": reference_price,
     }
 
 
@@ -860,6 +1028,9 @@ def _candidate_layer_outputs(
     target_state_for_execution = dict(target_state)
     target_state_for_execution.update({"current_price": reference_price, "last_price": reference_price, "mark_price": reference_price})
     return {
+        "target_candidate_id": target_candidate_id,
+        "available_time": available_time,
+        "market_context_state": market_state,
         "target_context_state": target_state_for_execution,
         "event_failure_risk_vector": event_state,
         "alpha_confidence_vector": alpha_vector,
@@ -888,6 +1059,7 @@ def _trading_model_generators() -> dict[str, Callable[[Iterable[Mapping[str, Any
         from models.model_06_dynamic_risk_policy.generator import generate_rows as generate_dynamic_risk_policy
         from models.model_07_position_projection.generator import generate_rows as generate_position_projection
         from models.model_08_underlying_action.generator import generate_rows as generate_underlying_action
+        from models.model_09_option_expression.generator import generate_rows as generate_option_expression
     except ModuleNotFoundError as exc:
         raise RuntimeError(
             "trading-model must be importable for model-group replay inference; "
@@ -898,6 +1070,7 @@ def _trading_model_generators() -> dict[str, Callable[[Iterable[Mapping[str, Any
         "model_06_dynamic_risk_policy": generate_dynamic_risk_policy,
         "model_07_position_projection": generate_position_projection,
         "model_08_underlying_action": generate_underlying_action,
+        "model_09_option_expression": generate_option_expression,
     }
 
 
@@ -1190,6 +1363,37 @@ def _resolved_alpha_score(alpha_vector: Mapping[str, Any]) -> float:
 
 def _as_mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
+
+
+def _coerce_json_mapping(value: Any) -> Mapping[str, Any]:
+    if isinstance(value, Mapping):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return {}
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, Mapping) else {}
+    return {}
+
+
+def _time_key(value: Any) -> str:
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return str(value or "")
+    return parsed.isoformat()
+
+
+def _validate_identifier(identifier: str) -> None:
+    if not identifier.replace("_", "").isalnum() or not identifier or identifier[0].isdigit():
+        raise ValueError(f"unsafe SQL identifier: {identifier!r}")
 
 
 def _dollar_volume(row: Mapping[str, Any]) -> float:

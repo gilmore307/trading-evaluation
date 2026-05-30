@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path("/root/projects/trading-execution/src")))
 sys.path.insert(0, str(Path("/root/projects/trading-model/src")))
 
 from trading_evaluation import build_candidate_policy_replay_execution_run, build_crypto_replay_execution_run
+from trading_evaluation import replay_execution as replay_module
 from models.model_05_alpha_confidence import train_after_cost_alpha_model
 from models.model_05_alpha_confidence.contract import HORIZONS
 
@@ -287,6 +288,58 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(rows[0]["account_sleeve_id"], "equity_options_account")
             self.assertEqual(rows[0]["asset_expression_route"], "direct_underlying_fallback")
             self.assertEqual(rows[0]["option_surface_status"], "optionable_chain_missing")
+
+    def test_option_expression_plan_selects_loaded_contract_candidate(self):
+        plan = replay_module._option_expression_plan_for_bar(
+            bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
+            candidate_model_ref="storage://trading-manager/model_group/test_fold",
+            timestamp="2021-01-04T16:00:00-05:00",
+            layer_outputs={
+                "target_candidate_id": "replay_aapl_test",
+                "target_context_state": {"model_ref": "target-context-ref"},
+                "market_context_state": {"1_market_liquidity_support_score": 0.85},
+                "event_failure_risk_vector": {},
+                "underlying_action_plan": {
+                    "model_ref": "underlying-action-ref",
+                    "planned_underlying_action_type": "open",
+                    "action_side": "long",
+                    "handoff_to_layer_9": {
+                        "underlying_path_direction": "bullish",
+                        "expected_holding_time_minutes": 1440,
+                        "expected_entry_price": 100.0,
+                        "expected_target_price": 110.0,
+                        "target_price_high": 110.0,
+                        "expected_favorable_move_pct": 0.06,
+                        "expected_adverse_move_pct": 0.02,
+                        "path_quality_score": 0.80,
+                    },
+                },
+            },
+            option_candidates=[
+                {
+                    "contract_ref": "AAPL_20210115_C_100",
+                    "option_right": "CALL",
+                    "expiration": "2021-01-15",
+                    "strike": 100.0,
+                    "dte": 11,
+                    "bid_price": 2.1,
+                    "ask_price": 2.2,
+                    "mid_price": 2.15,
+                    "delta": 0.45,
+                    "theta": -0.02,
+                    "vega": 0.12,
+                    "volume": 500,
+                    "open_interest": 2000,
+                    "spread_pct_mid": 0.0465,
+                    "quote_age_seconds": 10,
+                }
+            ],
+        )
+
+        self.assertEqual(plan["asset_expression_route"], "listed_option_contract")
+        self.assertEqual(plan["option_surface_status"], "optionable_chain_available")
+        self.assertEqual(plan["selected_expression_type"], "long_call")
+        self.assertEqual(plan["selected_contract"]["contract_ref"], "AAPL_20210115_C_100")
 
     def test_cli_writes_replay_execution_receipt(self):
         with tempfile.TemporaryDirectory() as tmp:
