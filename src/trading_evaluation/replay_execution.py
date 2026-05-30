@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+import os
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -32,6 +33,7 @@ CRYPTO_SYMBOLS_BY_INSTRUMENT = {
 }
 EQUITY_SOURCE_ROOT = Path("/root/projects/trading-storage/storage/01_source_data/monthly_backfill/alpaca_bars")
 DEFAULT_DATASET_ROOT = Path("/root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy")
+DEFAULT_DB_URL_FILE = Path("/root/secrets/openclaw/database-url")
 MODEL_INFERENCE_CHAIN = (
     "model_01_market_regime_state",
     "model_02_sector_context_state",
@@ -155,8 +157,9 @@ def build_candidate_policy_replay_execution_run(
     )
     if not bars_by_target:
         raise ValueError("candidate-policy replay found no materialized market bars")
+    resolved_option_feature_database_url = option_feature_database_url or _default_option_feature_database_url()
     option_candidates_by_underlying_time = _load_option_candidate_features(
-        database_url=option_feature_database_url,
+        database_url=resolved_option_feature_database_url,
         schema=option_feature_schema,
         table=option_feature_table,
         targets=bars_by_target.keys(),
@@ -211,7 +214,7 @@ def build_candidate_policy_replay_execution_run(
         "completed_replay_month_count": len(progress_rows),
         "target_refs": sorted(bars_by_target),
         "asset_class_counts": _asset_class_counts(bars_by_target),
-        "option_feature_table_ref": None if not option_feature_database_url else f"{option_feature_schema}.{option_feature_table}",
+        "option_feature_table_ref": None if not resolved_option_feature_database_url else f"{option_feature_schema}.{option_feature_table}",
         "option_feature_snapshot_count": len(option_candidates_by_underlying_time),
         "option_feature_candidate_count": sum(len(rows) for rows in option_candidates_by_underlying_time.values()),
         "market_date_count": len(market_dates),
@@ -716,6 +719,16 @@ def _load_option_candidate_features(
             }
         )
     return rows_by_key
+
+
+def _default_option_feature_database_url() -> str | None:
+    for env_name in ("OPENCLAW_DATABASE_URL", "DATABASE_URL"):
+        value = os.environ.get(env_name, "").strip()
+        if value:
+            return value
+    if DEFAULT_DB_URL_FILE.exists():
+        return DEFAULT_DB_URL_FILE.read_text(encoding="utf-8").strip()
+    return None
 
 
 def _load_crypto_bars(plan_path: Path) -> dict[str, list[dict[str, Any]]]:
