@@ -345,6 +345,8 @@ class ReplayExecutionTests(unittest.TestCase):
                 self.assertEqual(rows[0]["option_exit_price"], 3.0)
                 self.assertEqual(result.receipt["option_contract_path_symbol_count"], 1)
                 self.assertEqual(result.receipt["option_contract_path_bar_count"], 2)
+                self.assertEqual(result.receipt["option_replay_coverage"]["contract_path_coverage_status"], "complete")
+                self.assertEqual(result.receipt["option_replay_coverage"]["selected_option_path_available_count"], 1)
         finally:
             replay_module._load_option_candidate_features = original_feature_loader
             replay_module._load_option_contract_path_bars = original_path_loader
@@ -420,6 +422,30 @@ class ReplayExecutionTests(unittest.TestCase):
         self.assertEqual(result["entry_price"], 2.0)
         self.assertEqual(result["exit_price"], 3.0)
         self.assertAlmostEqual(result["gross_return"], 0.5)
+
+    def test_option_replay_coverage_summary_marks_partial_feature_coverage(self):
+        summary = replay_module._option_replay_coverage_summary(
+            bars_by_target={
+                "AAPL": [
+                    {"asset_class": "us_equity", "date": "2021-01-04"},
+                    {"asset_class": "us_equity", "date": "2021-01-05"},
+                ],
+                "SOL": [{"asset_class": "crypto_spot", "date": "2021-01-04"}],
+            },
+            option_candidates_by_underlying_time={("AAPL", "2021-01-04T16:00:00-05:00"): [{}]},
+            option_contract_paths_by_symbol={"AAPL_2021-01-15_C_100": [{"bar_close": 2.0}]},
+            decision_rows=[
+                {
+                    "selected_option_contract_ref": "AAPL_2021-01-15_C_100",
+                    "option_contract_path_status": "available",
+                }
+            ],
+        )
+
+        self.assertEqual(summary["feature_snapshot_coverage_status"], "partial")
+        self.assertEqual(summary["expected_equity_target_date_snapshot_count"], 2)
+        self.assertEqual(summary["selected_option_decision_count"], 1)
+        self.assertEqual(summary["contract_path_coverage_status"], "complete")
 
     def test_cli_writes_replay_execution_receipt(self):
         with tempfile.TemporaryDirectory() as tmp:

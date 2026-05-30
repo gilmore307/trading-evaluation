@@ -194,6 +194,12 @@ def build_candidate_policy_replay_execution_run(
         option_candidates_by_underlying_time=option_candidates_by_underlying_time,
         option_contract_paths_by_symbol=option_contract_paths_by_symbol,
     )
+    option_replay_coverage = _option_replay_coverage_summary(
+        bars_by_target=bars_by_target,
+        option_candidates_by_underlying_time=option_candidates_by_underlying_time,
+        option_contract_paths_by_symbol=option_contract_paths_by_symbol,
+        decision_rows=decision_rows,
+    )
     _write_jsonl(decision_rows_path, decision_rows)
     progress_rows = _build_replay_progress_rows(
         decision_rows=decision_rows,
@@ -228,6 +234,7 @@ def build_candidate_policy_replay_execution_run(
         "option_contract_path_table_ref": None if not resolved_option_feature_database_url else f"{option_feature_schema}.{option_contract_path_table}",
         "option_contract_path_symbol_count": len(option_contract_paths_by_symbol),
         "option_contract_path_bar_count": sum(len(rows) for rows in option_contract_paths_by_symbol.values()),
+        "option_replay_coverage": option_replay_coverage,
         "market_date_count": len(market_dates),
         "generated_at_utc": generated_at,
         "validation_status": "passed",
@@ -1021,6 +1028,57 @@ def _last_row_at_or_before(rows: Sequence[Mapping[str, Any]], timestamp: str) ->
         else:
             break
     return selected
+
+
+def _option_replay_coverage_summary(
+    *,
+    bars_by_target: Mapping[str, Sequence[Mapping[str, Any]]],
+    option_candidates_by_underlying_time: Mapping[tuple[str, str], Sequence[Mapping[str, Any]]],
+    option_contract_paths_by_symbol: Mapping[str, Sequence[Mapping[str, Any]]],
+    decision_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    equity_target_dates: set[tuple[str, str]] = set()
+    for target, rows in bars_by_target.items():
+        for row in rows:
+            if str(row.get("asset_class") or "") != "us_equity":
+                continue
+            date_text = str(row.get("date") or str(row.get("timestamp") or "")[:10])
+            if date_text:
+                equity_target_dates.add((target, date_text))
+    selected_option_rows = [row for row in decision_rows if row.get("selected_option_contract_ref")]
+    path_available_count = sum(1 for row in selected_option_rows if row.get("option_contract_path_status") == "available")
+    path_missing_count = sum(1 for row in selected_option_rows if row.get("option_contract_path_status") == "missing")
+    expected_snapshot_count = len(equity_target_dates)
+    feature_snapshot_count = len(option_candidates_by_underlying_time)
+    feature_coverage_ratio = feature_snapshot_count / expected_snapshot_count if expected_snapshot_count else None
+    if expected_snapshot_count == 0:
+        feature_status = "not_applicable"
+    elif feature_snapshot_count >= expected_snapshot_count:
+        feature_status = "complete"
+    elif feature_snapshot_count > 0:
+        feature_status = "partial"
+    else:
+        feature_status = "missing"
+    if not selected_option_rows:
+        path_status = "not_applicable"
+    elif path_missing_count == 0:
+        path_status = "complete"
+    elif path_available_count > 0:
+        path_status = "partial"
+    else:
+        path_status = "missing"
+    return {
+        "feature_snapshot_coverage_status": feature_status,
+        "feature_snapshot_count": feature_snapshot_count,
+        "expected_equity_target_date_snapshot_count": expected_snapshot_count,
+        "feature_snapshot_coverage_ratio": feature_coverage_ratio,
+        "contract_path_coverage_status": path_status,
+        "contract_path_symbol_count": len(option_contract_paths_by_symbol),
+        "contract_path_bar_count": sum(len(rows) for rows in option_contract_paths_by_symbol.values()),
+        "selected_option_decision_count": len(selected_option_rows),
+        "selected_option_path_available_count": path_available_count,
+        "selected_option_path_missing_count": path_missing_count,
+    }
 
 
 def _asset_class_counts(bars_by_target: Mapping[str, Sequence[Mapping[str, Any]]]) -> dict[str, int]:
