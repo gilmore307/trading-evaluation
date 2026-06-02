@@ -484,6 +484,12 @@ def _replay_sources() -> tuple[dict[str, str], ...]:
 
 
 def _feed_params(contract: ReplayContract, source: Mapping[str, str], window: Mapping[str, str]) -> dict[str, Any]:
+    if source.get("candidate_dependent") == "on_demand":
+        replay_cache_policy = "monthly_ephemeral_cache"
+        post_replay_retention_policy = "retain_receipts_and_delete_replay_cache_after_month_operation"
+    else:
+        replay_cache_policy = "canonical_historical_source_data"
+        post_replay_retention_policy = "retain_canonical_source_data_after_replay"
     params: dict[str, Any] = {
         "contract_id": contract.contract_id,
         "candidate_fold_id": contract.candidate_fold_id,
@@ -493,8 +499,8 @@ def _feed_params(contract: ReplayContract, source: Mapping[str, str], window: Ma
         "end": window["end_date_exclusive"],
         "timeframe": source["timeframe"],
         "replay_acquisition_policy": "candidate_policy_replay_monthly_surface",
-        "replay_cache_policy": "monthly_ephemeral_cache",
-        "post_replay_retention_policy": "retain_receipts_and_delete_replay_cache_after_month_operation",
+        "replay_cache_policy": replay_cache_policy,
+        "post_replay_retention_policy": post_replay_retention_policy,
         "source_id": source["source_id"],
     }
     if source["source_id"] == "gdelt_news":

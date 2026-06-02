@@ -121,10 +121,10 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             params = json.loads(bars_row["params_json"])
             self.assertEqual(params["candidate_policy_ref"], VALID_DATASET_CONTRACT["candidate_policy_ref"])
             self.assertEqual(params["replay_acquisition_policy"], "candidate_policy_replay_monthly_surface")
-            self.assertEqual(params["replay_cache_policy"], "monthly_ephemeral_cache")
+            self.assertEqual(params["replay_cache_policy"], "canonical_historical_source_data")
             self.assertEqual(
                 params["post_replay_retention_policy"],
-                "retain_receipts_and_delete_replay_cache_after_month_operation",
+                "retain_canonical_source_data_after_replay",
             )
             self.assertEqual(params["target_refs"], ["AAPL"])
             self.assertEqual(params["symbol"], "AAPL")
