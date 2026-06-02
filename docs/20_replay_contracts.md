@@ -7,7 +7,7 @@ The promotion replay must be selected once and then frozen. For Layer 3 and late
 Required properties:
 
 - one replay contract with field `replay_mode = candidate_policy_replay`.
-- an explicit replay window, candidate fold id, and target refs for the fold-target scope being evaluated.
+- the canonical five-year replay window `2021-01-01` through `2026-01-01` end-exclusive, candidate fold id, and target refs for the scope being evaluated.
 - a frozen candidate-universe policy, historical data snapshot, cost model, baseline ladder, selection metrics, and guardrails.
 - candidate policy inputs covering current Layer 2 selected/watch sectors, reviewed sector constituents or proxies, current market-wide hot/liquid names, quality filters, and control candidates when contrast is required.
 - the model must generate candidates, rank/select targets, and run through `trading-execution`'s `execution_runtime_component_graph` under Replay adapters.
@@ -15,7 +15,7 @@ Required properties:
 - metrics must evaluate realized replay performance after cost, risk, drawdown, turnover, selection quality, and guardrails.
 - metadata for candidate source, market state, Layer 2 sector source, event state, data availability, and model decision provenance.
 - explicit sector coverage metadata, including consumer and entertainment/media coverage.
-- enough length to reduce accident and one-off event bias for the accepted replay purpose.
+- enough length to reduce accident and one-off event bias; the canonical five-calendar-year replay window is the ordinary promotion replay horizon.
 - diverse market conditions: trend, drawdown, volatility regime changes, event shocks, and transition periods.
 - explicit event coverage metadata for earnings-crossing windows, policy/macro shocks, liquidity or squeeze events, product-cycle repricing, and crypto-cycle events.
 - deliberate point-in-time admission of then-hot thematic single-name candidates through the candidate policy, including names outside the selected ETF universe when target-context review exists.
@@ -24,7 +24,7 @@ Required properties:
 - no leakage from the frozen replay window into training-used folds.
 - any fold that intersects the sealed promotion replay window must be skipped or blocked for candidate training.
 - fixed data snapshot, cost model, slippage/fee assumptions, and baseline ladder.
-- replay acquisition and event/source normalization are construction phases that produce a frozen data snapshot for the explicit fold-target scope.
+- replay acquisition and event/source normalization are construction phases that produce a frozen data snapshot for the explicit model fold, target refs, and replay window.
 - all replay, settlement, promotion eligibility, guardrail, and regression checks for that scope must reuse that frozen data snapshot instead of rebuilding data per model candidate.
 - replay evaluation must run through the execution runtime component graph under a historical clock, not through the model training pipeline or an evaluation-owned trading decision graph.
 - replay must not run `execution_shadow_cycle_selection`; shadow-cycle selection is a realtime execution mechanism for already-promoted models, not a historical evaluation mechanism for training outputs.
@@ -53,6 +53,6 @@ Guardrail replays may catch overfit or pathological candidates. They should not 
 
 ## Current Selection Status
 
-The current model-group replay dataset must be regenerated as an explicit fold-target snapshot. A frozen dataset or replay receipt is eligible only when its `target_refs` include the completed training target and its fold id matches the completed fold when a fold id is present. Fixed crypto/ETF-only replay evidence is not valid for an AAPL fold.
+The current model-group replay dataset must be regenerated as an explicit model-fold and target-ref snapshot over the canonical five-year replay window. A frozen dataset or replay receipt is eligible only when its `target_refs` include the completed training target and its fold id matches the completed fold when a fold id is present. Fixed crypto/ETF-only replay evidence is not valid for an AAPL fold.
 
 Do not use ad hoc target/window panels for training, tuning, prompt iteration, model selection, or promotion. Full promotion judgment requires an accepted candidate-policy replay with explicit fold-target scope.

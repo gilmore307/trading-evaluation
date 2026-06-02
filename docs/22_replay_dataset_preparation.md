@@ -14,7 +14,7 @@ This preparation step is not a replay freeze and does not use the manager task/r
 ## Current Inputs
 
 - source contract: accepted candidate-policy replay under `trading-evaluation/replays/`
-- replay window: the fold-bound historical window supplied at preparation time
+- replay window: canonical `2021-01-01` through `2026-01-01` end-exclusive unless an explicitly reviewed exception is supplied
 - candidate fold id and target refs: explicit, for example `fold_2016-01_2016-06` and `AAPL`
 - local coverage scan root: `trading-storage/storage/01_source_data`
 - runtime output root: `trading-storage/storage/05_replay_datasets`
@@ -52,9 +52,6 @@ PYTHONPATH=src python3 scripts/evaluation/prepare_replay_dataset.py \
   --contract replays/promotion_replay_candidate_policy.json \
   --candidate-fold-id fold_2016-01_2016-06 \
   --target-ref AAPL \
-  --start-date 2016-01-01 \
-  --end-date 2016-07-01 \
-  --min-trading-days 120 \
   --output-root /root/projects/trading-storage/storage/05_replay_datasets \
   --data-root /root/projects/trading-storage/storage/01_source_data
 ```
@@ -63,7 +60,7 @@ The generated acquisition plan records feed parameters, target refs, asset class
 
 ## Frozen Snapshot
 
-Replay data acquisition, event evidence collection, and source normalization are dataset construction phases for the explicit fold and target refs. Once the acquisition plan reaches accepted coverage and the replay is frozen, storage records a replay data snapshot for that fold-target scope.
+Replay data acquisition, event evidence collection, and source normalization are dataset construction phases for the explicit model fold, target refs, and replay window. Once the acquisition plan reaches accepted coverage and the replay is frozen, storage records a replay data snapshot for that scope.
 
 All replay, fold settlement, promotion eligibility comparison, guardrail replay, and later regression checks for that fold-target scope must reference that frozen snapshot. They must not re-download, re-sample, reinterpret, or rebuild replay data per model candidate. If the replay dataset is wrong or incomplete, the fix is a reviewed regenerated snapshot for the same scope or a new replay contract.
 
