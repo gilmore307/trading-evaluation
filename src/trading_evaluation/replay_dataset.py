@@ -142,6 +142,13 @@ def prepare_replay_dataset(
         "source_contract_ref": source_contract_ref,
         "candidate_policy_ref": contract.candidate_policy_ref,
         "replay_route_ref": contract.replay_route_ref,
+        "replay_execution_unit": "execution_runtime_component_graph",
+        "replay_execution_policy": {
+            "component_graph_ref": contract.replay_route_ref,
+            "component_graph_owner": "trading-execution",
+            "model_role": "component_input_evidence",
+            "evaluation_role": "orchestrate_replay_and_settle_component_outputs",
+        },
         "candidate_fold_id": contract.candidate_fold_id,
         "fold_id": contract.candidate_fold_id,
         "tradable_universe_policy_ref": contract.tradable_universe_policy_ref,

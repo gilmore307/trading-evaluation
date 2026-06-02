@@ -39,12 +39,12 @@ validation results, and safety flags. It must not train models, call providers,
 write active model config, submit broker requests, or mutate account state.
 
 `evaluation_replay_execution_run` records a side-effect-free Replay execution
-over frozen local source artifacts for the live-equivalent `tradable_target_refs`
-declared by the replay dataset. It calls
-`trading-execution` runtime builders under Replay adapters, writes
-settlement-ready `evaluation_replay_decision_row` JSONL, and records safety
-flags proving no provider call, broker call, account mutation, model training,
-or active config write occurred. This is Replay evidence, not a promotion
+over frozen local base-context artifacts and month-scoped on-demand candidate
+artifacts. It calls `trading-execution` runtime builders under Replay adapters,
+writes settlement-ready `evaluation_replay_decision_row` JSONL, and records
+safety flags proving no broker call, account mutation, model training, or
+active config write occurred. Provider calls are allowed only through reviewed
+on-demand replay acquisition gates. This is Replay evidence, not a promotion
 eligibility decision.
 
 Canonical SQL tables:
@@ -77,7 +77,7 @@ Required fields include:
 - `candidate_fold_id`
 - `tradable_universe_policy_ref`
 - `tradable_universe_ref`
-- `tradable_target_refs`
+- `pre_replay_target_refs`
 - `candidate_policy_ref`
 - `replay_route_ref`
 - `replay_window_manifest_ref`
@@ -85,13 +85,13 @@ Required fields include:
 - `coverage_summary_ref`
 - safety booleans proving no provider calls, SQL mutation, model training, activation, broker execution, or account mutation occurred
 
-The preparation bundle may write files under the `trading-storage/storage/05_replay_datasets/<contract_id>/`, but it does not generate manager task/request rows or reusable task keys. Historical provider acquisition for the sealed replay is a one-shot gated action. It may temporarily materialize only the replay month and candidate set required by the current shard, and the month cache is deleted after the shard writes replay receipts, decision rows, coverage summaries, row counts, and input hashes. Replay must not infer its candidate universe by scanning already materialized local bar directories.
+The preparation bundle may write files under the `trading-storage/storage/05_replay_datasets/<contract_id>/`, but it does not generate manager task/request rows or reusable task keys. Layer 1/2 base-context source data is canonical historical source data shared with training and retained after replay. Historical provider acquisition for candidate equity, option, liquidity, and symbol-news evidence is a one-shot gated action during replay execution. It may temporarily materialize only the replay month and candidate set required by the current shard, and that on-demand month cache is deleted after the shard writes replay receipts, decision rows, coverage summaries, row counts, and input hashes. Replay must not infer its candidate universe by scanning already materialized local bar directories.
 
-After accepted acquisition coverage, the replay contract references one frozen evidence snapshot for the explicit fold and live-equivalent tradable universe scope. All replay and downstream evaluation artifacts for that scope must consume that snapshot. Candidate-specific long-lived data download, source reinterpretation, or training-flow feature generation is not allowed for replay judgment.
+After accepted base-context coverage, the replay contract references one frozen evidence snapshot for the explicit fold. All replay and downstream evaluation artifacts for that scope must consume that base snapshot. Candidate-specific long-lived data download, source reinterpretation, or training-flow feature generation is not allowed for replay judgment; candidate and option evidence discovered by C01-C07 is acquired on demand and retained only as lightweight replay evidence after the month shard completes.
 
-`replay_dataset_freeze_receipt` records the accepted storage-side freeze. It requires explicit `tradable_target_refs`, local coverage validation, `missing_feed_acquisition_count = 0`, and only accepted deferred source ids for the explicit fold and tradable-universe acquisition boundary. It marks the manifest `freeze_status = frozen` and reports safety flags proving no provider calls, SQL mutation, model training, activation, broker execution, or account mutation occurred.
+`replay_dataset_freeze_receipt` records the accepted storage-side freeze. It requires explicit `pre_replay_target_refs`, local coverage validation, `missing_feed_acquisition_count = 0`, and no missing base-context rows for the explicit fold boundary. It marks the manifest `freeze_status = frozen` and reports safety flags proving no provider calls, SQL mutation, model training, activation, broker execution, or account mutation occurred during freeze.
 
-Replay uses the execution runtime component graph with a historical clock. It consumes point-in-time market, event, liquidity, and account-context inputs from the frozen snapshot, calls the same task-level components used by live/shadow execution, and then settles the emitted decision rows. Layer 10 is called only through execution's `failure_explanation_component` after observed model or trade failure; normal entry and lifecycle event risk comes from Layer 4. Option-chain snapshots are requested only when replayed model decisions create buy or option-expression points.
+Replay uses the execution runtime component graph with a historical clock. It consumes point-in-time market, event, liquidity, and account-context inputs from the frozen snapshot and on-demand replay cache, calls the same task-level components used by live execution, and then settles the emitted decision rows. Models are component input evidence; C01-C07 are the execution units. Layer 10 is called only through execution's `failure_explanation_component` after observed model or trade failure; normal entry and lifecycle event risk comes from Layer 4. Option-chain snapshots are requested only when replayed components create buy or option-expression points.
 
 ## Fold Settlement Run
 

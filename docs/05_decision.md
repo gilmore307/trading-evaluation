@@ -32,9 +32,9 @@ must not call execution's shadow-cycle roster selector.
 Date: 2026-05-20
 Status: Accepted
 
-For Layer 3 and later target-selection models, promotion replay must give the candidate model a fixed historical-clock replay over `2021-01-01` through `2026-01-01` end-exclusive. This covers the full 2021-2025 calendar years and 1255 expected NYSE trading days. The replay fixes the replay window, source snapshot, cost model, baseline ladder, guardrails, Layer 2 sector-selection inputs, sector constituent/proxy rules, hot/liquid-name admission rules, quality filters, controls, and scoring metrics.
+For Layer 3 and later target-selection models, promotion replay gives the execution runtime component graph a fixed historical clock over `2021-01-01` through `2026-01-01` end-exclusive. This covers the full 2021-2025 calendar years and 1255 expected NYSE trading days. The replay fixes the replay window, base source snapshot, cost model, baseline ladder, guardrails, Layer 2 sector-selection inputs, sector constituent/proxy rules, hot/liquid-name admission rules, quality filters, controls, and scoring metrics.
 
-It must not preselect the final tickers the model is supposed to choose. The model must generate candidates from the accepted policy, rank/select targets, run through `trading-execution`'s `execution_runtime_component_graph` under the historical clock and Replay adapters, and be judged by final realized replay performance plus slice diagnostics. Fixed target/window panels are not applicable to promotion replay judgment.
+It must not preselect final tickers or run a model-owned trading path. Replay calls `trading-execution`'s `execution_runtime_component_graph` under the historical clock and Replay adapters. Models provide point-in-time evidence consumed by the components; C01-C07 own intake, target admission, entry, lifecycle, option review, order intent, execution gating, and failure review. Fixed target/window panels are not applicable to promotion replay judgment.
 
 ## D005 - Replay Uses The Execution Runtime Component Graph
 
