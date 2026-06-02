@@ -66,6 +66,14 @@ All replay, fold settlement, promotion eligibility comparison, guardrail replay,
 
 Replay evaluation uses `trading-execution`'s `execution_runtime_component_graph` under a historical clock and Replay adapters. The runner feeds frozen point-in-time base context plus on-demand candidate evidence through the same task-level components used for live decision making. Models are inputs to those components; the execution unit is C01-C07, not a model layer. Replay must not use the model training pipeline, a training feature-generation route, or a separate evaluation-owned decision graph as the replay execution path. Layer 10 is reached only through the Failure Explanation Component after observed model or trade failure.
 
+Replay component outputs use the same artifact contracts as live execution:
+`execution_intake_snapshot`, `entry_decision`,
+`position_lifecycle_decision`, `option_reexpression_decision`,
+`execution_order_intent`, `execution_gate_result`, and
+`failure_explanation_packet`. Replay-specific files in this repository are
+receipts, progress records, coverage summaries, settlement views, and promotion
+evidence. They are not replacements for execution-owned component artifacts.
+
 ThetaData option-chain snapshots remain replay-triggered. During historical realtime replay, a component buy or option-expression decision creates the point-in-time option snapshot request; selected-contract tracking expands from the concrete expiration/right/strike result. This keeps replay close to live behavior while preserving one frozen base data substrate.
 
 To freeze a prepared replay dataset after accepted coverage:

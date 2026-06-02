@@ -1,9 +1,11 @@
 """Side-effect-free Replay execution over frozen source artifacts.
 
 This module orchestrates replay decisions through `trading-execution`. It reads
-already-frozen local source artifacts and emits evaluation decision rows. It
-does not call providers, train models, activate models, call brokers, or mutate
-accounts.
+already-frozen local source artifacts and emits evaluation settlement views over
+execution-owned component outputs. Replay component artifacts must use the same
+C01-C07 output contracts as live execution, with Replay adapter metadata. This
+module does not call providers, train models, activate models, call brokers, or
+mutate accounts.
 """
 
 from __future__ import annotations
@@ -24,6 +26,15 @@ REPLAY_EXECUTION_RUN_CONTRACT = "evaluation_replay_execution_run"
 REPLAY_DECISION_ROW_CONTRACT = "evaluation_replay_decision_row"
 REPLAY_PROGRESS_CONTRACT = "evaluation_replay_progress"
 ENTRY_THRESHOLD_CALIBRATION_CONTRACT = "validation_entry_threshold_calibration"
+RUNTIME_COMPONENT_OUTPUT_CONTRACTS = (
+    "execution_intake_snapshot",
+    "entry_decision",
+    "position_lifecycle_decision",
+    "option_reexpression_decision",
+    "execution_order_intent",
+    "execution_gate_result",
+    "failure_explanation_packet",
+)
 CRYPTO_SPOT_ACCOUNT_SLEEVE = "crypto_spot_account"
 EQUITY_OPTIONS_ACCOUNT_SLEEVE = "equity_options_account"
 CRYPTO_SYMBOLS_BY_INSTRUMENT = {
@@ -226,6 +237,13 @@ def build_candidate_policy_replay_execution_run(
         "after_cost_alpha_model_ref": after_cost_alpha_model_ref,
         "replay_contract_ref": replay_contract_ref,
         "replay_route_ref": EXECUTION_REPLAY_ROUTE_REF,
+        "runtime_artifact_policy": {
+            "component_output_contract_owner": "trading-execution",
+            "component_output_contracts": list(RUNTIME_COMPONENT_OUTPUT_CONTRACTS),
+            "execution_mode": "replay",
+            "evaluation_decision_rows_role": "settlement_view_over_component_outputs",
+            "replay_specific_component_contracts_allowed": False,
+        },
         "candidate_fold_id": str(manifest.get("candidate_fold_id") or manifest.get("fold_id") or ""),
         "tradable_target_refs": sorted(_string_set(manifest.get("tradable_target_refs"))),
         "dataset_root": str(dataset_root),
@@ -260,7 +278,8 @@ def build_candidate_policy_replay_execution_run(
             "active_model_config_written": False,
         },
         "notes": [
-            "candidate-policy replay over frozen OKX crypto bars and materialized Alpaca equity bars",
+            "candidate-policy replay over frozen base context and gated on-demand candidate inputs",
+            "C01-C07 component artifacts share live execution output contracts; evaluation_replay_decision_row is a settlement view",
             "equity/options account uses direct-underlying fallback when option surface status is optionable_chain_missing",
             "listed option decisions use M09 selected-contract paths when available and zero realized return when selected-contract exit data is missing",
             "this run emits settlement-ready decision rows but is not a promotion eligibility decision",

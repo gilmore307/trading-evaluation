@@ -84,6 +84,17 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             self.assertEqual(prepared.manifest["candidate_fold_id"], "fold_2016-01_2016-06")
             self.assertEqual(prepared.manifest["replay_execution_unit"], "execution_runtime_component_graph")
             self.assertEqual(prepared.manifest["replay_execution_policy"]["model_role"], "component_input_evidence")
+            self.assertEqual(
+                prepared.manifest["runtime_artifact_policy"]["component_output_contract_owner"],
+                "trading-execution",
+            )
+            self.assertIn(
+                "execution_gate_result",
+                prepared.manifest["runtime_artifact_policy"]["component_output_contracts"],
+            )
+            self.assertFalse(
+                prepared.manifest["runtime_artifact_policy"]["replay_specific_component_contracts_allowed"]
+            )
             self.assertEqual(prepared.manifest["tradable_target_refs"], ["AAPL"])
             self.assertEqual(prepared.manifest["replay_window_count"], 1)
             self.assertEqual(prepared.manifest["pre_replay_target_refs"], ["AAPL"])

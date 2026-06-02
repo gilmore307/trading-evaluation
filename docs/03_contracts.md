@@ -47,6 +47,17 @@ active config write occurred. Provider calls are allowed only through reviewed
 on-demand replay acquisition gates. This is Replay evidence, not a promotion
 eligibility decision.
 
+Runtime component artifacts are not replay-specific. Replay uses the same
+execution-owned component output contracts as live execution:
+`execution_intake_snapshot`, `entry_decision`,
+`position_lifecycle_decision`, `option_reexpression_decision`,
+`execution_order_intent`, `execution_gate_result`, and
+`failure_explanation_packet`. Replay may set adapter metadata such as
+`execution_mode = replay`, simulated account refs, fill simulator refs, or
+historical-clock refs. It must not create evaluation-owned substitutes for C01-C07
+decision artifacts. `evaluation_replay_decision_row` is only a settlement view
+over those component outputs.
+
 Canonical SQL tables:
 
 ```text

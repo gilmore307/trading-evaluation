@@ -235,6 +235,19 @@ class ReplayExecutionTests(unittest.TestCase):
             )
 
             self.assertEqual(result.receipt["contract_type"], "evaluation_replay_execution_run")
+            self.assertEqual(
+                result.receipt["runtime_artifact_policy"]["component_output_contract_owner"],
+                "trading-execution",
+            )
+            self.assertIn(
+                "execution_order_intent",
+                result.receipt["runtime_artifact_policy"]["component_output_contracts"],
+            )
+            self.assertEqual(
+                result.receipt["runtime_artifact_policy"]["evaluation_decision_rows_role"],
+                "settlement_view_over_component_outputs",
+            )
+            self.assertFalse(result.receipt["runtime_artifact_policy"]["replay_specific_component_contracts_allowed"])
             self.assertEqual(result.receipt["decision_row_count"], 2)
             self.assertEqual(result.receipt["completed_replay_month_count"], 1)
             self.assertIn(
