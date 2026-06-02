@@ -12,6 +12,8 @@ trading_evaluation.replay_contract
 
 - `contract_id`
 - `replay_mode = candidate_policy_replay`
+- `candidate_fold_id`
+- `target_refs`
 - `start_date`
 - `end_date`
 - `min_trading_days`
@@ -25,7 +27,7 @@ trading_evaluation.replay_contract
 - `selection_metric_refs`
 - `excluded_training_windows` covering the full replay window
 
-The validator requires a candidate-policy replay over the canonical fixed window `2021-01-01` through `2026-01-01` end-exclusive, with at least 1255 expected trading days, sufficient declared market-condition coverage, non-empty candidate policy, replay route, data snapshot, cost model, baseline refs, guardrail refs, selection metric refs, and explicit exclusion windows covering the full replay window. Fixed target fields and `replay_components` are rejected. `is_training_fold_blocked_by_replay` blocks folds that overlap the sealed replay window.
+The validator requires a candidate-policy replay with a valid replay window, positive minimum trading days, sufficient declared market-condition coverage, non-empty candidate policy, replay route, data snapshot, cost model, baseline refs, guardrail refs, selection metric refs, and explicit exclusion windows covering the full replay window. `target_symbol` and `replay_components` are rejected; current replay target scope is expressed through `target_refs`. `is_training_fold_blocked_by_replay` blocks folds that overlap the sealed replay window.
 
 The accepted `replay_route_ref` is `trading-execution://execution_runtime_component_graph/replay`. Replay calls the execution-owned component graph with Replay adapters; evaluation does not own a separate trading decision graph.
 
@@ -36,13 +38,12 @@ validation results, and safety flags. It must not train models, call providers,
 write active model config, submit broker requests, or mutate account state.
 
 `evaluation_replay_execution_run` records a side-effect-free Replay execution
-over frozen local source artifacts. The active execution scope is
-`crypto_spot_account_fixed_candidate_pool`: it reads frozen OKX daily bars for
-`BTC`, `ETH`, and `SOL`, calls `trading-execution` runtime builders under Replay
-adapters, writes settlement-ready `evaluation_replay_decision_row` JSONL, and
-records safety flags proving no provider call, broker call, account mutation,
-model training, or active config write occurred. This is Replay evidence, not a
-promotion eligibility decision.
+over frozen local source artifacts for explicit `target_refs`. It calls
+`trading-execution` runtime builders under Replay adapters, writes
+settlement-ready `evaluation_replay_decision_row` JSONL, and records safety
+flags proving no provider call, broker call, account mutation, model training,
+or active config write occurred. This is Replay evidence, not a promotion
+eligibility decision.
 
 Canonical SQL tables:
 
@@ -71,6 +72,8 @@ Required fields include:
 - `freeze_status`
 - `source_contract_ref`
 - `dataset_root`
+- `candidate_fold_id`
+- `target_refs`
 - `candidate_policy_ref`
 - `replay_route_ref`
 - `replay_window_manifest_ref`
@@ -80,9 +83,9 @@ Required fields include:
 
 The preparation bundle may write files under the `trading-storage/storage/05_replay_datasets/<contract_id>/`, but it does not generate manager task/request rows or reusable task keys. Historical provider acquisition for the sealed replay is a one-shot gated action. It may temporarily materialize only the replay month and candidate set required by the current shard, and the month cache is deleted after the shard writes replay receipts, decision rows, coverage summaries, row counts, and input hashes. Replay must not infer its candidate universe by scanning already materialized local bar directories.
 
-After accepted acquisition coverage, the replay contract references one frozen reusable evidence snapshot. All replay and downstream evaluation artifacts for that contract must consume that snapshot. Candidate-specific long-lived data download, source reinterpretation, or training-flow feature generation is not allowed for replay judgment.
+After accepted acquisition coverage, the replay contract references one frozen evidence snapshot for the explicit fold-target scope. All replay and downstream evaluation artifacts for that scope must consume that snapshot. Candidate-specific long-lived data download, source reinterpretation, or training-flow feature generation is not allowed for replay judgment.
 
-`replay_dataset_freeze_receipt` records the accepted storage-side freeze. It requires local coverage validation, `missing_feed_acquisition_count = 0`, and only accepted candidate-dependent deferred source ids. It marks the manifest `freeze_status = frozen` and reports safety flags proving no provider calls, SQL mutation, model training, activation, broker execution, or account mutation occurred.
+`replay_dataset_freeze_receipt` records the accepted storage-side freeze. It requires explicit `target_refs`, local coverage validation, `missing_feed_acquisition_count = 0`, and only accepted deferred source ids for the explicit fold-target acquisition boundary. It marks the manifest `freeze_status = frozen` and reports safety flags proving no provider calls, SQL mutation, model training, activation, broker execution, or account mutation occurred.
 
 Replay uses the execution runtime component graph with a historical clock. It consumes point-in-time market, event, liquidity, and account-context inputs from the frozen snapshot, calls the same task-level components used by live/shadow execution, and then settles the emitted decision rows. Layer 10 is called only through execution's `failure_explanation_component` after observed model or trade failure; normal entry and lifecycle event risk comes from Layer 4. Option-chain snapshots are requested only when replayed model decisions create buy or option-expression points.
 

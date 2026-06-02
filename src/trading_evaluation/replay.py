@@ -35,6 +35,8 @@ class ReplayContract:
 
     contract_id: str
     replay_mode: str
+    candidate_fold_id: str
+    target_refs: tuple[str, ...]
     start_date: date
     end_date: date
     min_trading_days: int
@@ -60,6 +62,8 @@ class ReplayContract:
         return cls(
             contract_id=str(payload.get("contract_id") or "").strip(),
             replay_mode=str(payload.get("replay_mode") or "").strip(),
+            candidate_fold_id=str(payload.get("candidate_fold_id") or payload.get("fold_id") or "").strip(),
+            target_refs=_strings(payload.get("target_refs") or payload.get("replay_target_refs") or payload.get("candidate_target_refs") or ()),
             start_date=_parse_date(payload.get("start_date"), field_name="start_date"),
             end_date=_parse_date(payload.get("end_date"), field_name="end_date"),
             min_trading_days=min_trading_days,
@@ -78,6 +82,8 @@ class ReplayContract:
         return {
             "contract_id": self.contract_id,
             "replay_mode": self.replay_mode,
+            "candidate_fold_id": self.candidate_fold_id,
+            "target_refs": list(self.target_refs),
             "start_date": self.start_date.isoformat(),
             "end_date": self.end_date.isoformat(),
             "min_trading_days": self.min_trading_days,
@@ -130,7 +136,7 @@ def validate_replay_contract(payload: Mapping[str, Any]) -> ReplayValidation:
         )
 
     if payload.get("target_symbol"):
-        errors.append("target_symbol is not allowed for promotion replay; the model must select targets from the candidate policy")
+        errors.append("target_symbol is not allowed for promotion replay; use target_refs")
     if payload.get("replay_components"):
         errors.append("replay_components are obsolete for promotion replay; use candidate_policy_ref")
     if not contract.contract_id:
@@ -139,10 +145,11 @@ def validate_replay_contract(payload: Mapping[str, Any]) -> ReplayValidation:
         errors.append(f"replay_mode must be {EXPECTED_REPLAY_MODE}")
     if contract.end_date <= contract.start_date:
         errors.append("end_date must be after start_date")
-    if contract.start_date != CANONICAL_REPLAY_START_DATE or contract.end_date != CANONICAL_REPLAY_END_DATE:
-        errors.append("replay window must be the canonical 2021-01-01 to 2026-01-01 end-exclusive window")
-    if contract.min_trading_days < CANONICAL_REPLAY_EXPECTED_TRADING_DAYS:
-        errors.append("min_trading_days must be at least 1255 for the canonical replay window")
+    if contract.start_date == CANONICAL_REPLAY_START_DATE and contract.end_date == CANONICAL_REPLAY_END_DATE:
+        if contract.min_trading_days < CANONICAL_REPLAY_EXPECTED_TRADING_DAYS:
+            errors.append("min_trading_days must be at least 1255 for the canonical replay window")
+    elif contract.min_trading_days <= 0:
+        errors.append("min_trading_days must be positive for a fold-bound replay window")
     if len(set(contract.market_condition_tags)) < REQUIRED_MARKET_CONDITION_TAGS:
         errors.append("market_condition_tags must cover at least four distinct market conditions")
     if not contract.candidate_policy_ref:

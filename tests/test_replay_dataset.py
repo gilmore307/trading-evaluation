@@ -12,6 +12,8 @@ from trading_evaluation import freeze_replay_dataset, prepare_replay_dataset
 VALID_DATASET_CONTRACT = {
     "contract_id": "promotion_replay_dataset_test",
     "replay_mode": "candidate_policy_replay",
+    "candidate_fold_id": "fold_2016-01_2016-06",
+    "target_refs": ["AAPL"],
     "start_date": "2021-01-01",
     "end_date": "2026-01-01",
     "min_trading_days": 1255,
@@ -40,9 +42,9 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             data_root = root / "data"
             receipt_path = (
                 data_root
-                / "replay"
+                / "monthly_backfill"
                 / "alpaca_bars"
-                / "promotion_replay_dataset_test"
+                / "AAPL"
                 / "2021-01"
                 / "completion_receipt.json"
             )
@@ -58,11 +60,13 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
 
             self.assertEqual(prepared.manifest["contract_type"], "replay_dataset_preparation_manifest")
             self.assertEqual(prepared.manifest["replay_mode"], "candidate_policy_replay")
+            self.assertEqual(prepared.manifest["candidate_fold_id"], "fold_2016-01_2016-06")
+            self.assertEqual(prepared.manifest["target_refs"], ["AAPL"])
             self.assertEqual(prepared.manifest["replay_window_count"], 1)
-            self.assertEqual(prepared.manifest["feed_acquisition_count"], 480)
-            self.assertEqual(prepared.manifest["available_feed_acquisition_count"], 0)
-            self.assertEqual(prepared.manifest["deferred_feed_acquisition_count"], 180)
-            self.assertEqual(prepared.manifest["missing_feed_acquisition_count"], 300)
+            self.assertEqual(prepared.manifest["feed_acquisition_count"], 300)
+            self.assertEqual(prepared.manifest["available_feed_acquisition_count"], 1)
+            self.assertEqual(prepared.manifest["deferred_feed_acquisition_count"], 0)
+            self.assertEqual(prepared.manifest["missing_feed_acquisition_count"], 299)
             self.assertFalse(prepared.manifest["safety"]["provider_calls_performed"])
             self.assertFalse(prepared.manifest["safety"]["manager_request_route_used"])
             self.assertFalse(prepared.manifest["safety"]["acquisition_requests_allow_live_provider_calls"])
@@ -81,23 +85,25 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
                     "alpaca_news",
                     "gdelt_news",
                     "trading_economics_calendar_web",
-                    "okx_crypto_market_data",
                 },
             )
-            self.assertIn("deferred", {row["coverage_status"] for row in acquisition_rows})
             self.assertIn("missing", {row["coverage_status"] for row in acquisition_rows})
 
             bars_row = next(row for row in acquisition_rows if row["source_id"] == "alpaca_bars")
             self.assertEqual(bars_row["feed"], "01_feed_alpaca_bars")
+            self.assertEqual(bars_row["target_ref"], "AAPL")
+            self.assertEqual(bars_row["asset_class"], "us_equity")
+            self.assertEqual(bars_row["instrument_type"], "underlying_or_listed_option")
             self.assertEqual(
                 bars_row["output_root"],
-                str(data_root / "replay" / "alpaca_bars" / "promotion_replay_dataset_test" / "2021-01"),
+                str(data_root / "monthly_backfill" / "alpaca_bars" / "AAPL" / "2021-01"),
             )
             params = json.loads(bars_row["params_json"])
             self.assertEqual(params["candidate_policy_ref"], VALID_DATASET_CONTRACT["candidate_policy_ref"])
             self.assertEqual(params["replay_acquisition_policy"], "candidate_policy_replay_monthly_surface")
-            self.assertEqual(params["candidate_symbol_policy"], "materialize_point_in_time_during_replay")
-            self.assertEqual(bars_row["coverage_status"], "deferred")
+            self.assertEqual(params["target_refs"], ["AAPL"])
+            self.assertEqual(params["instrument_route"], "live_equivalent_underlying_then_option_expression")
+            self.assertEqual(bars_row["coverage_status"], "available")
             gdelt_row = next(row for row in acquisition_rows if row["source_id"] == "gdelt_news")
             gdelt_params = json.loads(gdelt_row["params_json"])
             self.assertEqual(gdelt_params["start_date"], "2021-01-01")
@@ -108,23 +114,9 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             self.assertEqual(te_params["date_range_mode"], "custom")
             self.assertFalse(te_params["use_authenticated_cookies"])
             self.assertTrue(te_params["persist_failure_diagnostics"])
-            okx_rows = [row for row in acquisition_rows if row["source_id"] == "okx_crypto_market_data"]
-            self.assertEqual(len(okx_rows), 180)
-            self.assertEqual(
-                {json.loads(row["params_json"])["instId"] for row in okx_rows if row["month"] == "2021-01"},
-                {"BTC-USDT", "ETH-USDT", "SOL-USDT"},
-            )
-            btc_jan = next(row for row in okx_rows if row["month"] == "2021-01" and json.loads(row["params_json"])["instId"] == "BTC-USDT")
-            self.assertEqual(
-                btc_jan["output_root"],
-                str(data_root / "replay" / "okx_crypto_market_data" / "promotion_replay_dataset_test" / "btc_usdt" / "2021-01"),
-            )
-            self.assertEqual(
-                btc_jan["coverage_receipt_path"],
-                str(data_root / "replay" / "okx_crypto_market_data" / "promotion_replay_dataset_test" / "btc_usdt" / "2021-01" / "completion_receipt.json"),
-            )
+            self.assertFalse([row for row in acquisition_rows if row["source_id"] == "okx_crypto_market_data"])
             self.assertIn(
-                "candidate_universe_materializes_point_in_time_during_replay",
+                "replay_dataset_requires_explicit_fold_target_scope",
                 prepared.manifest["known_deferred_requirements"],
             )
 
@@ -164,6 +156,17 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             self.assertEqual(te_jan["output_root"], str(canonical_receipt.parents[2]))
             self.assertEqual(te_jan["coverage_receipt_path"], str(canonical_receipt))
 
+    def test_prepare_replay_dataset_requires_explicit_target_refs(self):
+        payload = dict(VALID_DATASET_CONTRACT)
+        payload.pop("target_refs")
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "requires explicit target_refs"):
+                prepare_replay_dataset(
+                    payload,
+                    output_root=Path(tmp) / "storage" / "replay",
+                    data_root=Path(tmp) / "data",
+                )
+
     def test_prepare_replay_dataset_cli(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -188,7 +191,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             )
             payload = json.loads(result.stdout)
             self.assertEqual(payload["preparation_status"], "prepared_candidate_policy_replay_acquisition_bundle")
-            self.assertEqual(payload["feed_acquisition_count"], 480)
+            self.assertEqual(payload["feed_acquisition_count"], 300)
 
     def test_freeze_replay_dataset_accepts_complete_and_candidate_deferred_sources(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -201,12 +204,13 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
                         "contract_type": "replay_dataset_preparation_manifest",
                         "contract_id": "promotion_replay_dataset_test",
                         "freeze_status": "not_frozen",
+                        "target_refs": ["AAPL"],
                         "feed_acquisition_count": 480,
                         "available_feed_acquisition_count": 300,
                         "deferred_feed_acquisition_count": 180,
                         "missing_feed_acquisition_count": 0,
                         "known_deferred_requirements": [
-                            "candidate_universe_materializes_point_in_time_during_replay"
+                            "replay_dataset_requires_explicit_fold_target_scope"
                         ],
                         "artifact_refs": [],
                         "safety": {
@@ -317,6 +321,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
                         "contract_type": "replay_dataset_preparation_manifest",
                         "contract_id": "promotion_replay_dataset_test",
                         "freeze_status": "not_frozen",
+                        "target_refs": ["AAPL"],
                         "missing_feed_acquisition_count": 0,
                         "feed_acquisition_plan_ref": str(plan_path),
                     }
@@ -343,6 +348,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
                         "contract_type": "replay_dataset_preparation_manifest",
                         "contract_id": "promotion_replay_dataset_test",
                         "freeze_status": "not_frozen",
+                        "target_refs": ["AAPL"],
                         "missing_feed_acquisition_count": 1,
                     }
                 )
@@ -368,6 +374,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
                         "contract_type": "replay_dataset_preparation_manifest",
                         "contract_id": "promotion_replay_dataset_test",
                         "freeze_status": "not_frozen",
+                        "target_refs": ["AAPL"],
                         "missing_feed_acquisition_count": 0,
                         "deferred_feed_acquisition_count": 0,
                     }

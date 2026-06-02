@@ -2,24 +2,22 @@
 
 ## Active Tasks
 
-- Materialize true option-contract replay inputs for the equity/options account path. Current candidate-policy Replay can trade materialized Alpaca equity bars through a direct-underlying fallback and marks missing option surface evidence explicitly.
-- Review the completed candidate-policy settlement result before using it as strategy evidence; it remains promotion-blocked by evaluation gates.
+- Regenerate the model-group replay dataset as an explicit fold-target snapshot for `AAPL` `fold_2016-01_2016-06`.
+- Materialize true option-contract replay inputs for the equity/options account path. Replay may use direct-underlying fallback only as explicit missing option-surface evidence, not as proof that listed options were traded.
 - Move remaining promotion eligibility and readiness logic out of manager/model paths into this repository in controlled slices.
 
 ## Current Replay Dataset Coverage
 
-- `gdelt_news`: complete, 60/60 monthly replay source artifacts available.
-- `okx_crypto_market_data`: complete, 180/180 fixed crypto monthly artifacts available for `BTC-USDT`, `ETH-USDT`, and `SOL-USDT`.
-- `trading_economics_calendar_web`: complete, 60/60 monthly artifacts available.
-- `alpaca_bars`: materialized during Replay from local monthly backfill for the eligible equity/ETF universe.
-- `alpaca_liquidity` and `alpaca_news`: intentionally deferred until point-in-time candidate symbols need those feeds during replay.
+- Replay coverage is now evaluated against explicit `target_refs` and fold scope.
+- Target-dependent Alpaca rows must carry `target_ref`, `asset_class`, and `instrument_type`.
+- For `AAPL` fold replay, OKX crypto rows are not part of the dataset unless the explicit target refs include crypto targets.
+- Historical provider acquisition is gated and month-scoped. Temporary month-cache data is deleted after the shard writes replay receipts, decision rows, coverage summaries, row counts, and input hashes.
 
 ## Current State
 
-- The replay contract validator and CLI enforce the accepted candidate-policy replay contract.
-- Replay dataset manifests contain the replay-window manifest, feed acquisition plan, and coverage summary under storage-owned runtime output. Replay acquisition is one-shot and does not use manager task/request rows.
+- The replay contract validator and CLI support fold-bound candidate-policy replay windows with explicit `candidate_fold_id` and `target_refs`.
+- Replay dataset manifests contain the replay-window manifest, feed acquisition plan, and coverage summary under storage-owned runtime output. Replay acquisition is one-shot, gated, and does not use manager task/request rows.
 - `evaluation_replay_runtime_dry_run` is a thin evaluation-side harness that calls `trading-execution` runtime builders directly.
-- The candidate-policy Replay dataset is frozen for complete fixed crypto, GDELT, and Trading Economics monthly source artifacts. Freeze receipt: `/root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy/replay_freeze_receipt.json`.
-- Candidate-policy Replay execution `model_group_replay_candidate_policy_equity_20260530T051209Z` writes `59032` decision rows over `1826` market dates for `44` Alpaca equity/ETF targets plus `BTC`, `ETH`, and `SOL`, with no provider calls, broker calls, broker/account mutation, model training, or active config write.
-- Equity/options account rows currently use `direct_underlying_fallback` with `option_surface_status=optionable_chain_missing`; true stock-option contract replay remains blocked until option-expression acquisition materializes option surfaces/contracts.
-- Candidate-policy fold settlement `model_group_evaluation_20260530T053633Z` is promotion-blocked; do not promote from this evidence.
+- Manager replay dispatch blocks any frozen dataset whose `target_refs` do not include the completed training target.
+- Manager evaluation blocks any replay receipt whose `target_refs` do not include the completed training target.
+- The previous fixed crypto/ETF replay evidence is not valid for `AAPL` fold replay and must not be used as promotion evidence.

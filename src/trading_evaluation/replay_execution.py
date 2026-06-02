@@ -154,7 +154,7 @@ def build_candidate_policy_replay_execution_run(
         include_crypto=include_crypto,
         include_equity=include_equity,
         equity_source_root=equity_source_root,
-        equity_symbols=equity_symbols,
+        equity_symbols=equity_symbols or _manifest_equity_target_refs(manifest),
     )
     if not bars_by_target:
         raise ValueError("candidate-policy replay found no materialized market bars")
@@ -691,6 +691,20 @@ def _load_candidate_policy_bars(
             if rows:
                 rows_by_target[target] = rows
     return rows_by_target
+
+
+def _manifest_equity_target_refs(manifest: Mapping[str, Any]) -> tuple[str, ...]:
+    refs = _string_set(manifest.get("target_refs") or manifest.get("replay_target_refs") or manifest.get("candidate_target_refs"))
+    return tuple(sorted(ref for ref in refs if ref not in CRYPTO_SYMBOLS_BY_INSTRUMENT.values()))
+
+
+def _string_set(value: Any) -> set[str]:
+    if isinstance(value, str):
+        stripped = value.strip()
+        return {stripped.upper()} if stripped else set()
+    if isinstance(value, (list, tuple, set)):
+        return {str(item).strip().upper() for item in value if str(item).strip()}
+    return set()
 
 
 def _load_option_candidate_features(
@@ -1709,6 +1723,8 @@ def _validate_frozen_dataset(manifest: Mapping[str, Any], freeze_receipt: Mappin
         errors.append("replay freeze receipt validation_status must be passed")
     if int(manifest.get("missing_feed_acquisition_count", -1)) != 0:
         errors.append("dataset manifest missing_feed_acquisition_count must be 0")
+    if not _string_set(manifest.get("target_refs") or manifest.get("replay_target_refs") or manifest.get("candidate_target_refs")):
+        errors.append("dataset manifest target_refs must include at least one explicit replay target")
     safety = freeze_receipt.get("safety")
     if not isinstance(safety, Mapping):
         errors.append("replay freeze receipt safety is required")

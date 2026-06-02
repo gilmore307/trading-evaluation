@@ -132,6 +132,7 @@ class ReplayExecutionTests(unittest.TestCase):
                     "contract_id": "promotion_replay_candidate_policy",
                     "freeze_status": "frozen",
                     "missing_feed_acquisition_count": 0,
+                    "target_refs": ["SOL"],
                     "feed_acquisition_plan_ref": str(plan_path),
                 }
             )

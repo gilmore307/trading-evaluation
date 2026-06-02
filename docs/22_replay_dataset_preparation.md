@@ -14,7 +14,8 @@ This preparation step is not a replay freeze and does not use the manager task/r
 ## Current Inputs
 
 - source contract: accepted candidate-policy replay under `trading-evaluation/replays/`
-- canonical replay window: `2021-01-01` through `2026-01-01` end-exclusive
+- replay window: the fold-bound historical window supplied at preparation time
+- candidate fold id and target refs: explicit, for example `fold_2016-01_2016-06` and `AAPL`
 - local coverage scan root: `trading-storage/storage/01_source_data`
 - runtime output root: `trading-storage/storage/05_replay_datasets`
 
@@ -27,9 +28,9 @@ Candidate-policy replay prepares one-shot acquisition requirements for the full 
 - `03_feed_alpaca_news`
 - `05_feed_gdelt_news` for broad market, sector, theme, and symbol event evidence
 - `07_feed_trading_economics_calendar_web` for high-importance U.S. macro event evidence through logged-out visible-page custom-date requests
-- `04_feed_okx_crypto_market_data`
+- `04_feed_okx_crypto_market_data` only when the explicit replay target refs include crypto targets
 
-Candidate symbols are not preselected and must not be inferred by scanning already materialized local bar directories. The candidate universe materializes point-in-time during replay from the accepted candidate policy. ThetaData option-chain snapshots (`09_feed_thetadata_option_selection_snapshot`) are generated on demand from replayed model buy/expression points. Selected-contract feeds (`10_feed_thetadata_option_primary_tracking` and `11_feed_thetadata_option_event_timeline`) expand only after those snapshots produce concrete expiration/right/strike selections. They are not guessed or pre-scanned across every replay day in the initial bundle.
+Replay target refs are predeclared in the dataset manifest and every target-dependent feed row. Replay must not infer its universe by scanning already materialized local bar directories. For an equity target such as `AAPL`, Alpaca bars, liquidity, and news rows carry `target_ref=AAPL`; the execution runner uses that manifest target list to restrict market-bar loading. ThetaData option-chain snapshots (`09_feed_thetadata_option_selection_snapshot`) are generated on demand from replayed model buy/expression points. Selected-contract feeds (`10_feed_thetadata_option_primary_tracking` and `11_feed_thetadata_option_event_timeline`) expand only after those snapshots produce concrete expiration/right/strike selections.
 
 ## Replay Acquisition Boundary
 
@@ -49,17 +50,22 @@ This keeps historical replay close to live execution while preventing the sealed
 ```bash
 PYTHONPATH=src python3 scripts/evaluation/prepare_replay_dataset.py \
   --contract replays/promotion_replay_candidate_policy.json \
+  --candidate-fold-id fold_2016-01_2016-06 \
+  --target-ref AAPL \
+  --start-date 2016-01-01 \
+  --end-date 2016-07-01 \
+  --min-trading-days 120 \
   --output-root /root/projects/trading-storage/storage/05_replay_datasets \
   --data-root /root/projects/trading-storage/storage/01_source_data
 ```
 
-The generated acquisition plan records feed parameters and target output roots only. Trading Economics rows use `use_authenticated_cookies=false`; the completed historical TE pass is a one-time replay seed and does not depend on an ongoing subscription. Historical provider calls require a separate one-shot replay acquisition gate, but they do not need manager task rows or reusable task keys because this dataset is a sealed one-time replay artifact.
+The generated acquisition plan records feed parameters, target refs, asset classes, instrument types, and target output roots. Trading Economics rows use `use_authenticated_cookies=false`; the completed historical TE pass is a one-time replay seed and does not depend on an ongoing subscription. Historical provider calls require a separate one-shot replay acquisition gate, but they do not need manager task rows or reusable task keys because this dataset is a sealed replay artifact.
 
-## Reusable Frozen Snapshot
+## Frozen Snapshot
 
-Replay data acquisition, event evidence collection, and source normalization are one-time dataset construction phases. Once the acquisition plan reaches accepted coverage and the replay is frozen, storage records one reusable replay data snapshot for the contract.
+Replay data acquisition, event evidence collection, and source normalization are dataset construction phases for the explicit fold and target refs. Once the acquisition plan reaches accepted coverage and the replay is frozen, storage records a replay data snapshot for that fold-target scope.
 
-All replay, fold settlement, promotion eligibility comparison, guardrail replay, and later regression checks must reference that frozen snapshot. They must not re-download, re-sample, reinterpret, or rebuild replay data per model candidate. If the replay dataset is wrong or incomplete, the fix is a new reviewed replay data snapshot or a new replay contract, not candidate-specific data preparation.
+All replay, fold settlement, promotion eligibility comparison, guardrail replay, and later regression checks for that fold-target scope must reference that frozen snapshot. They must not re-download, re-sample, reinterpret, or rebuild replay data per model candidate. If the replay dataset is wrong or incomplete, the fix is a reviewed regenerated snapshot for the same scope or a new replay contract.
 
 Replay evaluation uses `trading-execution`'s `execution_runtime_component_graph` under a historical clock and Replay adapters. The runner should feed the frozen point-in-time market, event, liquidity, and account-context inputs through the same task-level components used for live/shadow decision making. It must not use the model training pipeline, a training feature-generation route, or a separate evaluation-owned decision graph as the replay execution path. Layer 10 is reached only through the Failure Explanation Component after observed model or trade failure.
 
@@ -72,7 +78,7 @@ PYTHONPATH=src python3 scripts/evaluation/freeze_replay_dataset.py \
   --dataset-root /root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy
 ```
 
-The freeze command accepts complete source rows and the known candidate-dependent Alpaca deferred rows whose symbols materialize point-in-time during replay. It rejects any missing acquisition count or unexpected deferred source.
+The freeze command requires explicit `target_refs`, rejects missing acquisition count, and rejects target-dependent feed rows without `target_ref`. Deferred Alpaca rows are accepted only as a gated acquisition boundary for the explicit fold-target scope.
 
 To smoke-test that evaluation can call the execution-owned Replay route:
 
@@ -83,7 +89,7 @@ PYTHONPATH=src python3 scripts/evaluation/run_replay_runtime_dry_run.py \
   --output-path /root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy/replay_runtime_dry_run_receipt.json
 ```
 
-This smoke test is not a 60-month replay. It proves the side-effect-free execution component graph call path and writes a receipt.
+This smoke test is not a full fold replay. It proves the side-effect-free execution component graph call path and writes a receipt.
 
 To plan or execute bounded one-shot acquisitions from the generated plan:
 

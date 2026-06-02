@@ -7,15 +7,15 @@ The promotion replay must be selected once and then frozen. For Layer 3 and late
 Required properties:
 
 - one replay contract with field `replay_mode = candidate_policy_replay`.
-- the canonical fixed replay window `2021-01-01` through `2026-01-01` end-exclusive, covering the full 2021-2025 calendar years and 1255 expected NYSE trading days.
+- an explicit replay window, candidate fold id, and target refs for the fold-target scope being evaluated.
 - a frozen candidate-universe policy, historical data snapshot, cost model, baseline ladder, selection metrics, and guardrails.
 - candidate policy inputs covering current Layer 2 selected/watch sectors, reviewed sector constituents or proxies, current market-wide hot/liquid names, quality filters, and control candidates when contrast is required.
 - the model must generate candidates, rank/select targets, and run through `trading-execution`'s `execution_runtime_component_graph` under Replay adapters.
-- no `target_symbol`, fixed final target list.
+- no `target_symbol` field; use `target_refs` so target scope is explicit and consistently named.
 - metrics must evaluate realized replay performance after cost, risk, drawdown, turnover, selection quality, and guardrails.
 - metadata for candidate source, market state, Layer 2 sector source, event state, data availability, and model decision provenance.
 - explicit sector coverage metadata, including consumer and entertainment/media coverage.
-- enough length to reduce accident and one-off event bias; the canonical five-calendar-year window is fixed for all ordinary promotion comparisons.
+- enough length to reduce accident and one-off event bias for the accepted replay purpose.
 - diverse market conditions: trend, drawdown, volatility regime changes, event shocks, and transition periods.
 - explicit event coverage metadata for earnings-crossing windows, policy/macro shocks, liquidity or squeeze events, product-cycle repricing, and crypto-cycle events.
 - deliberate point-in-time admission of then-hot thematic single-name candidates through the candidate policy, including names outside the selected ETF universe when target-context review exists.
@@ -24,8 +24,8 @@ Required properties:
 - no leakage from the frozen replay window into training-used folds.
 - any fold that intersects the sealed promotion replay window must be skipped or blocked for candidate training.
 - fixed data snapshot, cost model, slippage/fee assumptions, and baseline ladder.
-- replay acquisition and event/source normalization are one-time construction phases that produce a frozen reusable data snapshot for the contract.
-- all replay, settlement, promotion eligibility, guardrail, and regression checks must reuse that frozen data snapshot instead of rebuilding data per model candidate.
+- replay acquisition and event/source normalization are construction phases that produce a frozen data snapshot for the explicit fold-target scope.
+- all replay, settlement, promotion eligibility, guardrail, and regression checks for that scope must reuse that frozen data snapshot instead of rebuilding data per model candidate.
 - replay evaluation must run through the execution runtime component graph under a historical clock, not through the model training pipeline or an evaluation-owned trading decision graph.
 - replay must not run `execution_shadow_cycle_selection`; shadow-cycle selection is a realtime execution mechanism for already-promoted models, not a historical evaluation mechanism for training outputs.
 - reviewed target-context refs available to the candidate policy so non-ETF targets still use the accepted target/proxy mapping route.
@@ -39,7 +39,7 @@ Required replay behavior:
 - the replay judges final realized replay performance and guardrail behavior, not isolated hand-picked episodes.
 - replay output must preserve enough per-decision evidence to audit why targets were selected, watched, blocked, traded, or skipped.
 
-Suggested replay coverage:
+Suggested promotion-benchmark replay coverage:
 
 - the full 2021-2025 period, with enough different market states to avoid a one-regime replay.
 - consumer discretionary, consumer staples, entertainment/media, technology/AI, energy, healthcare, financials, broad-market, and crypto context should be reachable through the candidate policy when point-in-time conditions support them.
@@ -53,6 +53,6 @@ Guardrail replays may catch overfit or pathological candidates. They should not 
 
 ## Current Selection Status
 
-The canonical promotion replay window is fixed as `2021-01-01` through `2026-01-01` end-exclusive. The reusable replay data snapshot is frozen for complete GDELT, Trading Economics, and fixed crypto OKX source artifacts; Alpaca bars, liquidity, and news remain accepted deferred requirements because equity/options candidate symbols materialize point-in-time during Replay.
+The current model-group replay dataset must be regenerated as an explicit fold-target snapshot. A frozen dataset or replay receipt is eligible only when its `target_refs` include the completed training target and its fold id matches the completed fold when a fold id is present. Fixed crypto/ETF-only replay evidence is not valid for an AAPL fold.
 
-Do not use fixed target/window panels for training, tuning, prompt iteration, model selection, or promotion. Full promotion judgment requires an accepted candidate-policy replay.
+Do not use ad hoc target/window panels for training, tuning, prompt iteration, model selection, or promotion. Full promotion judgment requires an accepted candidate-policy replay with explicit fold-target scope.

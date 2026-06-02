@@ -57,24 +57,39 @@ class ReplayContractTests(unittest.TestCase):
         result = validate_replay_contract(payload)
         self.assertEqual(result.validation_status, "failed")
         self.assertIn(
-            "target_symbol is not allowed for promotion replay; the model must select targets from the candidate policy",
+            "target_symbol is not allowed for promotion replay; use target_refs",
             result.errors,
         )
         self.assertIn("replay_components are obsolete for promotion replay; use candidate_policy_ref", result.errors)
 
-    def test_canonical_replay_window_is_required(self):
-        payload = dict(VALID_CONTRACT, start_date="2024-01-02", end_date="2024-12-31", min_trading_days=251)
+    def test_fold_bound_replay_window_is_allowed(self):
+        payload = dict(
+            VALID_CONTRACT,
+            candidate_fold_id="fold_2016-01_2016-06",
+            target_refs=["AAPL"],
+            start_date="2016-01-01",
+            end_date="2016-07-01",
+            min_trading_days=120,
+            excluded_training_windows=[
+                {
+                    "start_date": "2016-01-01",
+                    "end_date": "2016-07-01",
+                    "reason": "fold-bound replay",
+                }
+            ],
+        )
         result = validate_replay_contract(payload)
-        self.assertEqual(result.validation_status, "failed")
-        self.assertIn("replay window must be the canonical 2021-01-01 to 2026-01-01 end-exclusive window", result.errors)
-        self.assertIn("min_trading_days must be at least 1255 for the canonical replay window", result.errors)
+        self.assertEqual(result.validation_status, "passed")
+        assert result.contract is not None
+        self.assertEqual(result.contract.candidate_fold_id, "fold_2016-01_2016-06")
+        self.assertEqual(result.contract.target_refs, ("AAPL",))
 
-    def test_two_year_replay_window_is_rejected(self):
+    def test_fold_bound_replay_window_requires_positive_min_trading_days(self):
         payload = dict(
             VALID_CONTRACT,
             start_date="2024-01-02",
             end_date="2026-01-02",
-            min_trading_days=504,
+            min_trading_days=0,
             excluded_training_windows=[
                 {
                     "start_date": "2024-01-02",
@@ -85,8 +100,7 @@ class ReplayContractTests(unittest.TestCase):
         )
         result = validate_replay_contract(payload)
         self.assertEqual(result.validation_status, "failed")
-        self.assertIn("replay window must be the canonical 2021-01-01 to 2026-01-01 end-exclusive window", result.errors)
-        self.assertIn("min_trading_days must be at least 1255 for the canonical replay window", result.errors)
+        self.assertIn("min_trading_days must be positive for a fold-bound replay window", result.errors)
 
     def test_candidate_policy_and_replay_route_are_required(self):
         payload = dict(VALID_CONTRACT, candidate_policy_ref="", replay_route_ref="", selection_metric_refs=[])

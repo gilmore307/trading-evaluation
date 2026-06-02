@@ -24,7 +24,11 @@ REPLAY_DATASET_FREEZE_RECEIPT_CONTRACT = "replay_dataset_freeze_receipt"
 DEFAULT_OUTPUT_ROOT = Path("/root/projects/trading-storage/storage/05_replay_datasets")
 DEFAULT_DATA_ROOT = Path("/root/projects/trading-storage/storage/01_source_data")
 DEFAULT_SOURCE_CONTRACT_REF = "trading-evaluation/replays/promotion_replay_candidate_policy.json"
-CRYPTO_SPOT_INSTRUMENT_REFS = ("BTC-USDT", "ETH-USDT", "SOL-USDT")
+CRYPTO_SPOT_INSTRUMENT_BY_TARGET = {
+    "BTC": "BTC-USDT",
+    "ETH": "ETH-USDT",
+    "SOL": "SOL-USDT",
+}
 ACCEPTED_DEFERRED_SOURCE_IDS = frozenset({"alpaca_bars", "alpaca_liquidity", "alpaca_news"})
 
 REPLAY_WINDOW_FIELDS = [
@@ -44,6 +48,9 @@ ACQUISITION_FIELDS = [
     "contract_id",
     "source_id",
     "feed",
+    "target_ref",
+    "asset_class",
+    "instrument_type",
     "month",
     "start_date",
     "end_date_exclusive",
@@ -104,6 +111,8 @@ def prepare_replay_dataset(
         raise ValueError("replay contract validation failed: " + "; ".join(validation.errors))
 
     contract = validation.contract
+    if not contract.target_refs:
+        raise ValueError("replay dataset preparation requires explicit target_refs")
     prepared_at = prepared_at_utc or _now_utc()
     dataset_root = output_root / contract.contract_id
     dataset_root.mkdir(parents=True, exist_ok=True)
@@ -131,6 +140,9 @@ def prepare_replay_dataset(
         "source_contract_ref": source_contract_ref,
         "candidate_policy_ref": contract.candidate_policy_ref,
         "replay_route_ref": contract.replay_route_ref,
+        "candidate_fold_id": contract.candidate_fold_id,
+        "fold_id": contract.candidate_fold_id,
+        "target_refs": list(contract.target_refs),
         "dataset_root": str(dataset_root),
         "storage_ref": f"storage://trading-storage/05_replay_datasets/{contract.contract_id}/",
         "replay_window_count": len(replay_window_rows),
@@ -155,7 +167,7 @@ def prepare_replay_dataset(
         },
         "known_deferred_requirements": [
             "one_shot_provider_acquisition_requires_separate_gate",
-            "candidate_universe_materializes_point_in_time_during_replay",
+            "replay_dataset_requires_explicit_fold_target_scope",
             "thetadata_option_selection_snapshot_expands_from_model_buy_point_decisions",
             "thetadata_option_primary_tracking_and_event_timeline_expand_after_snapshot_contract_selection",
         ],
@@ -218,7 +230,7 @@ def freeze_replay_dataset(
             "validation_status": "passed",
             "missing_feed_acquisition_count": int(manifest.get("missing_feed_acquisition_count", 0)),
             "deferred_feed_acquisition_count": int(manifest.get("deferred_feed_acquisition_count", 0)),
-            "accepted_deferred_policy": "candidate_universe_materializes_point_in_time_during_replay",
+            "accepted_deferred_policy": "fold_target_replay_month_cache_materializes_during_gated_acquisition",
         },
         "safety": {
             "provider_calls_performed": False,
@@ -293,7 +305,9 @@ def _acquisition_rows_for_source_window(
     rows: list[dict[str, str]] = []
     month = window["month"]
     if source["source_id"] == "okx_crypto_market_data":
-        for instrument_ref in CRYPTO_SPOT_INSTRUMENT_REFS:
+        target_refs = _crypto_target_refs(contract)
+        for target_ref in target_refs:
+            instrument_ref = CRYPTO_SPOT_INSTRUMENT_BY_TARGET[target_ref]
             instrument_token = instrument_ref.lower().replace("-", "_")
             rows.append(
                 _acquisition_row(
@@ -302,28 +316,46 @@ def _acquisition_rows_for_source_window(
                     window,
                     data_root=data_root,
                     acquisition_suffix=f"{instrument_token}/{month}",
-                    params_extra={"instId": instrument_ref},
-                    notes_suffix=f"; fixed crypto spot instrument {instrument_ref}",
+                    target_ref=target_ref,
+                    asset_class="crypto_spot",
+                    instrument_type="spot",
+                    params_extra={"instId": instrument_ref, "target_ref": target_ref, "target_refs": [target_ref]},
+                    notes_suffix=f"; crypto spot instrument {instrument_ref}",
                 )
             )
         return rows
     if source.get("candidate_dependent") == "true":
-        rows.append(
-            _acquisition_row(
-                contract,
-                source,
-                window,
-                data_root=data_root,
-                coverage_status_override="deferred",
-                params_extra={
-                    "candidate_symbol_policy": "materialize_point_in_time_during_replay",
-                    "candidate_symbol_source": contract.candidate_policy_ref,
-                },
-                notes_suffix="; deferred until replay candidate symbols materialize",
+        for target_ref in _equity_target_refs(contract):
+            rows.append(
+                _acquisition_row(
+                    contract,
+                    source,
+                    window,
+                    data_root=data_root,
+                    acquisition_suffix=f"{target_ref.lower()}/{month}",
+                    target_ref=target_ref,
+                    asset_class="us_equity",
+                    instrument_type="underlying_or_listed_option",
+                    params_extra={
+                        "target_ref": target_ref,
+                        "target_refs": [target_ref],
+                        "underlying_symbol": target_ref,
+                        "instrument_route": "live_equivalent_underlying_then_option_expression",
+                    },
+                    notes_suffix=f"; fold-bound target {target_ref}",
+                )
             )
-        )
         return rows
-    rows.append(_acquisition_row(contract, source, window, data_root=data_root, acquisition_suffix=month))
+    rows.append(
+        _acquisition_row(
+            contract,
+            source,
+            window,
+            data_root=data_root,
+            acquisition_suffix=month,
+            params_extra={"target_refs": list(contract.target_refs)},
+        )
+    )
     return rows
 
 
@@ -335,6 +367,9 @@ def _acquisition_row(
     data_root: Path,
     acquisition_suffix: str | None = None,
     coverage_status_override: str | None = None,
+    target_ref: str = "",
+    asset_class: str = "",
+    instrument_type: str = "",
     params_extra: Mapping[str, Any] | None = None,
     notes_suffix: str = "",
 ) -> dict[str, str]:
@@ -357,6 +392,9 @@ def _acquisition_row(
         "contract_id": contract.contract_id,
         "source_id": source["source_id"],
         "feed": source["feed"],
+        "target_ref": target_ref,
+        "asset_class": asset_class,
+        "instrument_type": instrument_type,
         "month": month,
         "start_date": window["start_date"],
         "end_date_exclusive": window["end_date_exclusive"],
@@ -418,6 +456,7 @@ def _replay_sources() -> tuple[dict[str, str], ...]:
 def _feed_params(contract: ReplayContract, source: Mapping[str, str], window: Mapping[str, str]) -> dict[str, Any]:
     params: dict[str, Any] = {
         "contract_id": contract.contract_id,
+        "candidate_fold_id": contract.candidate_fold_id,
         "candidate_policy_ref": contract.candidate_policy_ref,
         "replay_route_ref": contract.replay_route_ref,
         "start": window["start_date"],
@@ -445,6 +484,18 @@ def _feed_params(contract: ReplayContract, source: Mapping[str, str], window: Ma
     if source["source_id"] == "okx_crypto_market_data":
         params.update({"limit": 100, "max_pages": 1})
     return params
+
+
+def _equity_target_refs(contract: ReplayContract) -> tuple[str, ...]:
+    return tuple(target for target in _target_refs(contract) if target not in CRYPTO_SPOT_INSTRUMENT_BY_TARGET)
+
+
+def _crypto_target_refs(contract: ReplayContract) -> tuple[str, ...]:
+    return tuple(target for target in _target_refs(contract) if target in CRYPTO_SPOT_INSTRUMENT_BY_TARGET)
+
+
+def _target_refs(contract: ReplayContract) -> tuple[str, ...]:
+    return tuple(sorted({str(target).strip().upper() for target in contract.target_refs if str(target).strip()}))
 
 
 def _replay_months(contract: ReplayContract) -> list[dict[str, str]]:
@@ -508,6 +559,9 @@ def _coverage_rows(contract: ReplayContract, acquisition_rows: Iterable[Mapping[
 def _coverage_output_root(data_root: Path, source_id: str, contract_id: str, month: str) -> Path:
     if source_id == "trading_economics_calendar_web":
         return data_root / "monthly_backfill" / source_id / month
+    if source_id == "alpaca_bars" and "/" in month:
+        target_ref, target_month = month.split("/", 1)
+        return data_root / "monthly_backfill" / source_id / target_ref.upper() / target_month
     return data_root / "replay" / source_id / contract_id / month
 
 
@@ -548,6 +602,9 @@ def _receipt_succeeded(path: Path) -> bool:
 
 
 def _expected_output_ref(source_id: str, contract_id: str, month: str) -> str:
+    if source_id == "alpaca_bars" and "/" in month:
+        target_ref, target_month = month.split("/", 1)
+        return f"storage://trading-data/monthly_backfill/{source_id}/{target_ref.upper()}/{target_month}/"
     return f"storage://trading-data/replay/{source_id}/{contract_id}/{month}/"
 
 
@@ -590,6 +647,9 @@ def _freeze_validation_errors(manifest: Mapping[str, Any], coverage_rows: Iterab
         missing_count = -1
     if missing_count != 0:
         errors.append(f"missing_feed_acquisition_count must be 0, got {manifest.get('missing_feed_acquisition_count')}")
+    target_refs = _string_set(manifest.get("target_refs") or manifest.get("replay_target_refs") or manifest.get("candidate_target_refs"))
+    if not target_refs:
+        errors.append("target_refs must include at least one explicit replay target")
 
     rows = list(coverage_rows)
     if not rows:
@@ -628,6 +688,8 @@ def _feed_acquisition_plan_validation_errors(manifest: Mapping[str, Any]) -> lis
         coverage_status = row.get("coverage_status", "")
         receipt_path = row.get("coverage_receipt_path", "")
         acquisition_id = row.get("acquisition_id", "")
+        if source_id in ACCEPTED_DEFERRED_SOURCE_IDS and not str(row.get("target_ref") or "").strip():
+            errors.append(f"{acquisition_id} has no target_ref")
         if coverage_status == "deferred" and source_id in ACCEPTED_DEFERRED_SOURCE_IDS:
             continue
         if not receipt_path:
@@ -645,6 +707,15 @@ def _feed_acquisition_plan_validation_errors(manifest: Mapping[str, Any]) -> lis
             f"{path} ({', '.join(acquisition_ids[:5])}{suffix})"
         )
     return errors
+
+
+def _string_set(value: Any) -> set[str]:
+    if isinstance(value, str):
+        stripped = value.strip()
+        return {stripped.upper()} if stripped else set()
+    if isinstance(value, (list, tuple, set)):
+        return {str(item).strip().upper() for item in value if str(item).strip()}
+    return set()
 
 
 def _join(values: Iterable[str]) -> str:
