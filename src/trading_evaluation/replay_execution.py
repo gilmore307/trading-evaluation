@@ -45,7 +45,7 @@ CRYPTO_SYMBOLS_BY_INSTRUMENT = {
 EQUITY_SOURCE_ROOT = Path("/root/projects/trading-storage/storage/01_source_data/monthly_backfill/alpaca_bars")
 DEFAULT_DATASET_ROOT = Path("/root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy")
 DEFAULT_DB_URL_FILE = Path("/root/secrets/openclaw/database-url")
-MODEL_INFERENCE_CHAIN = (
+MODEL_EVIDENCE_CHAIN = (
     "model_01_market_regime_state",
     "model_02_sector_context_state",
     "model_03_target_state_vector_state",
@@ -245,7 +245,7 @@ def build_candidate_policy_replay_execution_run(
             "replay_specific_component_contracts_allowed": False,
         },
         "candidate_fold_id": str(manifest.get("candidate_fold_id") or manifest.get("fold_id") or ""),
-        "tradable_target_refs": sorted(_string_set(manifest.get("tradable_target_refs"))),
+        "pre_replay_target_refs": sorted(_string_set(manifest.get("pre_replay_target_refs"))),
         "dataset_root": str(dataset_root),
         "dataset_manifest_ref": str(dataset_root / "dataset_manifest.json"),
         "replay_freeze_receipt_ref": None if replay_month else str(freeze_receipt_path),
@@ -674,8 +674,8 @@ def _build_candidate_policy_decision_rows(
                     ),
                     "entry_minimum_alpha_confidence": entry_calibration.minimum_entry_alpha_confidence,
                     "entry_minimum_trade_intensity": entry_calibration.minimum_trade_intensity,
-                    "model_inference_chain": list(MODEL_INFERENCE_CHAIN),
-                    "model_inference_mode": "trading_model_layer_generators",
+                    "model_evidence_chain": list(MODEL_EVIDENCE_CHAIN),
+                    "model_evidence_mode": "component_input_model_evidence_generators",
                     "model_layer_refs": layer_outputs["model_layer_refs"],
                     "model_layer_diagnostics": layer_outputs["model_layer_diagnostics"],
                     "validation_status": replay_result["validation_status"],
@@ -730,7 +730,7 @@ def _load_candidate_policy_bars(
 
 
 def _manifest_equity_target_refs(manifest: Mapping[str, Any]) -> tuple[str, ...]:
-    refs = _string_set(manifest.get("tradable_target_refs"))
+    refs = _string_set(manifest.get("pre_replay_target_refs"))
     return tuple(sorted(ref for ref in refs if ref not in CRYPTO_SYMBOLS_BY_INSTRUMENT.values()))
 
 
@@ -1797,8 +1797,8 @@ def _validate_frozen_dataset(manifest: Mapping[str, Any], freeze_receipt: Mappin
         errors.append("replay freeze receipt validation_status must be passed")
     if int(manifest.get("missing_feed_acquisition_count", -1)) != 0:
         errors.append("dataset manifest missing_feed_acquisition_count must be 0")
-    if not _string_set(manifest.get("tradable_target_refs")):
-        errors.append("dataset manifest tradable_target_refs must include at least one live-equivalent replay target")
+    if not _string_set(manifest.get("pre_replay_target_refs")):
+        errors.append("dataset manifest pre_replay_target_refs must include at least one Layer 1/2 base context target")
     safety = freeze_receipt.get("safety")
     if not isinstance(safety, Mapping):
         errors.append("replay freeze receipt safety is required")

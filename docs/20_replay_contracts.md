@@ -7,11 +7,11 @@ The promotion replay must be selected once and then frozen. For Layer 3 and late
 Required properties:
 
 - one replay contract with field `replay_mode = candidate_policy_replay`.
-- the canonical five-year replay window `2021-01-01` through `2026-01-01` end-exclusive, candidate fold id, and base-context universe artifact for the Layer 1/2 replay substrate.
+- the canonical five-year replay window `2021-01-01` through `2026-01-01` end-exclusive, candidate fold id, and base-context artifact for the Layer 1/2 replay substrate.
 - a frozen base source snapshot, candidate policy, cost model, baseline ladder, selection metrics, and guardrails.
 - candidate policy inputs covering point-in-time Layer 2 selected/watch sectors, reviewed sector constituents or proxies, market-wide hot/liquid-name admission rules, quality filters, and control candidates when contrast is required.
 - replay must execute through `trading-execution`'s `execution_runtime_component_graph` under Replay adapters. Models are point-in-time evidence consumed by the components, not the replay execution unit.
-- no `target_symbol` or contract-level `target_refs`; use `candidate_fold_id` for fold binding and `tradable_universe_ref` for the Layer 1/2 base-context scope.
+- no `target_symbol` or contract-level `target_refs`; use `candidate_fold_id` for fold binding and `base_context_ref` for the Layer 1/2 base-context scope.
 - metrics must evaluate realized replay performance after cost, risk, drawdown, turnover, selection quality, and guardrails.
 - metadata for candidate source, market state, Layer 2 sector source, event state, data availability, and model decision provenance.
 - explicit sector coverage metadata, including consumer and entertainment/media coverage.
@@ -53,6 +53,6 @@ Guardrail replays may catch overfit or pathological candidates. They should not 
 
 ## Current Selection Status
 
-The current model-group replay dataset is an explicit model-fold and Layer 1/2 base-context snapshot over the canonical five-year replay window. A frozen dataset or replay receipt is eligible only when its fold id matches the completed fold. The training target symbol is manager-owned model selection context; replay does not carry it and it does not constrain the replay trading universe.
+The current model-group replay dataset is an explicit model-fold and Layer 1/2 base-context snapshot over the canonical five-year replay window. A frozen dataset or replay receipt is eligible only when its fold id matches the completed fold. The training target symbol is manager-owned model selection context; replay does not carry it and it does not constrain the replay trading scope.
 
 Do not use ad hoc target/window panels for training, tuning, prompt iteration, model selection, or promotion. Full promotion judgment requires an accepted candidate-policy replay with explicit fold, base-context scope, and execution-component replay path.

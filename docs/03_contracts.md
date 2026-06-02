@@ -13,8 +13,8 @@ trading_evaluation.replay_contract
 - `contract_id`
 - `replay_mode = candidate_policy_replay`
 - `candidate_fold_id`
-- `tradable_universe_policy_ref`
-- `tradable_universe_ref`
+- `base_context_policy_ref`
+- `base_context_ref`
 - `start_date`
 - `end_date`
 - `min_trading_days`
@@ -28,7 +28,7 @@ trading_evaluation.replay_contract
 - `selection_metric_refs`
 - `excluded_training_windows` covering the full replay window
 
-The validator requires a candidate-policy replay with a valid replay window, positive minimum trading days, sufficient declared market-condition coverage, non-empty candidate policy, replay route, data snapshot, cost model, baseline refs, guardrail refs, selection metric refs, explicit exclusion windows covering the full replay window, `candidate_fold_id`, and a live-equivalent `tradable_universe_ref`. `target_symbol`, `target_refs`, and `replay_components` are rejected at the replay-contract boundary. The manager owns model-artifact selection from completed fold state; replay does not carry or consume the training target symbol. `is_training_fold_blocked_by_replay` blocks folds that overlap the sealed replay window.
+The validator requires a candidate-policy replay with a valid replay window, positive minimum trading days, sufficient declared market-condition coverage, non-empty candidate policy, replay route, data snapshot, cost model, baseline refs, guardrail refs, selection metric refs, explicit exclusion windows covering the full replay window, `candidate_fold_id`, and a Layer 1/2 `base_context_ref`. `target_symbol`, `target_refs`, and `replay_components` are rejected at the replay-contract boundary. The manager owns model-artifact selection from completed fold state; replay does not carry or consume the training target symbol. `is_training_fold_blocked_by_replay` blocks folds that overlap the sealed replay window.
 
 The accepted `replay_route_ref` is `trading-execution://execution_runtime_component_graph/replay`. Replay calls the execution-owned component graph with Replay adapters; evaluation does not own a separate trading decision graph.
 
@@ -86,8 +86,8 @@ Required fields include:
 - `source_contract_ref`
 - `dataset_root`
 - `candidate_fold_id`
-- `tradable_universe_policy_ref`
-- `tradable_universe_ref`
+- `base_context_policy_ref`
+- `base_context_ref`
 - `pre_replay_target_refs`
 - `candidate_policy_ref`
 - `replay_route_ref`
@@ -96,7 +96,7 @@ Required fields include:
 - `coverage_summary_ref`
 - safety booleans proving no provider calls, SQL mutation, model training, activation, broker execution, or account mutation occurred
 
-The preparation bundle may write files under the `trading-storage/storage/05_replay_datasets/<contract_id>/`, but it does not generate manager task/request rows or reusable task keys. Layer 1/2 base-context source data is canonical historical source data shared with training and retained after replay. Historical provider acquisition for candidate equity, option, liquidity, and symbol-news evidence is a one-shot gated action during replay execution. It may temporarily materialize only the replay month and candidate set required by the current shard, and that on-demand month cache is deleted after the shard writes replay receipts, decision rows, coverage summaries, row counts, and input hashes. Replay must not infer its candidate universe by scanning already materialized local bar directories.
+The preparation bundle may write files under the `trading-storage/storage/05_replay_datasets/<contract_id>/`, but it does not generate manager task/request rows or reusable task keys. Layer 1/2 base-context source data is canonical historical source data shared with training and retained after replay. Historical provider acquisition for candidate equity, option, liquidity, and symbol-news evidence is a one-shot gated action during replay execution. It may temporarily materialize only the replay month and candidate set required by the current shard, and that on-demand month cache is deleted after the shard writes replay receipts, decision rows, coverage summaries, row counts, and input hashes. Replay must not infer its candidate set by scanning already materialized local bar directories.
 
 After accepted base-context coverage, the replay contract references one frozen evidence snapshot for the explicit fold. All replay and downstream evaluation artifacts for that scope must consume that base snapshot. Candidate-specific long-lived data download, source reinterpretation, or training-flow feature generation is not allowed for replay judgment; candidate and option evidence discovered by C01-C07 is acquired on demand and retained only as lightweight replay evidence after the month shard completes.
 

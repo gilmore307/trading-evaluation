@@ -12,8 +12,8 @@ VALID_CONTRACT = {
     "contract_id": "promotion_replay_fixture",
     "replay_mode": "candidate_policy_replay",
     "candidate_fold_id": "fold_2016-01_2016-06",
-    "tradable_universe_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/live_equivalent",
-    "tradable_universe_ref": "/tmp/replay_tradable_universe.json",
+    "base_context_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/live_equivalent",
+    "base_context_ref": "/tmp/replay_base_context.json",
     "start_date": "2021-01-01",
     "end_date": "2026-01-01",
     "min_trading_days": 1255,
@@ -65,7 +65,7 @@ class ReplayContractTests(unittest.TestCase):
     def test_target_refs_are_rejected_as_replay_scope(self):
         result = validate_replay_contract(dict(VALID_CONTRACT, target_refs=["AAPL"]))
         self.assertEqual(result.validation_status, "failed")
-        self.assertIn("target_refs are not allowed for promotion replay; use tradable_universe_ref", result.errors)
+        self.assertIn("target_refs are not allowed for promotion replay; use base_context_ref", result.errors)
 
     def test_fold_bound_replay_window_is_allowed(self):
         payload = dict(

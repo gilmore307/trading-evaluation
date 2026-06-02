@@ -132,7 +132,7 @@ class ReplayExecutionTests(unittest.TestCase):
                     "contract_id": "promotion_replay_candidate_policy",
                     "freeze_status": "frozen",
                     "missing_feed_acquisition_count": 0,
-                    "tradable_target_refs": ["SOL"],
+                    "pre_replay_target_refs": ["SOL"],
                     "feed_acquisition_plan_ref": str(plan_path),
                 }
             )
@@ -265,7 +265,7 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(rows[0]["target_ref"], "SOL")
             self.assertIn(rows[0]["validation_status"], {"passed", "failed"})
             self.assertIn("feature_momentum_7d", rows[0])
-            self.assertEqual(rows[0]["model_inference_mode"], "trading_model_layer_generators")
+            self.assertEqual(rows[0]["model_evidence_mode"], "component_input_model_evidence_generators")
             self.assertIn("model_05_alpha_confidence", rows[0]["model_layer_refs"])
             self.assertIn("model_08_underlying_action", rows[0]["model_layer_refs"])
             self.assertIn("model_05_alpha_confidence", rows[0]["model_layer_diagnostics"])
@@ -404,7 +404,7 @@ class ReplayExecutionTests(unittest.TestCase):
                         "contract_id": "promotion_replay_candidate_policy",
                         "freeze_status": "not_frozen",
                         "missing_feed_acquisition_count": 100,
-                        "tradable_target_refs": ["AAPL"],
+                        "pre_replay_target_refs": ["AAPL"],
                         "feed_acquisition_plan_ref": str(plan_path),
                     }
                 )

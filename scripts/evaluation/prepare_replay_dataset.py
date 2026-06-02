@@ -15,7 +15,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Prepare replay dataset manifests for one-shot acquisition.")
     parser.add_argument("--contract", required=True, type=Path, help="Path to a replay contract JSON file.")
     parser.add_argument("--candidate-fold-id", help="Fold id that this replay dataset is scoped to, for example fold_2016-01_2016-06.")
-    parser.add_argument("--tradable-universe-ref", help="Path to the live-equivalent replay tradable universe artifact.")
+    parser.add_argument("--base-context-ref", help="Path to the Layer 1/2 base context artifact.")
     parser.add_argument("--start-date", help="Override replay start date for a fold-bound replay window.")
     parser.add_argument("--end-date", help="Override replay end-exclusive date for a fold-bound replay window.")
     parser.add_argument("--min-trading-days", type=int, help="Override minimum trading days for a fold-bound replay window.")
@@ -42,8 +42,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise SystemExit("replay contract must be a JSON object")
     if args.candidate_fold_id:
         payload["candidate_fold_id"] = args.candidate_fold_id
-    if args.tradable_universe_ref:
-        payload["tradable_universe_ref"] = args.tradable_universe_ref
+    if args.base_context_ref:
+        payload["base_context_ref"] = args.base_context_ref
     if args.start_date:
         payload["start_date"] = args.start_date
     if args.end_date:

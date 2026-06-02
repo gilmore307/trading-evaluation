@@ -13,7 +13,7 @@ VALID_DATASET_CONTRACT = {
     "contract_id": "promotion_replay_dataset_test",
     "replay_mode": "candidate_policy_replay",
     "candidate_fold_id": "fold_2016-01_2016-06",
-    "tradable_universe_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/live_equivalent",
+    "base_context_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/live_equivalent",
     "start_date": "2021-01-01",
     "end_date": "2026-01-01",
     "min_trading_days": 1255,
@@ -35,22 +35,22 @@ VALID_DATASET_CONTRACT = {
 }
 
 
-def _contract_with_universe(root: Path, targets: list[str] | None = None) -> dict[str, object]:
-    universe_path = root / "tradable_universe.json"
-    universe_path.write_text(
-        json.dumps({"pre_replay_target_refs": targets or ["AAPL"], "policy_ref": VALID_DATASET_CONTRACT["tradable_universe_policy_ref"]}) + "\n",
+def _contract_with_base_context(root: Path, targets: list[str] | None = None) -> dict[str, object]:
+    base_context_path = root / "base_context.json"
+    base_context_path.write_text(
+        json.dumps({"pre_replay_target_refs": targets or ["AAPL"], "policy_ref": VALID_DATASET_CONTRACT["base_context_policy_ref"]}) + "\n",
         encoding="utf-8",
     )
-    return dict(VALID_DATASET_CONTRACT, tradable_universe_ref=str(universe_path))
+    return dict(VALID_DATASET_CONTRACT, base_context_ref=str(base_context_path))
 
 
-def _manifest_with_universe(overrides: dict[str, object] | None = None) -> dict[str, object]:
+def _manifest_with_base_context(overrides: dict[str, object] | None = None) -> dict[str, object]:
     manifest = {
         "contract_type": "replay_dataset_preparation_manifest",
         "contract_id": "promotion_replay_dataset_test",
         "freeze_status": "not_frozen",
-        "tradable_universe_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/live_equivalent",
-        "tradable_target_refs": ["AAPL"],
+        "base_context_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/live_equivalent",
+        "pre_replay_target_refs": ["AAPL"],
     }
     manifest.update(overrides or {})
     return manifest
@@ -73,7 +73,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             receipt_path.write_text(json.dumps({"runs": [{"status": "succeeded"}]}) + "\n", encoding="utf-8")
 
             prepared = prepare_replay_dataset(
-                _contract_with_universe(root),
+                _contract_with_base_context(root),
                 output_root=root / "storage" / "replay",
                 data_root=data_root,
                 prepared_at_utc="2026-05-20T00:00:00Z",
@@ -95,7 +95,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             self.assertFalse(
                 prepared.manifest["runtime_artifact_policy"]["replay_specific_component_contracts_allowed"]
             )
-            self.assertEqual(prepared.manifest["tradable_target_refs"], ["AAPL"])
+            self.assertEqual(prepared.manifest["pre_replay_target_refs"], ["AAPL"])
             self.assertEqual(prepared.manifest["replay_window_count"], 1)
             self.assertEqual(prepared.manifest["pre_replay_target_refs"], ["AAPL"])
             self.assertEqual(prepared.manifest["feed_acquisition_count"], 180)
@@ -187,7 +187,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             canonical_receipt.write_text(json.dumps({"runs": [{"status": "succeeded"}]}) + "\n", encoding="utf-8")
 
             prepared = prepare_replay_dataset(
-                _contract_with_universe(root),
+                _contract_with_base_context(root),
                 output_root=root / "storage" / "replay",
                 data_root=data_root,
                 prepared_at_utc="2026-05-20T00:00:00Z",
@@ -206,10 +206,10 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             self.assertEqual(te_jan["output_root"], str(canonical_receipt.parents[2]))
             self.assertEqual(te_jan["coverage_receipt_path"], str(canonical_receipt))
 
-    def test_prepare_replay_dataset_requires_tradable_universe_ref(self):
-        payload = dict(VALID_DATASET_CONTRACT, tradable_universe_ref="")
+    def test_prepare_replay_dataset_requires_base_context_ref(self):
+        payload = dict(VALID_DATASET_CONTRACT, base_context_ref="")
         with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaisesRegex(ValueError, "tradable_universe_ref is required"):
+            with self.assertRaisesRegex(ValueError, "base_context_ref is required"):
                 prepare_replay_dataset(
                     payload,
                     output_root=Path(tmp) / "storage" / "replay",
@@ -221,8 +221,8 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             root = Path(tmp)
             contract_path = root / "contract.json"
             contract_path.write_text(json.dumps(VALID_DATASET_CONTRACT), encoding="utf-8")
-            universe_path = root / "tradable_universe.json"
-            universe_path.write_text(json.dumps({"pre_replay_target_refs": ["AAPL"]}) + "\n", encoding="utf-8")
+            base_context_path = root / "base_context.json"
+            base_context_path.write_text(json.dumps({"pre_replay_target_refs": ["AAPL"]}) + "\n", encoding="utf-8")
             result = subprocess.run(
                 [
                     sys.executable,
@@ -233,8 +233,8 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
                     str(root / "storage" / "replay"),
                     "--data-root",
                     str(root / "data"),
-                    "--tradable-universe-ref",
-                    str(universe_path),
+                    "--base-context-ref",
+                    str(base_context_path),
                 ],
                 cwd=Path(__file__).resolve().parents[1],
                 env={"PYTHONPATH": "src"},
@@ -253,7 +253,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             manifest_path = dataset_root / "dataset_manifest.json"
             manifest_path.write_text(
                 json.dumps(
-                    _manifest_with_universe(
+                    _manifest_with_base_context(
                         {
                         "feed_acquisition_count": 300,
                         "available_feed_acquisition_count": 300,
@@ -366,7 +366,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
                     )
             (dataset_root / "dataset_manifest.json").write_text(
                 json.dumps(
-                    _manifest_with_universe(
+                    _manifest_with_base_context(
                         {
                         "missing_feed_acquisition_count": 0,
                         "feed_acquisition_plan_ref": str(plan_path),
@@ -391,7 +391,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             dataset_root.mkdir()
             (dataset_root / "dataset_manifest.json").write_text(
                 json.dumps(
-                    _manifest_with_universe(
+                    _manifest_with_base_context(
                         {
                         "missing_feed_acquisition_count": 1,
                         }
@@ -415,7 +415,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             dataset_root.mkdir()
             (dataset_root / "dataset_manifest.json").write_text(
                 json.dumps(
-                    _manifest_with_universe(
+                    _manifest_with_base_context(
                         {
                         "missing_feed_acquisition_count": 0,
                         "deferred_feed_acquisition_count": 0,

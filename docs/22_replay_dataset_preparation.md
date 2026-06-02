@@ -16,7 +16,7 @@ This preparation step is not a replay freeze and does not use the manager task/r
 - source contract: accepted candidate-policy replay under `trading-evaluation/replays/`
 - replay window: canonical `2021-01-01` through `2026-01-01` end-exclusive unless an explicitly reviewed exception is supplied
 - candidate fold id: explicit, for example `fold_2016-01_2016-06`
-- base universe artifact: explicit Layer 1/2 base-context universe used to validate replay substrate coverage
+- base context artifact: explicit Layer 1/2 base-context used to validate replay substrate coverage
 - local coverage scan root: `trading-storage/storage/01_source_data`
 - runtime output root: `trading-storage/storage/05_replay_datasets`
 
@@ -27,9 +27,9 @@ Candidate-policy replay prepares one-shot acquisition requirements for the full 
 - `01_feed_alpaca_bars` for Layer 1/2 base-context refs, reused from canonical monthly backfill
 - `05_feed_gdelt_news` for broad market, sector, theme, and symbol event evidence
 - `07_feed_trading_economics_calendar_web` for high-importance U.S. macro event evidence through logged-out visible-page custom-date requests
-- `04_feed_okx_crypto_market_data` only when the base universe includes crypto context refs
+- `04_feed_okx_crypto_market_data` only when the base context includes crypto context refs
 
-Replay predeclares only the Layer 1/2 base-context refs through `tradable_universe_ref`, expanded into `pre_replay_target_refs` in the dataset manifest. Replay must not infer its candidate universe by scanning already materialized local bar directories. Candidate equities, symbol-scoped liquidity/news, and option-chain snapshots are discovered during execution-component replay after C01 admits sectors/targets and downstream components create buy or option-expression points. Selected-contract feeds (`10_feed_thetadata_option_primary_tracking` and `11_feed_thetadata_option_event_timeline`) expand only after those snapshots produce concrete expiration/right/strike selections.
+Replay predeclares only the Layer 1/2 base-context refs through `base_context_ref`, expanded into `pre_replay_target_refs` in the dataset manifest. Replay must not infer its candidate set by scanning already materialized local bar directories. Candidate equities, symbol-scoped liquidity/news, and option-chain snapshots are discovered during execution-component replay after C01 admits sectors/targets and downstream components create buy or option-expression points. Selected-contract feeds (`10_feed_thetadata_option_primary_tracking` and `11_feed_thetadata_option_event_timeline`) expand only after those snapshots produce concrete expiration/right/strike selections.
 
 ## Replay Acquisition Boundary
 
@@ -51,7 +51,7 @@ This keeps historical replay close to live execution while preserving the traini
 PYTHONPATH=src python3 scripts/evaluation/prepare_replay_dataset.py \
   --contract replays/promotion_replay_candidate_policy.json \
   --candidate-fold-id fold_2016-01_2016-06 \
-  --tradable-universe-ref /root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy/tradable_universe.json \
+  --base-context-ref /root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy/base_context.json \
   --output-root /root/projects/trading-storage/storage/05_replay_datasets \
   --data-root /root/projects/trading-storage/storage/01_source_data
 ```

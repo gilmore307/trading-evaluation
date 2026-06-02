@@ -33,5 +33,6 @@
     "metric://selection_hit_rate"
   ],
   "start_date": "2021-01-01",
-  "tradable_universe_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/live_equivalent"
+  "base_context_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/live_equivalent",
+  "base_context_ref": "/root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy/base_context.json"
 }
