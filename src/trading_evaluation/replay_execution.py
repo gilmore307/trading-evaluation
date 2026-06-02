@@ -627,6 +627,14 @@ def _build_candidate_policy_decision_rows(
                     option_contract_path_status = "missing"
             cost = REPLAY_COST_PER_FILLED_DECISION if filled else 0.0
             realized_return = gross_return if filled else 0.0
+            decision_expression_type = _decision_expression_type(
+                asset_class=str(asset_class or ""),
+                option_expression_plan=option_expression_plan,
+            )
+            decision_instrument_scope = _decision_instrument_scope(
+                asset_class=str(asset_class or ""),
+                selected_option_contract_ref=selected_option_contract_ref,
+            )
             rows.append(
                 {
                     "contract_type": REPLAY_DECISION_ROW_CONTRACT,
@@ -640,6 +648,8 @@ def _build_candidate_policy_decision_rows(
                     "target_ref": target,
                     "instrument_ref": entry["instrument_ref"],
                     "asset_class": asset_class,
+                    "decision_expression_type": decision_expression_type,
+                    "decision_instrument_scope": decision_instrument_scope,
                     "asset_expression_route": str(_as_mapping(option_expression_plan).get("asset_expression_route") or ""),
                     "option_surface_status": str(_as_mapping(option_expression_plan).get("option_surface_status") or ""),
                     "selected_option_expression_type": _as_mapping(option_expression_plan).get("selected_expression_type"),
@@ -683,6 +693,27 @@ def _build_candidate_policy_decision_rows(
                 }
             )
     return rows
+
+
+def _decision_expression_type(*, asset_class: str, option_expression_plan: Mapping[str, Any] | None) -> str:
+    if asset_class == "us_option":
+        selected_expression_type = str(_as_mapping(option_expression_plan).get("selected_expression_type") or "").strip()
+        return selected_expression_type or "listed_option"
+    if asset_class == "crypto_spot":
+        return "crypto_spot"
+    if asset_class == "us_equity":
+        return "underlying_equity"
+    return asset_class or "unknown"
+
+
+def _decision_instrument_scope(*, asset_class: str, selected_option_contract_ref: str) -> str:
+    if asset_class == "us_option" or selected_option_contract_ref:
+        return "listed_option_contract"
+    if asset_class == "crypto_spot":
+        return "crypto_spot"
+    if asset_class == "us_equity":
+        return "underlying_equity"
+    return asset_class or "unknown"
 
 
 def _market_universe_for_date(

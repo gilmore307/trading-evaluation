@@ -263,6 +263,8 @@ class ReplayExecutionTests(unittest.TestCase):
             rows = [json.loads(line) for line in result.decision_rows_path.read_text(encoding="utf-8").splitlines()]
             self.assertEqual(rows[0]["contract_type"], "evaluation_replay_decision_row")
             self.assertEqual(rows[0]["target_ref"], "SOL")
+            self.assertEqual(rows[0]["decision_expression_type"], "crypto_spot")
+            self.assertEqual(rows[0]["decision_instrument_scope"], "crypto_spot")
             self.assertIn(rows[0]["validation_status"], {"passed", "failed"})
             self.assertIn("feature_momentum_7d", rows[0])
             self.assertEqual(rows[0]["model_evidence_mode"], "component_input_model_evidence_generators")
@@ -301,6 +303,8 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(rows[0]["target_ref"], "AAPL")
             self.assertEqual(rows[0]["asset_class"], "us_equity")
             self.assertEqual(rows[0]["account_sleeve_id"], "equity_options_account")
+            self.assertEqual(rows[0]["decision_expression_type"], "underlying_equity")
+            self.assertEqual(rows[0]["decision_instrument_scope"], "underlying_equity")
             self.assertEqual(rows[0]["asset_expression_route"], "direct_underlying_fallback")
             self.assertEqual(rows[0]["option_surface_status"], "optionable_chain_missing")
 
@@ -491,6 +495,8 @@ class ReplayExecutionTests(unittest.TestCase):
                 rows = [json.loads(line) for line in result.decision_rows_path.read_text(encoding="utf-8").splitlines()]
                 self.assertEqual(rows[0]["asset_expression_route"], "listed_option_contract")
                 self.assertEqual(rows[0]["asset_class"], "us_option")
+                self.assertEqual(rows[0]["decision_expression_type"], "long_put")
+                self.assertEqual(rows[0]["decision_instrument_scope"], "listed_option_contract")
                 self.assertEqual(rows[0]["selected_option_contract_ref"], "AAPL_2021-01-15_P_100")
                 self.assertEqual(rows[0]["option_contract_path_status"], "available")
                 self.assertEqual(rows[0]["return_source"], "m09_option_expression_contract_path")
