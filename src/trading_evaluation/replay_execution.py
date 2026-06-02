@@ -226,6 +226,9 @@ def build_candidate_policy_replay_execution_run(
         "after_cost_alpha_model_ref": after_cost_alpha_model_ref,
         "replay_contract_ref": replay_contract_ref,
         "replay_route_ref": EXECUTION_REPLAY_ROUTE_REF,
+        "candidate_fold_id": str(manifest.get("candidate_fold_id") or manifest.get("fold_id") or ""),
+        "training_target_ref": str(manifest.get("training_target_ref") or ""),
+        "tradable_target_refs": sorted(_string_set(manifest.get("tradable_target_refs"))),
         "dataset_root": str(dataset_root),
         "dataset_manifest_ref": str(dataset_root / "dataset_manifest.json"),
         "replay_freeze_receipt_ref": None if replay_month else str(freeze_receipt_path),
@@ -709,7 +712,7 @@ def _load_candidate_policy_bars(
 
 
 def _manifest_equity_target_refs(manifest: Mapping[str, Any]) -> tuple[str, ...]:
-    refs = _string_set(manifest.get("target_refs") or manifest.get("replay_target_refs") or manifest.get("candidate_target_refs"))
+    refs = _string_set(manifest.get("tradable_target_refs"))
     return tuple(sorted(ref for ref in refs if ref not in CRYPTO_SYMBOLS_BY_INSTRUMENT.values()))
 
 
@@ -1776,8 +1779,8 @@ def _validate_frozen_dataset(manifest: Mapping[str, Any], freeze_receipt: Mappin
         errors.append("replay freeze receipt validation_status must be passed")
     if int(manifest.get("missing_feed_acquisition_count", -1)) != 0:
         errors.append("dataset manifest missing_feed_acquisition_count must be 0")
-    if not _string_set(manifest.get("target_refs") or manifest.get("replay_target_refs") or manifest.get("candidate_target_refs")):
-        errors.append("dataset manifest target_refs must include at least one explicit replay target")
+    if not _string_set(manifest.get("tradable_target_refs")):
+        errors.append("dataset manifest tradable_target_refs must include at least one live-equivalent replay target")
     safety = freeze_receipt.get("safety")
     if not isinstance(safety, Mapping):
         errors.append("replay freeze receipt safety is required")

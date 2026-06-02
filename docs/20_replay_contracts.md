@@ -7,11 +7,11 @@ The promotion replay must be selected once and then frozen. For Layer 3 and late
 Required properties:
 
 - one replay contract with field `replay_mode = candidate_policy_replay`.
-- the canonical five-year replay window `2021-01-01` through `2026-01-01` end-exclusive, candidate fold id, and target refs for the scope being evaluated.
+- the canonical five-year replay window `2021-01-01` through `2026-01-01` end-exclusive, candidate fold id, training target context, and live-equivalent tradable-universe artifact for the scope being evaluated.
 - a frozen candidate-universe policy, historical data snapshot, cost model, baseline ladder, selection metrics, and guardrails.
 - candidate policy inputs covering current Layer 2 selected/watch sectors, reviewed sector constituents or proxies, current market-wide hot/liquid names, quality filters, and control candidates when contrast is required.
 - the model must generate candidates, rank/select targets, and run through `trading-execution`'s `execution_runtime_component_graph` under Replay adapters.
-- no `target_symbol` field; use `target_refs` so target scope is explicit and consistently named.
+- no `target_symbol` or contract-level `target_refs`; use `training_target_ref` for the training fold context and `tradable_universe_ref` for the replay trading universe.
 - metrics must evaluate realized replay performance after cost, risk, drawdown, turnover, selection quality, and guardrails.
 - metadata for candidate source, market state, Layer 2 sector source, event state, data availability, and model decision provenance.
 - explicit sector coverage metadata, including consumer and entertainment/media coverage.
@@ -24,7 +24,7 @@ Required properties:
 - no leakage from the frozen replay window into training-used folds.
 - any fold that intersects the sealed promotion replay window must be skipped or blocked for candidate training.
 - fixed data snapshot, cost model, slippage/fee assumptions, and baseline ladder.
-- replay acquisition and event/source normalization are construction phases that produce a frozen data snapshot for the explicit model fold, target refs, and replay window.
+- replay acquisition and event/source normalization are construction phases that produce a frozen data snapshot for the explicit model fold, live-equivalent tradable universe, and replay window.
 - all replay, settlement, promotion eligibility, guardrail, and regression checks for that scope must reuse that frozen data snapshot instead of rebuilding data per model candidate.
 - replay evaluation must run through the execution runtime component graph under a historical clock, not through the model training pipeline or an evaluation-owned trading decision graph.
 - replay must not run `execution_shadow_cycle_selection`; shadow-cycle selection is a realtime execution mechanism for already-promoted models, not a historical evaluation mechanism for training outputs.
@@ -53,6 +53,6 @@ Guardrail replays may catch overfit or pathological candidates. They should not 
 
 ## Current Selection Status
 
-The current model-group replay dataset must be regenerated as an explicit model-fold and target-ref snapshot over the canonical five-year replay window. A frozen dataset or replay receipt is eligible only when its `target_refs` include the completed training target and its fold id matches the completed fold when a fold id is present. Fixed crypto/ETF-only replay evidence is not valid for an AAPL fold.
+The current model-group replay dataset must be regenerated as an explicit model-fold and live-equivalent tradable-universe snapshot over the canonical five-year replay window. A frozen dataset or replay receipt is eligible only when its `training_target_ref` matches the completed training fold and its fold id matches the completed fold when a fold id is present. The training target does not constrain the replay trading universe.
 
-Do not use ad hoc target/window panels for training, tuning, prompt iteration, model selection, or promotion. Full promotion judgment requires an accepted candidate-policy replay with explicit fold-target scope.
+Do not use ad hoc target/window panels for training, tuning, prompt iteration, model selection, or promotion. Full promotion judgment requires an accepted candidate-policy replay with explicit fold and tradable-universe scope.

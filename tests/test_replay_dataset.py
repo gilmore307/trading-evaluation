@@ -13,7 +13,8 @@ VALID_DATASET_CONTRACT = {
     "contract_id": "promotion_replay_dataset_test",
     "replay_mode": "candidate_policy_replay",
     "candidate_fold_id": "fold_2016-01_2016-06",
-    "target_refs": ["AAPL"],
+    "training_target_ref": "AAPL",
+    "tradable_universe_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/live_equivalent",
     "start_date": "2021-01-01",
     "end_date": "2026-01-01",
     "min_trading_days": 1255,
@@ -33,6 +34,28 @@ VALID_DATASET_CONTRACT = {
         }
     ],
 }
+
+
+def _contract_with_universe(root: Path, targets: list[str] | None = None) -> dict[str, object]:
+    universe_path = root / "tradable_universe.json"
+    universe_path.write_text(
+        json.dumps({"tradable_target_refs": targets or ["AAPL"], "policy_ref": VALID_DATASET_CONTRACT["tradable_universe_policy_ref"]}) + "\n",
+        encoding="utf-8",
+    )
+    return dict(VALID_DATASET_CONTRACT, tradable_universe_ref=str(universe_path))
+
+
+def _manifest_with_universe(overrides: dict[str, object] | None = None) -> dict[str, object]:
+    manifest = {
+        "contract_type": "replay_dataset_preparation_manifest",
+        "contract_id": "promotion_replay_dataset_test",
+        "freeze_status": "not_frozen",
+        "training_target_ref": "AAPL",
+        "tradable_universe_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/live_equivalent",
+        "tradable_target_refs": ["AAPL"],
+    }
+    manifest.update(overrides or {})
+    return manifest
 
 
 class ReplayDatasetPreparationTests(unittest.TestCase):
@@ -64,7 +87,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             obsolete_backfill_receipt_path.write_text(json.dumps({"runs": [{"status": "succeeded"}]}) + "\n", encoding="utf-8")
 
             prepared = prepare_replay_dataset(
-                VALID_DATASET_CONTRACT,
+                _contract_with_universe(root),
                 output_root=root / "storage" / "replay",
                 data_root=data_root,
                 prepared_at_utc="2026-05-20T00:00:00Z",
@@ -73,7 +96,8 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             self.assertEqual(prepared.manifest["contract_type"], "replay_dataset_preparation_manifest")
             self.assertEqual(prepared.manifest["replay_mode"], "candidate_policy_replay")
             self.assertEqual(prepared.manifest["candidate_fold_id"], "fold_2016-01_2016-06")
-            self.assertEqual(prepared.manifest["target_refs"], ["AAPL"])
+            self.assertEqual(prepared.manifest["training_target_ref"], "AAPL")
+            self.assertEqual(prepared.manifest["tradable_target_refs"], ["AAPL"])
             self.assertEqual(prepared.manifest["replay_window_count"], 1)
             self.assertEqual(prepared.manifest["feed_acquisition_count"], 300)
             self.assertEqual(prepared.manifest["available_feed_acquisition_count"], 1)
@@ -137,7 +161,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             self.assertTrue(te_params["persist_failure_diagnostics"])
             self.assertFalse([row for row in acquisition_rows if row["source_id"] == "okx_crypto_market_data"])
             self.assertIn(
-                "replay_dataset_requires_explicit_fold_target_scope",
+                "replay_dataset_requires_live_equivalent_tradable_universe_scope",
                 prepared.manifest["known_deferred_requirements"],
             )
 
@@ -158,7 +182,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             canonical_receipt.write_text(json.dumps({"runs": [{"status": "succeeded"}]}) + "\n", encoding="utf-8")
 
             prepared = prepare_replay_dataset(
-                VALID_DATASET_CONTRACT,
+                _contract_with_universe(root),
                 output_root=root / "storage" / "replay",
                 data_root=data_root,
                 prepared_at_utc="2026-05-20T00:00:00Z",
@@ -177,11 +201,10 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             self.assertEqual(te_jan["output_root"], str(canonical_receipt.parents[2]))
             self.assertEqual(te_jan["coverage_receipt_path"], str(canonical_receipt))
 
-    def test_prepare_replay_dataset_requires_explicit_target_refs(self):
-        payload = dict(VALID_DATASET_CONTRACT)
-        payload.pop("target_refs")
+    def test_prepare_replay_dataset_requires_tradable_universe_ref(self):
+        payload = dict(VALID_DATASET_CONTRACT, tradable_universe_ref="")
         with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaisesRegex(ValueError, "requires explicit target_refs"):
+            with self.assertRaisesRegex(ValueError, "tradable_universe_ref is required"):
                 prepare_replay_dataset(
                     payload,
                     output_root=Path(tmp) / "storage" / "replay",
@@ -193,6 +216,8 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             root = Path(tmp)
             contract_path = root / "contract.json"
             contract_path.write_text(json.dumps(VALID_DATASET_CONTRACT), encoding="utf-8")
+            universe_path = root / "tradable_universe.json"
+            universe_path.write_text(json.dumps({"tradable_target_refs": ["AAPL"]}) + "\n", encoding="utf-8")
             result = subprocess.run(
                 [
                     sys.executable,
@@ -203,6 +228,8 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
                     str(root / "storage" / "replay"),
                     "--data-root",
                     str(root / "data"),
+                    "--tradable-universe-ref",
+                    str(universe_path),
                 ],
                 cwd=Path(__file__).resolve().parents[1],
                 env={"PYTHONPATH": "src"},
@@ -221,17 +248,14 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             manifest_path = dataset_root / "dataset_manifest.json"
             manifest_path.write_text(
                 json.dumps(
-                    {
-                        "contract_type": "replay_dataset_preparation_manifest",
-                        "contract_id": "promotion_replay_dataset_test",
-                        "freeze_status": "not_frozen",
-                        "target_refs": ["AAPL"],
+                    _manifest_with_universe(
+                        {
                         "feed_acquisition_count": 480,
                         "available_feed_acquisition_count": 300,
                         "deferred_feed_acquisition_count": 180,
                         "missing_feed_acquisition_count": 0,
                         "known_deferred_requirements": [
-                            "replay_dataset_requires_explicit_fold_target_scope"
+                            "replay_dataset_requires_live_equivalent_tradable_universe_scope"
                         ],
                         "artifact_refs": [],
                         "safety": {
@@ -243,7 +267,8 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
                             "broker_execution_performed": False,
                             "account_mutation_performed": False,
                         },
-                    }
+                        }
+                    )
                 )
                 + "\n",
                 encoding="utf-8",
@@ -338,14 +363,12 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
                     )
             (dataset_root / "dataset_manifest.json").write_text(
                 json.dumps(
-                    {
-                        "contract_type": "replay_dataset_preparation_manifest",
-                        "contract_id": "promotion_replay_dataset_test",
-                        "freeze_status": "not_frozen",
-                        "target_refs": ["AAPL"],
+                    _manifest_with_universe(
+                        {
                         "missing_feed_acquisition_count": 0,
                         "feed_acquisition_plan_ref": str(plan_path),
-                    }
+                        }
+                    )
                 )
                 + "\n",
                 encoding="utf-8",
@@ -365,13 +388,11 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             dataset_root.mkdir()
             (dataset_root / "dataset_manifest.json").write_text(
                 json.dumps(
-                    {
-                        "contract_type": "replay_dataset_preparation_manifest",
-                        "contract_id": "promotion_replay_dataset_test",
-                        "freeze_status": "not_frozen",
-                        "target_refs": ["AAPL"],
+                    _manifest_with_universe(
+                        {
                         "missing_feed_acquisition_count": 1,
-                    }
+                        }
+                    )
                 )
                 + "\n",
                 encoding="utf-8",
@@ -391,14 +412,12 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             dataset_root.mkdir()
             (dataset_root / "dataset_manifest.json").write_text(
                 json.dumps(
-                    {
-                        "contract_type": "replay_dataset_preparation_manifest",
-                        "contract_id": "promotion_replay_dataset_test",
-                        "freeze_status": "not_frozen",
-                        "target_refs": ["AAPL"],
+                    _manifest_with_universe(
+                        {
                         "missing_feed_acquisition_count": 0,
                         "deferred_feed_acquisition_count": 0,
-                    }
+                        }
+                    )
                 )
                 + "\n",
                 encoding="utf-8",

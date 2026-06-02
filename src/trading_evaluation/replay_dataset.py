@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import json
+from collections.abc import Iterable as IterableABC
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -111,14 +112,15 @@ def prepare_replay_dataset(
         raise ValueError("replay contract validation failed: " + "; ".join(validation.errors))
 
     contract = validation.contract
-    if not contract.target_refs:
-        raise ValueError("replay dataset preparation requires explicit target_refs")
+    tradable_target_refs = _load_tradable_universe_refs(Path(contract.tradable_universe_ref))
+    if not tradable_target_refs:
+        raise ValueError("replay dataset preparation requires non-empty tradable_universe_ref")
     prepared_at = prepared_at_utc or _now_utc()
     dataset_root = output_root / contract.contract_id
     dataset_root.mkdir(parents=True, exist_ok=True)
 
     replay_window_rows = _replay_window_rows(contract)
-    acquisition_rows = _acquisition_rows(contract, data_root=data_root)
+    acquisition_rows = _acquisition_rows(contract, data_root=data_root, tradable_target_refs=tradable_target_refs)
     coverage_rows = _coverage_rows(contract, acquisition_rows)
 
     replay_window_manifest_path = dataset_root / "replay_window_manifest.csv"
@@ -142,7 +144,10 @@ def prepare_replay_dataset(
         "replay_route_ref": contract.replay_route_ref,
         "candidate_fold_id": contract.candidate_fold_id,
         "fold_id": contract.candidate_fold_id,
-        "target_refs": list(contract.target_refs),
+        "training_target_ref": contract.training_target_ref,
+        "tradable_universe_policy_ref": contract.tradable_universe_policy_ref,
+        "tradable_universe_ref": contract.tradable_universe_ref,
+        "tradable_target_refs": list(tradable_target_refs),
         "dataset_root": str(dataset_root),
         "storage_ref": f"storage://trading-storage/05_replay_datasets/{contract.contract_id}/",
         "replay_window_count": len(replay_window_rows),
@@ -167,7 +172,7 @@ def prepare_replay_dataset(
         },
         "known_deferred_requirements": [
             "one_shot_provider_acquisition_requires_separate_gate",
-            "replay_dataset_requires_explicit_fold_target_scope",
+            "replay_dataset_requires_live_equivalent_tradable_universe_scope",
             "thetadata_option_selection_snapshot_expands_from_model_buy_point_decisions",
             "thetadata_option_primary_tracking_and_event_timeline_expand_after_snapshot_contract_selection",
         ],
@@ -230,7 +235,7 @@ def freeze_replay_dataset(
             "validation_status": "passed",
             "missing_feed_acquisition_count": int(manifest.get("missing_feed_acquisition_count", 0)),
             "deferred_feed_acquisition_count": int(manifest.get("deferred_feed_acquisition_count", 0)),
-            "accepted_deferred_policy": "fold_target_replay_month_cache_materializes_during_gated_acquisition",
+            "accepted_deferred_policy": "live_equivalent_tradable_universe_replay_month_cache_materializes_during_gated_acquisition",
         },
         "safety": {
             "provider_calls_performed": False,
@@ -287,11 +292,24 @@ def _replay_window_rows(contract: ReplayContract) -> list[dict[str, Any]]:
     ]
 
 
-def _acquisition_rows(contract: ReplayContract, *, data_root: Path) -> list[dict[str, str]]:
+def _acquisition_rows(
+    contract: ReplayContract,
+    *,
+    data_root: Path,
+    tradable_target_refs: Iterable[str],
+) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for source in _replay_sources():
         for window in _replay_months(contract):
-            rows.extend(_acquisition_rows_for_source_window(contract, source, window, data_root=data_root))
+            rows.extend(
+                _acquisition_rows_for_source_window(
+                    contract,
+                    source,
+                    window,
+                    data_root=data_root,
+                    tradable_target_refs=tradable_target_refs,
+                )
+            )
     return rows
 
 
@@ -301,11 +319,12 @@ def _acquisition_rows_for_source_window(
     window: Mapping[str, str],
     *,
     data_root: Path,
+    tradable_target_refs: Iterable[str],
 ) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     month = window["month"]
     if source["source_id"] == "okx_crypto_market_data":
-        target_refs = _crypto_target_refs(contract)
+        target_refs = _crypto_target_refs(tradable_target_refs)
         for target_ref in target_refs:
             instrument_ref = CRYPTO_SPOT_INSTRUMENT_BY_TARGET[target_ref]
             instrument_token = instrument_ref.lower().replace("-", "_")
@@ -325,7 +344,7 @@ def _acquisition_rows_for_source_window(
             )
         return rows
     if source.get("candidate_dependent") == "true":
-        for target_ref in _equity_target_refs(contract):
+        for target_ref in _equity_target_refs(tradable_target_refs):
             rows.append(
                 _acquisition_row(
                     contract,
@@ -344,7 +363,7 @@ def _acquisition_rows_for_source_window(
                         "underlying_symbol": target_ref,
                         "instrument_route": "live_equivalent_underlying_then_option_expression",
                     },
-                    notes_suffix=f"; fold-bound target {target_ref}",
+                    notes_suffix=f"; live-equivalent tradable target {target_ref}",
                 )
             )
         return rows
@@ -355,7 +374,7 @@ def _acquisition_rows_for_source_window(
             window,
             data_root=data_root,
             acquisition_suffix=month,
-            params_extra={"target_refs": list(contract.target_refs)},
+            params_extra={"target_refs": list(tradable_target_refs)},
         )
     )
     return rows
@@ -494,16 +513,37 @@ def _feed_params(contract: ReplayContract, source: Mapping[str, str], window: Ma
     return params
 
 
-def _equity_target_refs(contract: ReplayContract) -> tuple[str, ...]:
-    return tuple(target for target in _target_refs(contract) if target not in CRYPTO_SPOT_INSTRUMENT_BY_TARGET)
+def _equity_target_refs(target_refs: Iterable[str]) -> tuple[str, ...]:
+    return tuple(target for target in _target_refs(target_refs) if target not in CRYPTO_SPOT_INSTRUMENT_BY_TARGET)
 
 
-def _crypto_target_refs(contract: ReplayContract) -> tuple[str, ...]:
-    return tuple(target for target in _target_refs(contract) if target in CRYPTO_SPOT_INSTRUMENT_BY_TARGET)
+def _crypto_target_refs(target_refs: Iterable[str]) -> tuple[str, ...]:
+    return tuple(target for target in _target_refs(target_refs) if target in CRYPTO_SPOT_INSTRUMENT_BY_TARGET)
 
 
-def _target_refs(contract: ReplayContract) -> tuple[str, ...]:
-    return tuple(sorted({str(target).strip().upper() for target in contract.target_refs if str(target).strip()}))
+def _target_refs(target_refs: Iterable[str]) -> tuple[str, ...]:
+    return tuple(sorted({str(target).strip().upper() for target in target_refs if str(target).strip()}))
+
+
+def _load_tradable_universe_refs(path: Path) -> tuple[str, ...]:
+    if not path.exists():
+        raise FileNotFoundError(f"tradable universe artifact not found: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(payload, list):
+        return _target_refs(str(item) for item in payload)
+    if not isinstance(payload, Mapping):
+        raise ValueError(f"tradable universe artifact must be an object or list: {path}")
+    raw = (
+        payload.get("tradable_target_refs")
+        or payload.get("tradable_symbols")
+        or payload.get("symbols")
+        or []
+    )
+    if isinstance(raw, str):
+        return _target_refs(item for item in raw.split(","))
+    if isinstance(raw, IterableABC):
+        return _target_refs(str(item) for item in raw)
+    return ()
 
 
 def _replay_months(contract: ReplayContract) -> list[dict[str, str]]:
@@ -649,9 +689,9 @@ def _freeze_validation_errors(manifest: Mapping[str, Any], coverage_rows: Iterab
         missing_count = -1
     if missing_count != 0:
         errors.append(f"missing_feed_acquisition_count must be 0, got {manifest.get('missing_feed_acquisition_count')}")
-    target_refs = _string_set(manifest.get("target_refs") or manifest.get("replay_target_refs") or manifest.get("candidate_target_refs"))
-    if not target_refs:
-        errors.append("target_refs must include at least one explicit replay target")
+    tradable_target_refs = _string_set(manifest.get("tradable_target_refs"))
+    if not tradable_target_refs:
+        errors.append("tradable_target_refs must include at least one live-equivalent replay target")
 
     rows = list(coverage_rows)
     if not rows:

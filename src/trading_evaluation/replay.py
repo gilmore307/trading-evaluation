@@ -36,7 +36,9 @@ class ReplayContract:
     contract_id: str
     replay_mode: str
     candidate_fold_id: str
-    target_refs: tuple[str, ...]
+    training_target_ref: str
+    tradable_universe_policy_ref: str
+    tradable_universe_ref: str
     start_date: date
     end_date: date
     min_trading_days: int
@@ -63,7 +65,9 @@ class ReplayContract:
             contract_id=str(payload.get("contract_id") or "").strip(),
             replay_mode=str(payload.get("replay_mode") or "").strip(),
             candidate_fold_id=str(payload.get("candidate_fold_id") or payload.get("fold_id") or "").strip(),
-            target_refs=_strings(payload.get("target_refs") or payload.get("replay_target_refs") or payload.get("candidate_target_refs") or ()),
+            training_target_ref=str(payload.get("training_target_ref") or "").strip().upper(),
+            tradable_universe_policy_ref=str(payload.get("tradable_universe_policy_ref") or "").strip(),
+            tradable_universe_ref=str(payload.get("tradable_universe_ref") or "").strip(),
             start_date=_parse_date(payload.get("start_date"), field_name="start_date"),
             end_date=_parse_date(payload.get("end_date"), field_name="end_date"),
             min_trading_days=min_trading_days,
@@ -83,7 +87,9 @@ class ReplayContract:
             "contract_id": self.contract_id,
             "replay_mode": self.replay_mode,
             "candidate_fold_id": self.candidate_fold_id,
-            "target_refs": list(self.target_refs),
+            "training_target_ref": self.training_target_ref,
+            "tradable_universe_policy_ref": self.tradable_universe_policy_ref,
+            "tradable_universe_ref": self.tradable_universe_ref,
             "start_date": self.start_date.isoformat(),
             "end_date": self.end_date.isoformat(),
             "min_trading_days": self.min_trading_days,
@@ -136,7 +142,9 @@ def validate_replay_contract(payload: Mapping[str, Any]) -> ReplayValidation:
         )
 
     if payload.get("target_symbol"):
-        errors.append("target_symbol is not allowed for promotion replay; use target_refs")
+        errors.append("target_symbol is not allowed for promotion replay; use training_target_ref")
+    if payload.get("target_refs") or payload.get("replay_target_refs") or payload.get("candidate_target_refs"):
+        errors.append("target_refs are not allowed for promotion replay; use tradable_universe_ref")
     if payload.get("replay_components"):
         errors.append("replay_components are obsolete for promotion replay; use candidate_policy_ref")
     if not contract.contract_id:
@@ -154,6 +162,12 @@ def validate_replay_contract(payload: Mapping[str, Any]) -> ReplayValidation:
         errors.append("market_condition_tags must cover at least four distinct market conditions")
     if not contract.candidate_policy_ref:
         errors.append("candidate_policy_ref is required")
+    if not contract.training_target_ref:
+        errors.append("training_target_ref is required")
+    if not contract.tradable_universe_policy_ref:
+        errors.append("tradable_universe_policy_ref is required")
+    if not contract.tradable_universe_ref:
+        errors.append("tradable_universe_ref is required")
     if not contract.replay_route_ref:
         errors.append("replay_route_ref is required")
     elif contract.replay_route_ref != EXPECTED_REPLAY_ROUTE_REF:
