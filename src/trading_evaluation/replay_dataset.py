@@ -112,15 +112,15 @@ def prepare_replay_dataset(
         raise ValueError("replay contract validation failed: " + "; ".join(validation.errors))
 
     contract = validation.contract
-    tradable_target_refs = _load_tradable_universe_refs(Path(contract.tradable_universe_ref))
-    if not tradable_target_refs:
+    pre_replay_target_refs = _load_tradable_universe_refs(Path(contract.tradable_universe_ref))
+    if not pre_replay_target_refs:
         raise ValueError("replay dataset preparation requires non-empty tradable_universe_ref")
     prepared_at = prepared_at_utc or _now_utc()
     dataset_root = output_root / contract.contract_id
     dataset_root.mkdir(parents=True, exist_ok=True)
 
     replay_window_rows = _replay_window_rows(contract)
-    acquisition_rows = _acquisition_rows(contract, data_root=data_root, tradable_target_refs=tradable_target_refs)
+    acquisition_rows = _acquisition_rows(contract, data_root=data_root, tradable_target_refs=pre_replay_target_refs)
     coverage_rows = _coverage_rows(contract, acquisition_rows)
 
     replay_window_manifest_path = dataset_root / "replay_window_manifest.csv"
@@ -146,7 +146,14 @@ def prepare_replay_dataset(
         "fold_id": contract.candidate_fold_id,
         "tradable_universe_policy_ref": contract.tradable_universe_policy_ref,
         "tradable_universe_ref": contract.tradable_universe_ref,
-        "tradable_target_refs": list(tradable_target_refs),
+        "pre_replay_target_refs": list(pre_replay_target_refs),
+        "tradable_target_refs": list(pre_replay_target_refs),
+        "candidate_discovery_policy": {
+            "mode": "on_demand_from_replay_layer_outputs",
+            "pre_replay_scope": "layer_01_02_base_market_context_only",
+            "equity_and_option_targets": "not_preexpanded",
+            "downstream_acquisition": "layer_02_sector_signal_then_target_and_option_chain_lookup",
+        },
         "dataset_root": str(dataset_root),
         "storage_ref": f"storage://trading-storage/05_replay_datasets/{contract.contract_id}/",
         "replay_window_count": len(replay_window_rows),
@@ -171,7 +178,8 @@ def prepare_replay_dataset(
         },
         "known_deferred_requirements": [
             "one_shot_provider_acquisition_requires_separate_gate",
-            "replay_dataset_requires_live_equivalent_tradable_universe_scope",
+            "replay_dataset_requires_layer_01_02_base_market_context_scope",
+            "replay_execution_expands_equity_and_option_targets_on_demand_from_layer_outputs",
             "thetadata_option_selection_snapshot_expands_from_model_buy_point_decisions",
             "thetadata_option_primary_tracking_and_event_timeline_expand_after_snapshot_contract_selection",
         ],
@@ -234,7 +242,7 @@ def freeze_replay_dataset(
             "validation_status": "passed",
             "missing_feed_acquisition_count": int(manifest.get("missing_feed_acquisition_count", 0)),
             "deferred_feed_acquisition_count": int(manifest.get("deferred_feed_acquisition_count", 0)),
-            "accepted_deferred_policy": "live_equivalent_tradable_universe_replay_month_cache_materializes_during_gated_acquisition",
+            "accepted_deferred_policy": "replay_execution_materializes_candidate_target_data_on_demand_after_layer_outputs",
         },
         "safety": {
             "provider_calls_performed": False,
@@ -342,7 +350,9 @@ def _acquisition_rows_for_source_window(
                 )
             )
         return rows
-    if source.get("candidate_dependent") == "true":
+    if source.get("candidate_dependent") == "on_demand":
+        return rows
+    if source.get("candidate_dependent") == "base_target_refs":
         for target_ref in _equity_target_refs(tradable_target_refs):
             rows.append(
                 _acquisition_row(
@@ -362,7 +372,7 @@ def _acquisition_rows_for_source_window(
                         "underlying_symbol": target_ref,
                         "instrument_route": "live_equivalent_underlying_then_option_expression",
                     },
-                    notes_suffix=f"; live-equivalent tradable target {target_ref}",
+                    notes_suffix=f"; Layer 1/2 base market-context target {target_ref}",
                 )
             )
         return rows
@@ -435,22 +445,22 @@ def _replay_sources() -> tuple[dict[str, str], ...]:
             "source_id": "alpaca_bars",
             "feed": "01_feed_alpaca_bars",
             "timeframe": "1Day",
-            "notes": "candidate-policy replay equity and ETF daily OHLCV surface",
-            "candidate_dependent": "true",
+            "notes": "Layer 1/2 base market-context daily OHLCV surface reused from canonical monthly backfill",
+            "candidate_dependent": "base_target_refs",
         },
         {
             "source_id": "alpaca_liquidity",
             "feed": "02_feed_alpaca_liquidity",
             "timeframe": "1Min",
-            "notes": "candidate-policy replay liquidity and spread surface for admitted candidates",
-            "candidate_dependent": "true",
+            "notes": "on-demand replay liquidity and spread surface for candidates admitted by replay layer outputs",
+            "candidate_dependent": "on_demand",
         },
         {
             "source_id": "alpaca_news",
             "feed": "03_feed_alpaca_news",
             "timeframe": "event_time",
-            "notes": "candidate-policy replay symbol-scoped news evidence after point-in-time candidate admission",
-            "candidate_dependent": "true",
+            "notes": "on-demand replay symbol-scoped news evidence after point-in-time candidate admission",
+            "candidate_dependent": "on_demand",
         },
         {
             "source_id": "gdelt_news",
@@ -533,7 +543,9 @@ def _load_tradable_universe_refs(path: Path) -> tuple[str, ...]:
     if not isinstance(payload, Mapping):
         raise ValueError(f"tradable universe artifact must be an object or list: {path}")
     raw = (
-        payload.get("tradable_target_refs")
+        payload.get("pre_replay_target_refs")
+        or payload.get("base_target_refs")
+        or payload.get("tradable_target_refs")
         or payload.get("tradable_symbols")
         or payload.get("symbols")
         or []
@@ -606,6 +618,9 @@ def _coverage_rows(contract: ReplayContract, acquisition_rows: Iterable[Mapping[
 def _coverage_output_root(data_root: Path, source_id: str, contract_id: str, month: str) -> Path:
     if source_id == "trading_economics_calendar_web":
         return data_root / "monthly_backfill" / source_id / month
+    if source_id == "alpaca_bars" and "/" in month:
+        target_ref, month_ref = month.split("/", 1)
+        return data_root / "monthly_backfill" / source_id / target_ref.upper() / month_ref
     return data_root / "replay" / source_id / contract_id / month
 
 
@@ -646,6 +661,9 @@ def _receipt_succeeded(path: Path) -> bool:
 
 
 def _expected_output_ref(source_id: str, contract_id: str, month: str) -> str:
+    if source_id == "alpaca_bars" and "/" in month:
+        target_ref, month_ref = month.split("/", 1)
+        return f"storage://trading-data/monthly_backfill/{source_id}/{target_ref.upper()}/{month_ref}/"
     return f"storage://trading-data/replay/{source_id}/{contract_id}/{month}/"
 
 

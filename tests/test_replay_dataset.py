@@ -38,7 +38,7 @@ VALID_DATASET_CONTRACT = {
 def _contract_with_universe(root: Path, targets: list[str] | None = None) -> dict[str, object]:
     universe_path = root / "tradable_universe.json"
     universe_path.write_text(
-        json.dumps({"tradable_target_refs": targets or ["AAPL"], "policy_ref": VALID_DATASET_CONTRACT["tradable_universe_policy_ref"]}) + "\n",
+        json.dumps({"pre_replay_target_refs": targets or ["AAPL"], "policy_ref": VALID_DATASET_CONTRACT["tradable_universe_policy_ref"]}) + "\n",
         encoding="utf-8",
     )
     return dict(VALID_DATASET_CONTRACT, tradable_universe_ref=str(universe_path))
@@ -63,26 +63,14 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             data_root = root / "data"
             receipt_path = (
                 data_root
-                / "replay"
-                / "alpaca_bars"
-                / "promotion_replay_dataset_test"
-                / "aapl"
-                / "2021-01"
-                / "completion_receipt.json"
-            )
-            receipt_path.parent.mkdir(parents=True)
-            receipt_path.write_text(json.dumps({"runs": [{"status": "succeeded"}]}) + "\n", encoding="utf-8")
-
-            obsolete_backfill_receipt_path = (
-                data_root
                 / "monthly_backfill"
                 / "alpaca_bars"
                 / "AAPL"
                 / "2021-01"
                 / "completion_receipt.json"
             )
-            obsolete_backfill_receipt_path.parent.mkdir(parents=True)
-            obsolete_backfill_receipt_path.write_text(json.dumps({"runs": [{"status": "succeeded"}]}) + "\n", encoding="utf-8")
+            receipt_path.parent.mkdir(parents=True)
+            receipt_path.write_text(json.dumps({"runs": [{"status": "succeeded"}]}) + "\n", encoding="utf-8")
 
             prepared = prepare_replay_dataset(
                 _contract_with_universe(root),
@@ -96,10 +84,11 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             self.assertEqual(prepared.manifest["candidate_fold_id"], "fold_2016-01_2016-06")
             self.assertEqual(prepared.manifest["tradable_target_refs"], ["AAPL"])
             self.assertEqual(prepared.manifest["replay_window_count"], 1)
-            self.assertEqual(prepared.manifest["feed_acquisition_count"], 300)
+            self.assertEqual(prepared.manifest["pre_replay_target_refs"], ["AAPL"])
+            self.assertEqual(prepared.manifest["feed_acquisition_count"], 180)
             self.assertEqual(prepared.manifest["available_feed_acquisition_count"], 1)
             self.assertEqual(prepared.manifest["deferred_feed_acquisition_count"], 0)
-            self.assertEqual(prepared.manifest["missing_feed_acquisition_count"], 299)
+            self.assertEqual(prepared.manifest["missing_feed_acquisition_count"], 179)
             self.assertFalse(prepared.manifest["safety"]["provider_calls_performed"])
             self.assertFalse(prepared.manifest["safety"]["manager_request_route_used"])
             self.assertFalse(prepared.manifest["safety"]["acquisition_requests_allow_live_provider_calls"])
@@ -114,8 +103,6 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
                 {row["source_id"] for row in acquisition_rows},
                 {
                     "alpaca_bars",
-                    "alpaca_liquidity",
-                    "alpaca_news",
                     "gdelt_news",
                     "trading_economics_calendar_web",
                 },
@@ -129,7 +116,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             self.assertEqual(bars_row["instrument_type"], "underlying_or_listed_option")
             self.assertEqual(
                 bars_row["output_root"],
-                str(data_root / "replay" / "alpaca_bars" / "promotion_replay_dataset_test" / "aapl" / "2021-01"),
+                str(data_root / "monthly_backfill" / "alpaca_bars" / "AAPL" / "2021-01"),
             )
             params = json.loads(bars_row["params_json"])
             self.assertEqual(params["candidate_policy_ref"], VALID_DATASET_CONTRACT["candidate_policy_ref"])
@@ -146,6 +133,10 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             self.assertEqual(params["max_pages"], 10)
             self.assertEqual(params["instrument_route"], "live_equivalent_underlying_then_option_expression")
             self.assertEqual(bars_row["coverage_status"], "available")
+            self.assertEqual(
+                bars_row["expected_output_ref"],
+                "storage://trading-data/monthly_backfill/alpaca_bars/AAPL/2021-01/",
+            )
             gdelt_row = next(row for row in acquisition_rows if row["source_id"] == "gdelt_news")
             gdelt_params = json.loads(gdelt_row["params_json"])
             self.assertEqual(gdelt_params["start_date"], "2021-01-01")
@@ -158,7 +149,11 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             self.assertTrue(te_params["persist_failure_diagnostics"])
             self.assertFalse([row for row in acquisition_rows if row["source_id"] == "okx_crypto_market_data"])
             self.assertIn(
-                "replay_dataset_requires_live_equivalent_tradable_universe_scope",
+                "replay_dataset_requires_layer_01_02_base_market_context_scope",
+                prepared.manifest["known_deferred_requirements"],
+            )
+            self.assertIn(
+                "replay_execution_expands_equity_and_option_targets_on_demand_from_layer_outputs",
                 prepared.manifest["known_deferred_requirements"],
             )
 
@@ -186,7 +181,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             )
 
             self.assertEqual(prepared.manifest["available_feed_acquisition_count"], 1)
-            self.assertEqual(prepared.manifest["missing_feed_acquisition_count"], 299)
+            self.assertEqual(prepared.manifest["missing_feed_acquisition_count"], 179)
             with prepared.feed_acquisition_plan_path.open(newline="", encoding="utf-8") as handle:
                 acquisition_rows = list(csv.DictReader(handle))
             te_jan = next(
@@ -214,7 +209,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             contract_path = root / "contract.json"
             contract_path.write_text(json.dumps(VALID_DATASET_CONTRACT), encoding="utf-8")
             universe_path = root / "tradable_universe.json"
-            universe_path.write_text(json.dumps({"tradable_target_refs": ["AAPL"]}) + "\n", encoding="utf-8")
+            universe_path.write_text(json.dumps({"pre_replay_target_refs": ["AAPL"]}) + "\n", encoding="utf-8")
             result = subprocess.run(
                 [
                     sys.executable,
@@ -236,7 +231,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             )
             payload = json.loads(result.stdout)
             self.assertEqual(payload["preparation_status"], "prepared_candidate_policy_replay_acquisition_bundle")
-            self.assertEqual(payload["feed_acquisition_count"], 300)
+            self.assertEqual(payload["feed_acquisition_count"], 180)
 
     def test_freeze_replay_dataset_accepts_complete_and_candidate_deferred_sources(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -247,12 +242,13 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
                 json.dumps(
                     _manifest_with_universe(
                         {
-                        "feed_acquisition_count": 480,
+                        "feed_acquisition_count": 300,
                         "available_feed_acquisition_count": 300,
-                        "deferred_feed_acquisition_count": 180,
+                        "deferred_feed_acquisition_count": 0,
                         "missing_feed_acquisition_count": 0,
                         "known_deferred_requirements": [
-                            "replay_dataset_requires_live_equivalent_tradable_universe_scope"
+                            "replay_dataset_requires_layer_01_02_base_market_context_scope",
+                            "replay_execution_expands_equity_and_option_targets_on_demand_from_layer_outputs",
                         ],
                         "artifact_refs": [],
                         "safety": {
@@ -288,9 +284,6 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
                         "promotion_replay_dataset_test,gdelt_news,60,60,0,0,complete,ok",
                         "promotion_replay_dataset_test,trading_economics_calendar_web,60,60,0,0,complete,ok",
                         "promotion_replay_dataset_test,okx_crypto_market_data,180,180,0,0,complete,ok",
-                        "promotion_replay_dataset_test,alpaca_bars,60,0,60,0,deferred,ok",
-                        "promotion_replay_dataset_test,alpaca_liquidity,60,0,60,0,deferred,ok",
-                        "promotion_replay_dataset_test,alpaca_news,60,0,60,0,deferred,ok",
                     ]
                 )
                 + "\n",
