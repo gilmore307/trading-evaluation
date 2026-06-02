@@ -125,6 +125,7 @@ def select_items(
     items: Iterable[AcquisitionItem],
     *,
     source_ids: set[str],
+    months: set[str],
     include_available: bool,
     include_deferred: bool = False,
     limit: int | None,
@@ -132,6 +133,8 @@ def select_items(
     selected: list[AcquisitionItem] = []
     for item in items:
         if source_ids and item.source_id not in source_ids:
+            continue
+        if months and item.month not in months:
             continue
         if not include_available and item.coverage_status == "available":
             continue
@@ -196,6 +199,7 @@ def run_acquisition(
     data_root: Path = DEFAULT_DATA_ROOT,
     run_id: str = DEFAULT_RUN_ID,
     source_ids: set[str] | None = None,
+    months: set[str] | None = None,
     include_available: bool = False,
     include_deferred: bool = False,
     limit: int | None = None,
@@ -208,6 +212,7 @@ def run_acquisition(
     items = select_items(
         load_plan(plan_path),
         source_ids=set(source_ids or []),
+        months=set(months or []),
         include_available=include_available,
         include_deferred=include_deferred,
         limit=limit,
@@ -293,6 +298,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
     parser.add_argument("--run-id", default=DEFAULT_RUN_ID)
     parser.add_argument("--source-id", action="append", default=[])
+    parser.add_argument("--month", action="append", default=[])
     parser.add_argument("--include-available", action="store_true")
     parser.add_argument("--include-deferred", action="store_true")
     parser.add_argument("--limit", type=int)
@@ -306,6 +312,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         data_root=args.data_root,
         run_id=args.run_id,
         source_ids=set(args.source_id),
+        months=set(args.month),
         include_available=args.include_available,
         include_deferred=args.include_deferred,
         limit=args.limit,

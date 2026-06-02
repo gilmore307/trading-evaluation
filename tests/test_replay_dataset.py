@@ -42,14 +42,26 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             data_root = root / "data"
             receipt_path = (
                 data_root
+                / "replay"
+                / "alpaca_bars"
+                / "promotion_replay_dataset_test"
+                / "aapl"
+                / "2021-01"
+                / "completion_receipt.json"
+            )
+            receipt_path.parent.mkdir(parents=True)
+            receipt_path.write_text(json.dumps({"runs": [{"status": "succeeded"}]}) + "\n", encoding="utf-8")
+
+            obsolete_backfill_receipt_path = (
+                data_root
                 / "monthly_backfill"
                 / "alpaca_bars"
                 / "AAPL"
                 / "2021-01"
                 / "completion_receipt.json"
             )
-            receipt_path.parent.mkdir(parents=True)
-            receipt_path.write_text(json.dumps({"runs": [{"status": "succeeded"}]}) + "\n", encoding="utf-8")
+            obsolete_backfill_receipt_path.parent.mkdir(parents=True)
+            obsolete_backfill_receipt_path.write_text(json.dumps({"runs": [{"status": "succeeded"}]}) + "\n", encoding="utf-8")
 
             prepared = prepare_replay_dataset(
                 VALID_DATASET_CONTRACT,
@@ -96,11 +108,16 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             self.assertEqual(bars_row["instrument_type"], "underlying_or_listed_option")
             self.assertEqual(
                 bars_row["output_root"],
-                str(data_root / "monthly_backfill" / "alpaca_bars" / "AAPL" / "2021-01"),
+                str(data_root / "replay" / "alpaca_bars" / "promotion_replay_dataset_test" / "aapl" / "2021-01"),
             )
             params = json.loads(bars_row["params_json"])
             self.assertEqual(params["candidate_policy_ref"], VALID_DATASET_CONTRACT["candidate_policy_ref"])
             self.assertEqual(params["replay_acquisition_policy"], "candidate_policy_replay_monthly_surface")
+            self.assertEqual(params["replay_cache_policy"], "monthly_ephemeral_cache")
+            self.assertEqual(
+                params["post_replay_retention_policy"],
+                "retain_receipts_and_delete_replay_cache_after_month_operation",
+            )
             self.assertEqual(params["target_refs"], ["AAPL"])
             self.assertEqual(params["instrument_route"], "live_equivalent_underlying_then_option_expression")
             self.assertEqual(bars_row["coverage_status"], "available")

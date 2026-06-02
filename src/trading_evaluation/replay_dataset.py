@@ -463,6 +463,8 @@ def _feed_params(contract: ReplayContract, source: Mapping[str, str], window: Ma
         "end": window["end_date_exclusive"],
         "timeframe": source["timeframe"],
         "replay_acquisition_policy": "candidate_policy_replay_monthly_surface",
+        "replay_cache_policy": "monthly_ephemeral_cache",
+        "post_replay_retention_policy": "retain_receipts_and_delete_replay_cache_after_month_operation",
         "source_id": source["source_id"],
     }
     if source["source_id"] == "gdelt_news":
@@ -559,9 +561,6 @@ def _coverage_rows(contract: ReplayContract, acquisition_rows: Iterable[Mapping[
 def _coverage_output_root(data_root: Path, source_id: str, contract_id: str, month: str) -> Path:
     if source_id == "trading_economics_calendar_web":
         return data_root / "monthly_backfill" / source_id / month
-    if source_id == "alpaca_bars" and "/" in month:
-        target_ref, target_month = month.split("/", 1)
-        return data_root / "monthly_backfill" / source_id / target_ref.upper() / target_month
     return data_root / "replay" / source_id / contract_id / month
 
 
@@ -602,9 +601,6 @@ def _receipt_succeeded(path: Path) -> bool:
 
 
 def _expected_output_ref(source_id: str, contract_id: str, month: str) -> str:
-    if source_id == "alpaca_bars" and "/" in month:
-        target_ref, target_month = month.split("/", 1)
-        return f"storage://trading-data/monthly_backfill/{source_id}/{target_ref.upper()}/{target_month}/"
     return f"storage://trading-data/replay/{source_id}/{contract_id}/{month}/"
 
 

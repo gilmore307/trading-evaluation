@@ -67,6 +67,59 @@ class ReplayAcquisitionRunnerTests(unittest.TestCase):
             self.assertFalse(payload["manager_controls"]["autonomous_historical_provider_acquisition"])
             self.assertFalse(summary.manager_request_route_used)
 
+    def test_runner_filters_one_replay_month(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dataset_root = root / "replay" / "contract"
+            dataset_root.mkdir(parents=True)
+            plan_path = dataset_root / "feed_acquisition_plan.csv"
+            fields = [
+                "acquisition_id",
+                "contract_id",
+                "source_id",
+                "feed",
+                "month",
+                "start_date",
+                "end_date_exclusive",
+                "timeframe",
+                "acquisition_mode",
+                "output_root",
+                "expected_output_ref",
+                "coverage_status",
+                "coverage_receipt_path",
+                "params_json",
+                "notes",
+            ]
+            with plan_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=fields)
+                writer.writeheader()
+                for month in ("2021-01", "2021-02"):
+                    writer.writerow(
+                        {
+                            "acquisition_id": f"rplacq_alpaca_bars_{month}",
+                            "contract_id": "contract",
+                            "source_id": "alpaca_bars",
+                            "feed": "01_feed_alpaca_bars",
+                            "month": month,
+                            "start_date": f"{month}-01",
+                            "end_date_exclusive": "2021-02-01" if month == "2021-01" else "2021-03-01",
+                            "timeframe": "1Day",
+                            "acquisition_mode": "one_shot_candidate_policy_replay_acquisition",
+                            "output_root": str(root / "data" / month),
+                            "expected_output_ref": "storage://test",
+                            "coverage_status": "missing",
+                            "coverage_receipt_path": str(root / "receipt.json"),
+                            "params_json": json.dumps({"start_date": f"{month}-01"}),
+                            "notes": "test",
+                        }
+                    )
+
+            summary = run_acquisition(dataset_root=dataset_root, data_root=root / "data", run_id="dry", months={"2021-01"})
+
+            self.assertEqual(summary.selected_count, 1)
+            self.assertEqual(summary.items[0].month, "2021-01")
+            self.assertIn("2021-01", summary.items[0].task_key_path)
+
     def test_liquidity_task_budget_scales_by_acquisition_windows(self):
         payload = build_task_payload(
             type(
