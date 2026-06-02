@@ -78,9 +78,9 @@ Required fields include:
 - `coverage_summary_ref`
 - safety booleans proving no provider calls, SQL mutation, model training, activation, broker execution, or account mutation occurred
 
-The preparation bundle may write files under the `trading-storage/storage/05_replay_datasets/<contract_id>/`, but it does not generate manager task/request rows or reusable task keys. Live provider acquisition for the sealed replay is a one-shot gated action that records receipts under the source storage roots.
+The preparation bundle may write files under the `trading-storage/storage/05_replay_datasets/<contract_id>/`, but it does not generate manager task/request rows or reusable task keys. Historical provider acquisition for the sealed replay is a one-shot gated action. It may temporarily materialize only the replay month and candidate set required by the current shard, and the month cache is deleted after the shard writes replay receipts, decision rows, coverage summaries, row counts, and input hashes. Replay must not infer its candidate universe by scanning already materialized local bar directories.
 
-After accepted acquisition coverage, the replay contract references one frozen reusable data snapshot. All replay and downstream evaluation artifacts for that contract must consume that snapshot. Candidate-specific data download, source reinterpretation, or training-flow feature generation is not allowed for replay judgment.
+After accepted acquisition coverage, the replay contract references one frozen reusable evidence snapshot. All replay and downstream evaluation artifacts for that contract must consume that snapshot. Candidate-specific long-lived data download, source reinterpretation, or training-flow feature generation is not allowed for replay judgment.
 
 `replay_dataset_freeze_receipt` records the accepted storage-side freeze. It requires local coverage validation, `missing_feed_acquisition_count = 0`, and only accepted candidate-dependent deferred source ids. It marks the manifest `freeze_status = frozen` and reports safety flags proving no provider calls, SQL mutation, model training, activation, broker execution, or account mutation occurred.
 

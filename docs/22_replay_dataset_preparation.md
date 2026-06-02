@@ -29,7 +29,20 @@ Candidate-policy replay prepares one-shot acquisition requirements for the full 
 - `07_feed_trading_economics_calendar_web` for high-importance U.S. macro event evidence through logged-out visible-page custom-date requests
 - `04_feed_okx_crypto_market_data`
 
-Candidate symbols are not preselected. The candidate universe materializes point-in-time during replay from the accepted candidate policy. ThetaData option-chain snapshots (`09_feed_thetadata_option_selection_snapshot`) are generated on demand from replayed model buy/expression points. Selected-contract feeds (`10_feed_thetadata_option_primary_tracking` and `11_feed_thetadata_option_event_timeline`) expand only after those snapshots produce concrete expiration/right/strike selections. They are not guessed or pre-scanned across every replay day in the initial bundle.
+Candidate symbols are not preselected and must not be inferred by scanning already materialized local bar directories. The candidate universe materializes point-in-time during replay from the accepted candidate policy. ThetaData option-chain snapshots (`09_feed_thetadata_option_selection_snapshot`) are generated on demand from replayed model buy/expression points. Selected-contract feeds (`10_feed_thetadata_option_primary_tracking` and `11_feed_thetadata_option_event_timeline`) expand only after those snapshots produce concrete expiration/right/strike selections. They are not guessed or pre-scanned across every replay day in the initial bundle.
+
+## Replay Acquisition Boundary
+
+Replay acquisition is bounded by the historical replay clock, candidate policy, and monthly shard budget:
+
+- preflight may query or estimate source coverage, request counts, row counts, and storage footprint before provider execution;
+- provider execution may temporarily materialize only the month and candidate set required by the replay shard;
+- temporary month-cache data lives under the replay dataset/run boundary, not under canonical long-lived monthly backfill source roots;
+- raw provider payloads are not persisted unless a source contract explicitly requires raw evidence;
+- after the month shard writes its replay receipt, decision rows, coverage summary, row counts, and input hashes, the temporary month-cache data is deleted;
+- retained replay evidence is lightweight manifest, receipt, coverage, hash, and decision-row evidence sufficient to prove what was replayed without keeping every transient downloaded input.
+
+This keeps historical replay close to live execution while preventing the sealed replay contract from depending on whatever local source data happened to exist before the run.
 
 ## Command
 
@@ -40,7 +53,7 @@ PYTHONPATH=src python3 scripts/evaluation/prepare_replay_dataset.py \
   --data-root /root/projects/trading-storage/storage/01_source_data
 ```
 
-The generated acquisition plan records feed parameters and target output roots only. Trading Economics rows use `use_authenticated_cookies=false`; the completed historical TE pass is a one-time replay seed and does not depend on an ongoing subscription. Live provider calls require a separate one-shot replay acquisition gate, but they do not need manager task rows or reusable task keys because this dataset is a sealed one-time replay artifact.
+The generated acquisition plan records feed parameters and target output roots only. Trading Economics rows use `use_authenticated_cookies=false`; the completed historical TE pass is a one-time replay seed and does not depend on an ongoing subscription. Historical provider calls require a separate one-shot replay acquisition gate, but they do not need manager task rows or reusable task keys because this dataset is a sealed one-time replay artifact.
 
 ## Reusable Frozen Snapshot
 
