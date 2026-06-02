@@ -337,6 +337,8 @@ def _acquisition_rows_for_source_window(
                     asset_class="us_equity",
                     instrument_type="underlying_or_listed_option",
                     params_extra={
+                        "symbol": target_ref,
+                        "symbols": [target_ref],
                         "target_ref": target_ref,
                         "target_refs": [target_ref],
                         "underlying_symbol": target_ref,
@@ -483,6 +485,10 @@ def _feed_params(contract: ReplayContract, source: Mapping[str, str], window: Ma
                 "persist_failure_diagnostics": True,
             }
         )
+    if source["source_id"] in {"alpaca_bars", "alpaca_liquidity"}:
+        params.update({"limit": 1000, "max_pages": 10})
+    if source["source_id"] == "alpaca_news":
+        params.update({"limit": 50, "max_pages": 10})
     if source["source_id"] == "okx_crypto_market_data":
         params.update({"limit": 100, "max_pages": 1})
     return params

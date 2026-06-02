@@ -127,6 +127,7 @@ def build_candidate_policy_replay_execution_run(
     include_equity: bool = True,
     equity_source_root: Path = EQUITY_SOURCE_ROOT,
     equity_symbols: Sequence[str] | None = None,
+    replay_month: str | None = None,
     option_feature_database_url: str | None = None,
     option_feature_schema: str = "trading_data",
     option_feature_table: str = "m09_option_expression_feature_generation",
@@ -138,8 +139,14 @@ def build_candidate_policy_replay_execution_run(
     if after_cost_alpha_model is None:
         raise ValueError("after_cost_alpha_model is required for replay Layer 5 inference")
     manifest = _load_json(dataset_root / "dataset_manifest.json")
-    freeze_receipt = _load_json(dataset_root / "replay_freeze_receipt.json")
-    _validate_frozen_dataset(manifest, freeze_receipt)
+    freeze_receipt_path = dataset_root / "replay_freeze_receipt.json"
+    freeze_receipt: dict[str, Any] | None = None
+    plan_path = Path(str(manifest["feed_acquisition_plan_ref"]))
+    if replay_month:
+        _validate_replay_month_coverage(plan_path=plan_path, replay_month=replay_month)
+    else:
+        freeze_receipt = _load_json(freeze_receipt_path)
+        _validate_frozen_dataset(manifest, freeze_receipt)
     generated_at = generated_at_utc or _now_utc()
     run_id = run_id or f"candidate_policy_replay_{generated_at.replace(':', '').replace('-', '').replace('Z', 'Z')}"
     output_dir = output_dir or dataset_root / "replay_execution_runs" / run_id
@@ -150,11 +157,12 @@ def build_candidate_policy_replay_execution_run(
     calibration_path = output_dir / "entry_threshold_calibration.json"
 
     bars_by_target = _load_candidate_policy_bars(
-        plan_path=Path(str(manifest["feed_acquisition_plan_ref"])),
+        plan_path=plan_path,
         include_crypto=include_crypto,
         include_equity=include_equity,
         equity_source_root=equity_source_root,
         equity_symbols=equity_symbols or _manifest_equity_target_refs(manifest),
+        replay_month=replay_month,
     )
     if not bars_by_target:
         raise ValueError("candidate-policy replay found no materialized market bars")
@@ -220,7 +228,8 @@ def build_candidate_policy_replay_execution_run(
         "replay_route_ref": EXECUTION_REPLAY_ROUTE_REF,
         "dataset_root": str(dataset_root),
         "dataset_manifest_ref": str(dataset_root / "dataset_manifest.json"),
-        "replay_freeze_receipt_ref": str(dataset_root / "replay_freeze_receipt.json"),
+        "replay_freeze_receipt_ref": None if replay_month else str(freeze_receipt_path),
+        "replay_month": replay_month,
         "decision_rows_ref": str(decision_rows_path),
         "progress_ref": str(progress_path),
         "entry_threshold_calibration_ref": str(entry_calibration.path),
@@ -684,10 +693,16 @@ def _load_candidate_policy_bars(
     include_equity: bool,
     equity_source_root: Path,
     equity_symbols: Sequence[str] | None = None,
+    replay_month: str | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    rows_by_target = _load_crypto_bars(plan_path) if include_crypto else {}
+    rows_by_target = _load_crypto_bars(plan_path, replay_month=replay_month) if include_crypto else {}
     if include_equity:
-        for target, rows in _load_equity_bars(equity_source_root=equity_source_root, equity_symbols=equity_symbols).items():
+        equity_rows = (
+            _load_equity_bars_from_plan(plan_path=plan_path, replay_month=replay_month, equity_symbols=equity_symbols)
+            if replay_month
+            else _load_equity_bars(equity_source_root=equity_source_root, equity_symbols=equity_symbols)
+        )
+        for target, rows in equity_rows.items():
             if rows:
                 rows_by_target[target] = rows
     return rows_by_target
@@ -850,11 +865,13 @@ def _default_option_feature_database_url() -> str | None:
     return None
 
 
-def _load_crypto_bars(plan_path: Path) -> dict[str, list[dict[str, Any]]]:
+def _load_crypto_bars(plan_path: Path, *, replay_month: str | None = None) -> dict[str, list[dict[str, Any]]]:
     rows_by_target: dict[str, list[dict[str, Any]]] = defaultdict(list)
     with plan_path.open(newline="", encoding="utf-8") as handle:
         for plan_row in csv.DictReader(handle):
             if plan_row.get("source_id") != "okx_crypto_market_data" or plan_row.get("coverage_status") != "available":
+                continue
+            if replay_month and plan_row.get("month") != replay_month:
                 continue
             receipt = _load_json(Path(str(plan_row["coverage_receipt_path"])))
             for output in _latest_succeeded_outputs(receipt):
@@ -868,6 +885,42 @@ def _load_crypto_bars(plan_path: Path) -> dict[str, list[dict[str, Any]]]:
                         bar["asset_class"] = "crypto_spot"
                         bar["source_id"] = "okx_crypto_market_data"
                         rows_by_target[target].append(bar)
+    deduped: dict[str, list[dict[str, Any]]] = {}
+    for target, rows in rows_by_target.items():
+        by_timestamp = {str(row["timestamp"]): row for row in rows}
+        deduped[target] = sorted(by_timestamp.values(), key=lambda row: str(row["timestamp"]))
+    return deduped
+
+
+def _load_equity_bars_from_plan(
+    *,
+    plan_path: Path,
+    replay_month: str | None,
+    equity_symbols: Sequence[str] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    rows_by_target: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    symbol_filter = {str(symbol).upper() for symbol in equity_symbols or []}
+    with plan_path.open(newline="", encoding="utf-8") as handle:
+        for plan_row in csv.DictReader(handle):
+            if plan_row.get("source_id") != "alpaca_bars" or plan_row.get("coverage_status") != "available":
+                continue
+            if replay_month and plan_row.get("month") != replay_month:
+                continue
+            symbol = str(plan_row.get("target_ref") or "").upper()
+            if not symbol or (symbol_filter and symbol not in symbol_filter):
+                continue
+            receipt = _load_json(Path(str(plan_row["coverage_receipt_path"])))
+            for output in _latest_succeeded_outputs(receipt):
+                path = Path(str(output))
+                if path.name != "equity_bar.csv":
+                    continue
+                for row in _read_bar_csv(path):
+                    if replay_month and str(row["timestamp"])[:7] != replay_month:
+                        continue
+                    row["symbol"] = symbol
+                    row["asset_class"] = "us_equity"
+                    row["source_id"] = "alpaca_bars"
+                    rows_by_target[symbol].append(row)
     deduped: dict[str, list[dict[str, Any]]] = {}
     for target, rows in rows_by_target.items():
         by_timestamp = {str(row["timestamp"]): row for row in rows}
@@ -1737,6 +1790,34 @@ def _validate_frozen_dataset(manifest: Mapping[str, Any], freeze_receipt: Mappin
             errors.append("replay freeze receipt must prove no account mutation")
     if errors:
         raise ValueError("; ".join(errors))
+
+
+def _validate_replay_month_coverage(*, plan_path: Path, replay_month: str) -> None:
+    rows: list[dict[str, str]] = []
+    with plan_path.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            if row.get("month") == replay_month:
+                rows.append(dict(row))
+    if not rows:
+        raise ValueError(f"replay month {replay_month} has no feed acquisition rows")
+    unavailable = [
+        f"{row.get('source_id')}:{row.get('coverage_status')}"
+        for row in rows
+        if row.get("coverage_status") != "available"
+    ]
+    if unavailable:
+        raise ValueError(f"replay month {replay_month} source coverage is incomplete: {', '.join(unavailable)}")
+    expected_sources = {
+        "alpaca_bars",
+        "alpaca_liquidity",
+        "alpaca_news",
+        "gdelt_news",
+        "trading_economics_calendar_web",
+    }
+    present_sources = {str(row.get("source_id") or "") for row in rows}
+    missing_sources = sorted(expected_sources - present_sources)
+    if missing_sources:
+        raise ValueError(f"replay month {replay_month} missing required source rows: {', '.join(missing_sources)}")
 
 
 def _write_jsonl(path: Path, rows: Iterable[Mapping[str, Any]]) -> None:

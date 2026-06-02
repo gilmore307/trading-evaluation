@@ -291,6 +291,132 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(rows[0]["asset_expression_route"], "direct_underlying_fallback")
             self.assertEqual(rows[0]["option_surface_status"], "optionable_chain_missing")
 
+    def test_candidate_policy_replay_runs_one_month_from_feed_plan_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dataset_root = root / "dataset"
+            dataset_root.mkdir(parents=True)
+            bar_path = (
+                root
+                / "source"
+                / "replay"
+                / "alpaca_bars"
+                / "promotion_replay_candidate_policy"
+                / "aapl"
+                / "2021-01"
+                / "runs"
+                / "run"
+                / "saved"
+                / "equity_bar.csv"
+            )
+            bar_path.parent.mkdir(parents=True)
+            with bar_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=[
+                        "symbol",
+                        "timeframe",
+                        "timestamp",
+                        "bar_open",
+                        "bar_high",
+                        "bar_low",
+                        "bar_close",
+                        "bar_volume",
+                        "bar_vwap",
+                        "bar_trade_count",
+                    ],
+                )
+                writer.writeheader()
+                writer.writerows(
+                    [
+                        {
+                            "symbol": "AAPL",
+                            "timeframe": "1Day",
+                            "timestamp": "2021-01-04T16:00:00-05:00",
+                            "bar_open": "100.0",
+                            "bar_high": "101.0",
+                            "bar_low": "99.0",
+                            "bar_close": "100.5",
+                            "bar_volume": "1000",
+                            "bar_vwap": "",
+                            "bar_trade_count": "",
+                        },
+                        {
+                            "symbol": "AAPL",
+                            "timeframe": "1Day",
+                            "timestamp": "2021-01-05T16:00:00-05:00",
+                            "bar_open": "100.5",
+                            "bar_high": "103.0",
+                            "bar_low": "100.0",
+                            "bar_close": "102.5",
+                            "bar_volume": "1100",
+                            "bar_vwap": "",
+                            "bar_trade_count": "",
+                        },
+                    ]
+                )
+            receipt_path = bar_path.parents[2] / "completion_receipt.json"
+            receipt_path.write_text(
+                json.dumps({"runs": [{"status": "succeeded", "outputs": [str(bar_path)]}]}) + "\n",
+                encoding="utf-8",
+            )
+            plan_path = dataset_root / "feed_acquisition_plan.csv"
+            source_ids = [
+                "alpaca_bars",
+                "alpaca_liquidity",
+                "alpaca_news",
+                "gdelt_news",
+                "trading_economics_calendar_web",
+            ]
+            with plan_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=["source_id", "month", "target_ref", "coverage_status", "coverage_receipt_path"],
+                )
+                writer.writeheader()
+                for source_id in source_ids:
+                    writer.writerow(
+                        {
+                            "source_id": source_id,
+                            "month": "2021-01",
+                            "target_ref": "AAPL" if source_id.startswith("alpaca") else "",
+                            "coverage_status": "available",
+                            "coverage_receipt_path": str(receipt_path if source_id == "alpaca_bars" else root / f"{source_id}.json"),
+                        }
+                    )
+            (dataset_root / "dataset_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "contract_type": "replay_dataset_preparation_manifest",
+                        "contract_id": "promotion_replay_candidate_policy",
+                        "freeze_status": "not_frozen",
+                        "missing_feed_acquisition_count": 100,
+                        "target_refs": ["AAPL"],
+                        "feed_acquisition_plan_ref": str(plan_path),
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = build_candidate_policy_replay_execution_run(
+                dataset_root=dataset_root,
+                run_id="test_month_replay",
+                candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                after_cost_alpha_model=_after_cost_alpha_model(),
+                replay_month="2021-01",
+                include_crypto=False,
+                equity_symbols=["AAPL"],
+                max_decision_rows=1,
+                option_feature_database_url="",
+            )
+
+            self.assertEqual(result.receipt["replay_month"], "2021-01")
+            self.assertIsNone(result.receipt["replay_freeze_receipt_ref"])
+            self.assertEqual(result.receipt["asset_class_counts"]["us_equity"], 1)
+            rows = [json.loads(line) for line in result.decision_rows_path.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(rows[0]["target_ref"], "AAPL")
+
     def test_candidate_policy_replay_uses_m09_option_path_return(self):
         original_feature_loader = replay_module._load_option_candidate_features
         original_path_loader = replay_module._load_option_contract_path_bars

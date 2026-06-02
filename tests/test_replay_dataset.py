@@ -119,6 +119,10 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
                 "retain_receipts_and_delete_replay_cache_after_month_operation",
             )
             self.assertEqual(params["target_refs"], ["AAPL"])
+            self.assertEqual(params["symbol"], "AAPL")
+            self.assertEqual(params["symbols"], ["AAPL"])
+            self.assertEqual(params["limit"], 1000)
+            self.assertEqual(params["max_pages"], 10)
             self.assertEqual(params["instrument_route"], "live_equivalent_underlying_then_option_expression")
             self.assertEqual(bars_row["coverage_status"], "available")
             gdelt_row = next(row for row in acquisition_rows if row["source_id"] == "gdelt_news")

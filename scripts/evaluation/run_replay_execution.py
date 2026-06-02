@@ -36,6 +36,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--max-decision-rows", type=int)
     parser.add_argument("--progress-path", type=Path)
     parser.add_argument("--calibration-window-month-count", type=int, default=1)
+    parser.add_argument("--replay-month", help="Run one replay month from feed_acquisition_plan.csv without requiring a full frozen dataset.")
     parser.add_argument("--exclude-crypto", action="store_true", help="Run only the materialized equity/option sleeve.")
     parser.add_argument("--exclude-equity", action="store_true", help="Run only the fixed crypto sleeve.")
     parser.add_argument("--equity-source-root", type=Path, default=Path("/root/projects/trading-storage/storage/01_source_data/monthly_backfill/alpaca_bars"))
@@ -67,6 +68,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         include_equity=not args.exclude_equity,
         equity_source_root=args.equity_source_root,
         equity_symbols=args.equity_symbols,
+        replay_month=args.replay_month,
         option_feature_database_url=args.option_feature_database_url,
         option_feature_schema=args.option_feature_schema,
         option_feature_table=args.option_feature_table,
