@@ -15,7 +15,7 @@ This preparation step is not a replay freeze and does not use the manager task/r
 
 - source contract: accepted candidate-policy replay under `trading-evaluation/replays/`
 - replay window: canonical `2021-01-01` through `2026-01-01` end-exclusive unless an explicitly reviewed exception is supplied
-- candidate fold id and training target context: explicit, for example `fold_2016-01_2016-06` and `training_target_ref=AAPL`
+- candidate fold id: explicit, for example `fold_2016-01_2016-06`
 - tradable universe artifact: explicit, live-equivalent candidate universe used by replay trading decisions
 - local coverage scan root: `trading-storage/storage/01_source_data`
 - runtime output root: `trading-storage/storage/05_replay_datasets`
@@ -52,7 +52,6 @@ This keeps historical replay close to live execution while preventing the sealed
 PYTHONPATH=src python3 scripts/evaluation/prepare_replay_dataset.py \
   --contract replays/promotion_replay_candidate_policy.json \
   --candidate-fold-id fold_2016-01_2016-06 \
-  --training-target-ref AAPL \
   --tradable-universe-ref /root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy/tradable_universe.json \
   --output-root /root/projects/trading-storage/storage/05_replay_datasets \
   --data-root /root/projects/trading-storage/storage/01_source_data

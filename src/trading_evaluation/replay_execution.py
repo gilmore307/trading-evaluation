@@ -227,7 +227,6 @@ def build_candidate_policy_replay_execution_run(
         "replay_contract_ref": replay_contract_ref,
         "replay_route_ref": EXECUTION_REPLAY_ROUTE_REF,
         "candidate_fold_id": str(manifest.get("candidate_fold_id") or manifest.get("fold_id") or ""),
-        "training_target_ref": str(manifest.get("training_target_ref") or ""),
         "tradable_target_refs": sorted(_string_set(manifest.get("tradable_target_refs"))),
         "dataset_root": str(dataset_root),
         "dataset_manifest_ref": str(dataset_root / "dataset_manifest.json"),

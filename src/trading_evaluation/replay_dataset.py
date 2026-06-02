@@ -144,7 +144,6 @@ def prepare_replay_dataset(
         "replay_route_ref": contract.replay_route_ref,
         "candidate_fold_id": contract.candidate_fold_id,
         "fold_id": contract.candidate_fold_id,
-        "training_target_ref": contract.training_target_ref,
         "tradable_universe_policy_ref": contract.tradable_universe_policy_ref,
         "tradable_universe_ref": contract.tradable_universe_ref,
         "tradable_target_refs": list(tradable_target_refs),

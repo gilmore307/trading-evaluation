@@ -11,7 +11,7 @@ from trading_evaluation import is_training_fold_blocked_by_replay, validate_repl
 VALID_CONTRACT = {
     "contract_id": "promotion_replay_fixture",
     "replay_mode": "candidate_policy_replay",
-    "training_target_ref": "AAPL",
+    "candidate_fold_id": "fold_2016-01_2016-06",
     "tradable_universe_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/live_equivalent",
     "tradable_universe_ref": "/tmp/replay_tradable_universe.json",
     "start_date": "2021-01-01",
@@ -59,7 +59,7 @@ class ReplayContractTests(unittest.TestCase):
         )
         result = validate_replay_contract(payload)
         self.assertEqual(result.validation_status, "failed")
-        self.assertIn("target_symbol is not allowed for promotion replay; use training_target_ref", result.errors)
+        self.assertIn("target_symbol is not allowed for promotion replay; use candidate_fold_id", result.errors)
         self.assertIn("replay_components are obsolete for promotion replay; use candidate_policy_ref", result.errors)
 
     def test_target_refs_are_rejected_as_replay_scope(self):
@@ -86,7 +86,6 @@ class ReplayContractTests(unittest.TestCase):
         self.assertEqual(result.validation_status, "passed")
         assert result.contract is not None
         self.assertEqual(result.contract.candidate_fold_id, "fold_2016-01_2016-06")
-        self.assertEqual(result.contract.training_target_ref, "AAPL")
 
     def test_fold_bound_replay_window_requires_positive_min_trading_days(self):
         payload = dict(

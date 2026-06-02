@@ -132,7 +132,6 @@ class ReplayExecutionTests(unittest.TestCase):
                     "contract_id": "promotion_replay_candidate_policy",
                     "freeze_status": "frozen",
                     "missing_feed_acquisition_count": 0,
-                    "training_target_ref": "AAPL",
                     "tradable_target_refs": ["SOL"],
                     "feed_acquisition_plan_ref": str(plan_path),
                 }
@@ -392,7 +391,6 @@ class ReplayExecutionTests(unittest.TestCase):
                         "contract_id": "promotion_replay_candidate_policy",
                         "freeze_status": "not_frozen",
                         "missing_feed_acquisition_count": 100,
-                        "training_target_ref": "AAPL",
                         "tradable_target_refs": ["AAPL"],
                         "feed_acquisition_plan_ref": str(plan_path),
                     }

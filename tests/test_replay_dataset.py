@@ -13,7 +13,6 @@ VALID_DATASET_CONTRACT = {
     "contract_id": "promotion_replay_dataset_test",
     "replay_mode": "candidate_policy_replay",
     "candidate_fold_id": "fold_2016-01_2016-06",
-    "training_target_ref": "AAPL",
     "tradable_universe_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/live_equivalent",
     "start_date": "2021-01-01",
     "end_date": "2026-01-01",
@@ -50,7 +49,6 @@ def _manifest_with_universe(overrides: dict[str, object] | None = None) -> dict[
         "contract_type": "replay_dataset_preparation_manifest",
         "contract_id": "promotion_replay_dataset_test",
         "freeze_status": "not_frozen",
-        "training_target_ref": "AAPL",
         "tradable_universe_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/live_equivalent",
         "tradable_target_refs": ["AAPL"],
     }
@@ -96,7 +94,6 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             self.assertEqual(prepared.manifest["contract_type"], "replay_dataset_preparation_manifest")
             self.assertEqual(prepared.manifest["replay_mode"], "candidate_policy_replay")
             self.assertEqual(prepared.manifest["candidate_fold_id"], "fold_2016-01_2016-06")
-            self.assertEqual(prepared.manifest["training_target_ref"], "AAPL")
             self.assertEqual(prepared.manifest["tradable_target_refs"], ["AAPL"])
             self.assertEqual(prepared.manifest["replay_window_count"], 1)
             self.assertEqual(prepared.manifest["feed_acquisition_count"], 300)

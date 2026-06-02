@@ -13,7 +13,6 @@ trading_evaluation.replay_contract
 - `contract_id`
 - `replay_mode = candidate_policy_replay`
 - `candidate_fold_id`
-- `training_target_ref`
 - `tradable_universe_policy_ref`
 - `tradable_universe_ref`
 - `start_date`
@@ -29,7 +28,7 @@ trading_evaluation.replay_contract
 - `selection_metric_refs`
 - `excluded_training_windows` covering the full replay window
 
-The validator requires a candidate-policy replay with a valid replay window, positive minimum trading days, sufficient declared market-condition coverage, non-empty candidate policy, replay route, data snapshot, cost model, baseline refs, guardrail refs, selection metric refs, explicit exclusion windows covering the full replay window, a `training_target_ref`, and a live-equivalent `tradable_universe_ref`. `target_symbol`, `target_refs`, and `replay_components` are rejected at the replay-contract boundary. `is_training_fold_blocked_by_replay` blocks folds that overlap the sealed replay window.
+The validator requires a candidate-policy replay with a valid replay window, positive minimum trading days, sufficient declared market-condition coverage, non-empty candidate policy, replay route, data snapshot, cost model, baseline refs, guardrail refs, selection metric refs, explicit exclusion windows covering the full replay window, `candidate_fold_id`, and a live-equivalent `tradable_universe_ref`. `target_symbol`, `target_refs`, and `replay_components` are rejected at the replay-contract boundary. The manager owns model-artifact selection from completed fold state; replay does not carry or consume the training target symbol. `is_training_fold_blocked_by_replay` blocks folds that overlap the sealed replay window.
 
 The accepted `replay_route_ref` is `trading-execution://execution_runtime_component_graph/replay`. Replay calls the execution-owned component graph with Replay adapters; evaluation does not own a separate trading decision graph.
 
@@ -76,7 +75,6 @@ Required fields include:
 - `source_contract_ref`
 - `dataset_root`
 - `candidate_fold_id`
-- `training_target_ref`
 - `tradable_universe_policy_ref`
 - `tradable_universe_ref`
 - `tradable_target_refs`

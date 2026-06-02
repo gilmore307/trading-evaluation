@@ -36,7 +36,6 @@ class ReplayContract:
     contract_id: str
     replay_mode: str
     candidate_fold_id: str
-    training_target_ref: str
     tradable_universe_policy_ref: str
     tradable_universe_ref: str
     start_date: date
@@ -65,7 +64,6 @@ class ReplayContract:
             contract_id=str(payload.get("contract_id") or "").strip(),
             replay_mode=str(payload.get("replay_mode") or "").strip(),
             candidate_fold_id=str(payload.get("candidate_fold_id") or payload.get("fold_id") or "").strip(),
-            training_target_ref=str(payload.get("training_target_ref") or "").strip().upper(),
             tradable_universe_policy_ref=str(payload.get("tradable_universe_policy_ref") or "").strip(),
             tradable_universe_ref=str(payload.get("tradable_universe_ref") or "").strip(),
             start_date=_parse_date(payload.get("start_date"), field_name="start_date"),
@@ -87,7 +85,6 @@ class ReplayContract:
             "contract_id": self.contract_id,
             "replay_mode": self.replay_mode,
             "candidate_fold_id": self.candidate_fold_id,
-            "training_target_ref": self.training_target_ref,
             "tradable_universe_policy_ref": self.tradable_universe_policy_ref,
             "tradable_universe_ref": self.tradable_universe_ref,
             "start_date": self.start_date.isoformat(),
@@ -142,7 +139,7 @@ def validate_replay_contract(payload: Mapping[str, Any]) -> ReplayValidation:
         )
 
     if payload.get("target_symbol"):
-        errors.append("target_symbol is not allowed for promotion replay; use training_target_ref")
+        errors.append("target_symbol is not allowed for promotion replay; use candidate_fold_id")
     if payload.get("target_refs") or payload.get("replay_target_refs") or payload.get("candidate_target_refs"):
         errors.append("target_refs are not allowed for promotion replay; use tradable_universe_ref")
     if payload.get("replay_components"):
@@ -162,8 +159,8 @@ def validate_replay_contract(payload: Mapping[str, Any]) -> ReplayValidation:
         errors.append("market_condition_tags must cover at least four distinct market conditions")
     if not contract.candidate_policy_ref:
         errors.append("candidate_policy_ref is required")
-    if not contract.training_target_ref:
-        errors.append("training_target_ref is required")
+    if not contract.candidate_fold_id:
+        errors.append("candidate_fold_id is required")
     if not contract.tradable_universe_policy_ref:
         errors.append("tradable_universe_policy_ref is required")
     if not contract.tradable_universe_ref:
