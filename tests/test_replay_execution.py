@@ -278,6 +278,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 equity_source_root=equity_source_root,
                 equity_symbols=["AAPL"],
                 max_decision_rows=1,
+                option_feature_database_url="",
             )
 
             self.assertEqual(result.receipt["execution_scope"], "candidate_policy_replay_materialized_market_data")
@@ -289,15 +290,16 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(rows[0]["asset_expression_route"], "direct_underlying_fallback")
             self.assertEqual(rows[0]["option_surface_status"], "optionable_chain_missing")
 
-    def test_candidate_policy_replay_uses_source_06_option_path_return(self):
+    def test_candidate_policy_replay_uses_m09_option_path_return(self):
         original_feature_loader = replay_module._load_option_candidate_features
         original_path_loader = replay_module._load_option_contract_path_bars
+        original_plan_builder = replay_module._option_expression_plan_for_bar
         try:
             replay_module._load_option_candidate_features = lambda **_: {
                 ("AAPL", "2021-01-04T16:00:00-05:00"): [
                     {
-                        "contract_ref": "AAPL_2021-01-15_C_100",
-                        "option_right": "CALL",
+                        "contract_ref": "AAPL_2021-01-15_P_100",
+                        "option_right": "PUT",
                         "expiration": "2021-01-15",
                         "strike": 100.0,
                         "dte": 11,
@@ -315,10 +317,21 @@ class ReplayExecutionTests(unittest.TestCase):
                 ]
             }
             replay_module._load_option_contract_path_bars = lambda **_: {
-                "AAPL_2021-01-15_C_100": [
-                    {"option_symbol": "AAPL_2021-01-15_C_100", "timestamp": "2021-01-04T16:00:00-05:00", "bar_close": 2.0},
-                    {"option_symbol": "AAPL_2021-01-15_C_100", "timestamp": "2021-01-05T16:00:00-05:00", "bar_close": 3.0},
+                "AAPL_2021-01-15_P_100": [
+                    {"option_symbol": "AAPL_2021-01-15_P_100", "timestamp": "2021-01-04T16:00:00-05:00", "bar_close": 2.0},
+                    {"option_symbol": "AAPL_2021-01-15_P_100", "timestamp": "2021-01-05T16:00:00-05:00", "bar_close": 3.0},
                 ]
+            }
+            replay_module._option_expression_plan_for_bar = lambda **_: {
+                "model_ref": "storage://trading-manager/model_group/test_fold/model_09_option_expression/test",
+                "target_ref": "AAPL",
+                "asset_expression_route": "listed_option_contract",
+                "option_surface_status": "optionable_chain_available",
+                "selected_expression_type": "long_put",
+                "selected_contract": {
+                    "contract_ref": "AAPL_2021-01-15_P_100",
+                    "mid_price": 2.15,
+                },
             }
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
@@ -338,9 +351,9 @@ class ReplayExecutionTests(unittest.TestCase):
                 rows = [json.loads(line) for line in result.decision_rows_path.read_text(encoding="utf-8").splitlines()]
                 self.assertEqual(rows[0]["asset_expression_route"], "listed_option_contract")
                 self.assertEqual(rows[0]["asset_class"], "us_option")
-                self.assertEqual(rows[0]["selected_option_contract_ref"], "AAPL_2021-01-15_C_100")
+                self.assertEqual(rows[0]["selected_option_contract_ref"], "AAPL_2021-01-15_P_100")
                 self.assertEqual(rows[0]["option_contract_path_status"], "available")
-                self.assertEqual(rows[0]["return_source"], "source_06_selected_contract_path")
+                self.assertEqual(rows[0]["return_source"], "m09_option_expression_contract_path")
                 self.assertEqual(rows[0]["option_entry_price"], 2.0)
                 self.assertEqual(rows[0]["option_exit_price"], 3.0)
                 self.assertEqual(result.receipt["option_contract_path_symbol_count"], 1)
@@ -350,6 +363,7 @@ class ReplayExecutionTests(unittest.TestCase):
         finally:
             replay_module._load_option_candidate_features = original_feature_loader
             replay_module._load_option_contract_path_bars = original_path_loader
+            replay_module._option_expression_plan_for_bar = original_plan_builder
 
     def test_option_expression_plan_selects_loaded_contract_candidate(self):
         plan = replay_module._option_expression_plan_for_bar(

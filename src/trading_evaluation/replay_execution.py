@@ -158,7 +158,9 @@ def build_candidate_policy_replay_execution_run(
     )
     if not bars_by_target:
         raise ValueError("candidate-policy replay found no materialized market bars")
-    resolved_option_feature_database_url = option_feature_database_url or _default_option_feature_database_url()
+    resolved_option_feature_database_url = (
+        _default_option_feature_database_url() if option_feature_database_url is None else option_feature_database_url
+    )
     option_candidates_by_underlying_time = _load_option_candidate_features(
         database_url=resolved_option_feature_database_url,
         schema=option_feature_schema,
@@ -249,7 +251,7 @@ def build_candidate_policy_replay_execution_run(
         "notes": [
             "candidate-policy replay over frozen OKX crypto bars and materialized Alpaca equity bars",
             "equity/options account uses direct-underlying fallback when option surface status is optionable_chain_missing",
-            "listed option decisions use source_06 selected-contract paths when available and zero realized return when selected-contract exit data is missing",
+            "listed option decisions use M09 selected-contract paths when available and zero realized return when selected-contract exit data is missing",
             "this run emits settlement-ready decision rows but is not a promotion eligibility decision",
         ],
     }
@@ -571,6 +573,7 @@ def _build_candidate_policy_decision_rows(
             filled = fill.get("fill_status") == "simulated_filled"
             selected_contract = _as_mapping(_as_mapping(option_expression_plan).get("selected_contract"))
             selected_option_contract_ref = str(selected_contract.get("contract_ref") or selected_contract.get("option_symbol") or "")
+            asset_class = "us_option" if selected_option_contract_ref else entry.get("asset_class") or bar.get("asset_class")
             option_path_result = _option_contract_path_return(
                 selected_option_contract_ref=selected_option_contract_ref,
                 entry_timestamp=str(bar["timestamp"]),
@@ -584,7 +587,7 @@ def _build_candidate_policy_decision_rows(
             if selected_option_contract_ref:
                 if option_path_result:
                     gross_return = float(option_path_result["gross_return"])
-                    return_source = "source_06_selected_contract_path"
+                    return_source = "m09_option_expression_contract_path"
                     option_contract_path_status = "available"
                     option_entry_price = option_path_result["entry_price"]
                     option_exit_price = option_path_result["exit_price"]
@@ -606,7 +609,7 @@ def _build_candidate_policy_decision_rows(
                     "account_sleeve_id": _account_sleeve_for_bar(bar),
                     "target_ref": target,
                     "instrument_ref": entry["instrument_ref"],
-                    "asset_class": entry.get("asset_class") or bar.get("asset_class"),
+                    "asset_class": asset_class,
                     "asset_expression_route": str(_as_mapping(option_expression_plan).get("asset_expression_route") or ""),
                     "option_surface_status": str(_as_mapping(option_expression_plan).get("option_surface_status") or ""),
                     "selected_option_expression_type": _as_mapping(option_expression_plan).get("selected_expression_type"),
