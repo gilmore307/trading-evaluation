@@ -308,6 +308,58 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(rows[0]["asset_expression_route"], "direct_underlying_fallback")
             self.assertEqual(rows[0]["option_surface_status"], "optionable_chain_missing")
 
+    def test_candidate_policy_replay_requires_layer_two_candidate_handoff_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dataset_root = self._dataset(root)
+            equity_source_root = self._equity_source_root(root)
+
+            with self.assertRaisesRegex(ValueError, "Layer 2 target-candidate handoff"):
+                build_candidate_policy_replay_execution_run(
+                    dataset_root=dataset_root,
+                    run_id="test_candidate_handoff_required",
+                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    after_cost_alpha_model=_after_cost_alpha_model(),
+                    equity_source_root=equity_source_root,
+                    include_crypto=False,
+                    option_feature_database_url="",
+                )
+
+    def test_candidate_policy_replay_uses_layer_two_candidate_handoff_symbols(self):
+        original_loader = replay_module._load_layer_two_candidate_handoff_rows
+        try:
+            replay_module._load_layer_two_candidate_handoff_rows = lambda **_: [
+                {
+                    "etf_symbol": "XLK",
+                    "as_of_date": "2021-01-04",
+                    "available_time": "2021-01-05T09:30:00-05:00",
+                    "holding_symbol": "AAPL",
+                    "holding_name": "Apple Inc.",
+                }
+            ]
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                dataset_root = self._dataset(root)
+                equity_source_root = self._equity_source_root(root)
+                result = build_candidate_policy_replay_execution_run(
+                    dataset_root=dataset_root,
+                    run_id="test_candidate_handoff_symbols",
+                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    after_cost_alpha_model=_after_cost_alpha_model(),
+                    equity_source_root=equity_source_root,
+                    include_crypto=False,
+                    max_decision_rows=1,
+                    option_feature_database_url="",
+                )
+
+                self.assertEqual(result.receipt["candidate_handoff_status"], "available")
+                self.assertEqual(result.receipt["candidate_handoff_source"], "layer_02_target_candidate_handoff")
+                self.assertEqual(result.receipt["candidate_handoff_symbols"], ["AAPL"])
+                rows = [json.loads(line) for line in result.decision_rows_path.read_text(encoding="utf-8").splitlines()]
+                self.assertEqual(rows[0]["target_ref"], "AAPL")
+        finally:
+            replay_module._load_layer_two_candidate_handoff_rows = original_loader
+
     def test_candidate_policy_replay_runs_one_month_from_feed_plan_cache(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

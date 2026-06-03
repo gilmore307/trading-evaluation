@@ -143,6 +143,9 @@ def build_candidate_policy_replay_execution_run(
     option_feature_schema: str = "trading_data",
     option_feature_table: str = "m09_option_expression_feature_generation",
     option_contract_path_table: str = "m09_option_expression_data_acquisition_contract_path",
+    candidate_handoff_database_url: str | None = None,
+    candidate_handoff_schema: str = "trading_data",
+    candidate_handoff_table: str = "m02_sector_context_data_acquisition",
 ) -> ReplayExecutionResult:
     """Run candidate-policy replay over frozen crypto plus materialized equity bars."""
 
@@ -158,6 +161,22 @@ def build_candidate_policy_replay_execution_run(
     else:
         freeze_receipt = _load_json(freeze_receipt_path)
         _validate_frozen_dataset(manifest, freeze_receipt)
+    resolved_option_feature_database_url = (
+        _default_option_feature_database_url() if option_feature_database_url is None else option_feature_database_url
+    )
+    resolved_candidate_handoff_database_url = (
+        resolved_option_feature_database_url
+        if candidate_handoff_database_url is None
+        else candidate_handoff_database_url
+    )
+    candidate_handoff = _candidate_handoff_for_replay(
+        database_url=resolved_candidate_handoff_database_url,
+        schema=candidate_handoff_schema,
+        table=candidate_handoff_table,
+        explicit_equity_symbols=equity_symbols,
+        include_equity=include_equity,
+        replay_month=replay_month,
+    )
     generated_at = generated_at_utc or _now_utc()
     run_id = run_id or f"candidate_policy_replay_{generated_at.replace(':', '').replace('-', '').replace('Z', 'Z')}"
     output_dir = output_dir or dataset_root / "replay_execution_runs" / run_id
@@ -172,13 +191,16 @@ def build_candidate_policy_replay_execution_run(
         include_crypto=include_crypto,
         include_equity=include_equity,
         equity_source_root=equity_source_root,
-        equity_symbols=equity_symbols or _manifest_equity_target_refs(manifest),
+        equity_symbols=candidate_handoff["candidate_symbols"],
         replay_month=replay_month,
     )
     if not bars_by_target:
         raise ValueError("candidate-policy replay found no materialized market bars")
-    resolved_option_feature_database_url = (
-        _default_option_feature_database_url() if option_feature_database_url is None else option_feature_database_url
+    _validate_equity_candidate_bar_coverage(
+        include_equity=include_equity,
+        explicit_equity_symbols=equity_symbols,
+        candidate_handoff=candidate_handoff,
+        bars_by_target=bars_by_target,
     )
     option_candidates_by_underlying_time = _load_option_candidate_features(
         database_url=resolved_option_feature_database_url,
@@ -259,6 +281,16 @@ def build_candidate_policy_replay_execution_run(
         "completed_replay_month_count": len(progress_rows),
         "target_refs": sorted(bars_by_target),
         "asset_class_counts": _asset_class_counts(bars_by_target),
+        "candidate_handoff_table_ref": (
+            None
+            if not resolved_candidate_handoff_database_url or candidate_handoff["source"] == "explicit_candidate_symbols_override"
+            else f"{candidate_handoff_schema}.{candidate_handoff_table}"
+        ),
+        "candidate_handoff_status": candidate_handoff["status"],
+        "candidate_handoff_source": candidate_handoff["source"],
+        "candidate_handoff_row_count": candidate_handoff["row_count"],
+        "candidate_handoff_symbol_count": len(candidate_handoff["candidate_symbols"]),
+        "candidate_handoff_symbols": list(candidate_handoff["candidate_symbols"]),
         "option_feature_table_ref": None if not resolved_option_feature_database_url else f"{option_feature_schema}.{option_feature_table}",
         "option_feature_snapshot_count": len(option_candidates_by_underlying_time),
         "option_feature_candidate_count": sum(len(rows) for rows in option_candidates_by_underlying_time.values()),
@@ -758,6 +790,129 @@ def _load_candidate_policy_bars(
             if rows:
                 rows_by_target[target] = rows
     return rows_by_target
+
+
+def _candidate_handoff_for_replay(
+    *,
+    database_url: str | None,
+    schema: str,
+    table: str,
+    explicit_equity_symbols: Sequence[str] | None,
+    include_equity: bool,
+    replay_month: str | None,
+) -> dict[str, Any]:
+    explicit_symbols = tuple(sorted(_string_set(explicit_equity_symbols)))
+    if not include_equity:
+        return {
+            "status": "not_applicable",
+            "source": "equity_replay_disabled",
+            "candidate_symbols": (),
+            "row_count": 0,
+        }
+    if explicit_symbols:
+        return {
+            "status": "override",
+            "source": "explicit_candidate_symbols_override",
+            "candidate_symbols": explicit_symbols,
+            "row_count": len(explicit_symbols),
+        }
+    rows = _load_layer_two_candidate_handoff_rows(
+        database_url=database_url,
+        schema=schema,
+        table=table,
+        replay_month=replay_month,
+    )
+    symbols = tuple(sorted({str(row.get("holding_symbol") or "").upper() for row in rows if row.get("holding_symbol")}))
+    if not symbols:
+        raise ValueError(
+            "equity/options replay requires Layer 2 target-candidate handoff rows from "
+            f"{schema}.{table}; base_context pre_replay_target_refs are Layer 1/2 context only and are not trade candidates"
+        )
+    return {
+        "status": "available",
+        "source": "layer_02_target_candidate_handoff",
+        "candidate_symbols": symbols,
+        "row_count": len(rows),
+    }
+
+
+def _validate_equity_candidate_bar_coverage(
+    *,
+    include_equity: bool,
+    explicit_equity_symbols: Sequence[str] | None,
+    candidate_handoff: Mapping[str, Any],
+    bars_by_target: Mapping[str, Sequence[Mapping[str, Any]]],
+) -> None:
+    if not include_equity:
+        return
+    expected = set(_string_set(candidate_handoff.get("candidate_symbols")))
+    if not expected:
+        return
+    loaded = {
+        target
+        for target, rows in bars_by_target.items()
+        if rows and str(rows[0].get("asset_class") or "") == "us_equity"
+    }
+    if loaded:
+        return
+    source = str(candidate_handoff.get("source") or "")
+    if source == "explicit_candidate_symbols_override" and explicit_equity_symbols:
+        return
+    raise ValueError(
+        "Layer 2 target-candidate handoff produced equity/options candidates but replay found no materialized "
+        "candidate bars; run the monthly on-demand Alpaca candidate acquisition before replay execution"
+    )
+
+
+def _load_layer_two_candidate_handoff_rows(
+    *,
+    database_url: str | None,
+    schema: str,
+    table: str,
+    replay_month: str | None,
+) -> list[dict[str, Any]]:
+    if not database_url:
+        return []
+    _validate_identifier(schema)
+    _validate_identifier(table)
+    try:
+        import psycopg  # type: ignore
+        from psycopg.rows import dict_row  # type: ignore
+    except ModuleNotFoundError as exc:  # pragma: no cover
+        raise RuntimeError("psycopg is required to load Layer 2 replay candidate handoff rows") from exc
+    with psycopg.connect(database_url, row_factory=dict_row) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT to_regclass(%s) AS table_ref", (f"{schema}.{table}",))
+            exists = cursor.fetchone()
+            if not exists or exists.get("table_ref") is None:
+                return []
+            cursor.execute(
+                f"""
+                SELECT
+                  h."etf_symbol",
+                  h."as_of_date",
+                  h."available_time",
+                  h."holding_symbol",
+                  h."holding_name",
+                  h."weight",
+                  h."sector_type"
+                FROM "{schema}"."{table}" AS h
+                WHERE h."holding_symbol" IS NOT NULL
+                ORDER BY h."available_time" ASC, h."etf_symbol" ASC, h."holding_symbol" ASC
+                """
+            )
+            rows = [dict(row) for row in cursor.fetchall()]
+    if replay_month:
+        return [row for row in rows if _candidate_handoff_row_visible_in_month(row, replay_month)]
+    return rows
+
+
+def _candidate_handoff_row_visible_in_month(row: Mapping[str, Any], replay_month: str) -> bool:
+    if len(replay_month) != 7 or replay_month[4] != "-":
+        return True
+    available_time = str(row.get("available_time") or row.get("as_of_date") or "")
+    as_of_date = str(row.get("as_of_date") or "")
+    return available_time[:7] <= replay_month and (not as_of_date or as_of_date[:7] <= replay_month)
 
 
 def _manifest_equity_target_refs(manifest: Mapping[str, Any]) -> tuple[str, ...]:
