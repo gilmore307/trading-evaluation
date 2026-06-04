@@ -19,6 +19,13 @@
   "guardrail_refs": [
     "replay://guardrail/liquidity_regime"
   ],
+  "initial_capital": {
+    "amount": 25000.0,
+    "broker_or_account_state": false,
+    "currency": "USD",
+    "role": "replay_equity_path_and_return_normalization"
+  },
+  "initial_capital_usd": 25000.0,
   "market_condition_tags": [
     "trend_up",
     "drawdown",

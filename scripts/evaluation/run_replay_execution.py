@@ -12,7 +12,7 @@ from typing import Sequence
 sys.path.insert(0, "/root/projects/trading-execution/src")
 sys.path.insert(0, "/root/projects/trading-model/src")
 
-from trading_evaluation import build_candidate_policy_replay_execution_run
+from trading_evaluation import DEFAULT_REPLAY_INITIAL_CAPITAL_USD, build_candidate_policy_replay_execution_run
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -36,6 +36,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--max-decision-rows", type=int)
     parser.add_argument("--progress-path", type=Path)
     parser.add_argument("--calibration-window-month-count", type=int, default=1)
+    parser.add_argument("--initial-capital-usd", type=float, default=DEFAULT_REPLAY_INITIAL_CAPITAL_USD)
     parser.add_argument("--replay-month", help="Run one replay month from feed_acquisition_plan.csv without requiring a full frozen dataset.")
     parser.add_argument("--exclude-crypto", action="store_true", help="Run only the materialized equity/option sleeve.")
     parser.add_argument("--exclude-equity", action="store_true", help="Run only the fixed crypto sleeve.")
@@ -67,6 +68,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_decision_rows=args.max_decision_rows,
         progress_path=args.progress_path,
         calibration_window_month_count=args.calibration_window_month_count,
+        initial_capital_usd=args.initial_capital_usd,
         include_crypto=not args.exclude_crypto,
         include_equity=not args.exclude_equity,
         equity_source_root=args.equity_source_root,

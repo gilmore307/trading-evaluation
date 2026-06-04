@@ -59,6 +59,8 @@ MODEL_EVIDENCE_CHAIN = (
 DEFAULT_ENTRY_ALPHA_THRESHOLD = 0.50
 DEFAULT_MINIMUM_TRADE_INTENSITY = 0.05
 REPLAY_COST_PER_FILLED_DECISION = 0.0015
+DEFAULT_REPLAY_INITIAL_CAPITAL_USD = 25_000.0
+REPLAY_INITIAL_CAPITAL_CURRENCY = "USD"
 DISALLOWED_PLACEHOLDER_CANDIDATE_MODEL_REFS = (
     "trading-model://candidate_policy_replay/current_deterministic_crypto_policy",
 )
@@ -103,6 +105,7 @@ def build_crypto_replay_execution_run(
     generated_at_utc: str | None = None,
     progress_path: Path | None = None,
     calibration_window_month_count: int = 1,
+    initial_capital_usd: float = DEFAULT_REPLAY_INITIAL_CAPITAL_USD,
 ) -> ReplayExecutionResult:
     """Run the frozen crypto sleeve through the execution-owned Replay route."""
     return build_candidate_policy_replay_execution_run(
@@ -117,6 +120,7 @@ def build_crypto_replay_execution_run(
         generated_at_utc=generated_at_utc,
         progress_path=progress_path,
         calibration_window_month_count=calibration_window_month_count,
+        initial_capital_usd=initial_capital_usd,
         include_equity=False,
     )
 
@@ -146,12 +150,14 @@ def build_candidate_policy_replay_execution_run(
     candidate_handoff_database_url: str | None = None,
     candidate_handoff_schema: str = "trading_data",
     candidate_handoff_table: str = "m02_sector_context_data_acquisition",
+    initial_capital_usd: float = DEFAULT_REPLAY_INITIAL_CAPITAL_USD,
 ) -> ReplayExecutionResult:
     """Run candidate-policy replay over frozen crypto plus materialized equity bars."""
 
     candidate_model_ref = _require_candidate_model_ref(candidate_model_ref)
     if after_cost_alpha_model is None:
         raise ValueError("after_cost_alpha_model is required for replay Layer 5 inference")
+    initial_capital_usd = _validated_initial_capital_usd(initial_capital_usd)
     manifest = _load_json(dataset_root / "dataset_manifest.json")
     freeze_receipt_path = dataset_root / "replay_freeze_receipt.json"
     freeze_receipt: dict[str, Any] | None = None
@@ -250,11 +256,19 @@ def build_candidate_policy_replay_execution_run(
         generated_at_utc=generated_at,
         receipt_path=receipt_path,
         decision_rows_path=decision_rows_path,
+        initial_capital_usd=initial_capital_usd,
     )
     receipt = {
         "contract_type": REPLAY_EXECUTION_RUN_CONTRACT,
         "replay_execution_run_id": run_id,
         "execution_scope": "candidate_policy_replay_materialized_market_data",
+        "initial_capital_usd": initial_capital_usd,
+        "initial_capital": {
+            "amount": initial_capital_usd,
+            "currency": REPLAY_INITIAL_CAPITAL_CURRENCY,
+            "role": "replay_equity_path_and_return_normalization",
+            "broker_or_account_state": False,
+        },
         "candidate_model_ref": candidate_model_ref,
         "after_cost_alpha_model_ref": after_cost_alpha_model_ref,
         "replay_contract_ref": replay_contract_ref,
@@ -314,6 +328,7 @@ def build_candidate_policy_replay_execution_run(
             "C01-C07 component artifacts share live execution output contracts; evaluation_replay_decision_row is a settlement view",
             "equity/options account uses direct-underlying fallback when option surface status is optionable_chain_missing",
             "listed option decisions use M09 selected-contract paths when available and zero realized return when selected-contract exit data is missing",
+            "initial capital is a replay-normalization input for equity-path diagnostics and never broker/account state",
             "this run emits settlement-ready decision rows but is not a promotion eligibility decision",
         ],
     }
@@ -336,6 +351,13 @@ def _require_candidate_model_ref(candidate_model_ref: str) -> str:
     return text
 
 
+def _validated_initial_capital_usd(value: float) -> float:
+    capital = float(value)
+    if not math.isfinite(capital) or capital <= 0:
+        raise ValueError("initial_capital_usd must be a positive finite number")
+    return capital
+
+
 def _build_replay_progress_rows(
     *,
     decision_rows: Sequence[Mapping[str, Any]],
@@ -343,6 +365,7 @@ def _build_replay_progress_rows(
     generated_at_utc: str,
     receipt_path: Path,
     decision_rows_path: Path,
+    initial_capital_usd: float,
 ) -> list[dict[str, Any]]:
     rows_by_month: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
     for row in decision_rows:
@@ -367,6 +390,7 @@ def _build_replay_progress_rows(
                 "target_refs": sorted({str(row.get("target_ref") or "") for row in month_rows if row.get("target_ref")}),
                 "receipt_ref": str(receipt_path),
                 "decision_rows_ref": str(decision_rows_path),
+                "initial_capital_usd": initial_capital_usd,
                 "generated_at_utc": generated_at_utc,
             }
         )

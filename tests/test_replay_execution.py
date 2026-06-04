@@ -248,6 +248,10 @@ class ReplayExecutionTests(unittest.TestCase):
                 "settlement_view_over_component_outputs",
             )
             self.assertFalse(result.receipt["runtime_artifact_policy"]["replay_specific_component_contracts_allowed"])
+            self.assertEqual(result.receipt["initial_capital_usd"], 25000.0)
+            self.assertEqual(result.receipt["initial_capital"]["currency"], "USD")
+            self.assertEqual(result.receipt["initial_capital"]["role"], "replay_equity_path_and_return_normalization")
+            self.assertFalse(result.receipt["initial_capital"]["broker_or_account_state"])
             self.assertEqual(result.receipt["decision_row_count"], 2)
             self.assertEqual(result.receipt["completed_replay_month_count"], 1)
             self.assertIn(
@@ -280,6 +284,7 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(progress_rows[0]["stage_id"], "model_group.replay")
             self.assertEqual(progress_rows[0]["month"], "2021-01")
             self.assertEqual(progress_rows[0]["status"], "completed")
+            self.assertEqual(progress_rows[0]["initial_capital_usd"], 25000.0)
 
     def test_candidate_policy_replay_includes_materialized_equity_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -684,6 +689,8 @@ class ReplayExecutionTests(unittest.TestCase):
                     "1",
                     "--progress-path",
                     str(progress_path),
+                    "--initial-capital-usd",
+                    "31000",
                     "--exclude-equity",
                 ],
                 cwd=Path(__file__).resolve().parents[1],
@@ -695,9 +702,25 @@ class ReplayExecutionTests(unittest.TestCase):
 
             payload = json.loads(result.stdout)
             self.assertEqual(payload["replay_execution_run_id"], "cli_run")
+            self.assertEqual(payload["initial_capital_usd"], 31000.0)
+            self.assertEqual(payload["initial_capital"]["currency"], "USD")
             self.assertEqual(payload["decision_row_count"], 1)
             self.assertTrue((output_dir / "decision_rows.jsonl").exists())
             self.assertTrue(progress_path.exists())
+
+    def test_replay_rejects_nonpositive_initial_capital(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset_root = self._dataset(Path(tmp))
+
+            with self.assertRaisesRegex(ValueError, "initial_capital_usd"):
+                build_crypto_replay_execution_run(
+                    dataset_root=dataset_root,
+                    run_id="bad_initial_capital",
+                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    after_cost_alpha_model=_after_cost_alpha_model(),
+                    max_decision_rows=1,
+                    initial_capital_usd=0,
+                )
 
     def test_rejects_deterministic_placeholder_candidate_model_ref(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -9,6 +9,7 @@ Required properties:
 - one replay contract with field `replay_mode = candidate_policy_replay`.
 - the canonical five-year replay window `2021-01-01` through `2026-01-01` end-exclusive, candidate fold id, and base-context artifact for the Layer 1/2 replay substrate.
 - a frozen base source snapshot, candidate policy, cost model, baseline ladder, selection metrics, and guardrails.
+- a fixed replay initial capital of `25000.0` `USD` for replay equity-path diagnostics, dollar PnL normalization, and charting; this is not broker/account state and replay still performs no account mutation.
 - candidate policy inputs covering point-in-time Layer 2 selected/watch sectors, reviewed sector constituents or proxies, market-wide hot/liquid-name admission rules, quality filters, and control candidates when contrast is required.
 - replay must execute through `trading-execution`'s `execution_runtime_component_graph` under Replay adapters. Models are point-in-time evidence consumed by the components, not the replay execution unit.
 - no `target_symbol` or contract-level `target_refs`; use `candidate_fold_id` for fold binding and `base_context_ref` for the Layer 1/2 base-context scope.
@@ -24,6 +25,7 @@ Required properties:
 - no leakage from the frozen replay window into training-used folds.
 - any fold that intersects the sealed promotion replay window must be skipped or blocked for candidate training.
 - fixed data snapshot, cost model, slippage/fee assumptions, and baseline ladder.
+- fixed initial capital of `25000.0` USD for all candidate-policy replay runs so replay performance K-lines and ETF/context comparisons use the same account-size denominator.
 - replay acquisition and event/source normalization are construction phases that produce a frozen base data snapshot for the explicit model fold and replay window. Candidate/option data discovered during replay is month-scoped, on-demand replay cache.
 - all replay, settlement, promotion eligibility, guardrail, and regression checks for that scope must reuse that frozen data snapshot instead of rebuilding data per model candidate.
 - replay evaluation must run through the execution runtime component graph under a historical clock, not through the model training pipeline or an evaluation-owned trading decision graph.
