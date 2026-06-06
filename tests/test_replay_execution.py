@@ -286,32 +286,23 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(progress_rows[0]["status"], "completed")
             self.assertEqual(progress_rows[0]["initial_capital_usd"], 25000.0)
 
-    def test_candidate_policy_replay_includes_materialized_equity_rows(self):
+    def test_candidate_policy_replay_requires_option_features_for_materialized_equity_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             dataset_root = self._dataset(root)
             equity_source_root = self._equity_source_root(root)
-            result = build_candidate_policy_replay_execution_run(
-                dataset_root=dataset_root,
-                run_id="test_candidate_policy",
-                candidate_model_ref="storage://trading-manager/model_group/test_fold",
-                after_cost_alpha_model=_after_cost_alpha_model(),
-                equity_source_root=equity_source_root,
-                equity_symbols=["AAPL"],
-                max_decision_rows=1,
-                option_feature_database_url="",
-            )
 
-            self.assertEqual(result.receipt["execution_scope"], "candidate_policy_replay_materialized_market_data")
-            self.assertEqual(result.receipt["asset_class_counts"]["us_equity"], 1)
-            rows = [json.loads(line) for line in result.decision_rows_path.read_text(encoding="utf-8").splitlines()]
-            self.assertEqual(rows[0]["target_ref"], "AAPL")
-            self.assertEqual(rows[0]["asset_class"], "us_equity")
-            self.assertEqual(rows[0]["account_sleeve_id"], "equity_options_account")
-            self.assertEqual(rows[0]["decision_expression_type"], "underlying_equity")
-            self.assertEqual(rows[0]["decision_instrument_scope"], "underlying_equity")
-            self.assertEqual(rows[0]["asset_expression_route"], "direct_underlying_fallback")
-            self.assertEqual(rows[0]["option_surface_status"], "optionable_chain_missing")
+            with self.assertRaisesRegex(ValueError, "replay_option_feature_acquisition_required"):
+                build_candidate_policy_replay_execution_run(
+                    dataset_root=dataset_root,
+                    run_id="test_candidate_policy",
+                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    after_cost_alpha_model=_after_cost_alpha_model(),
+                    equity_source_root=equity_source_root,
+                    equity_symbols=["AAPL"],
+                    max_decision_rows=1,
+                    option_feature_database_url="",
+                )
 
     def test_candidate_policy_replay_requires_layer_two_candidate_handoff_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -332,6 +323,8 @@ class ReplayExecutionTests(unittest.TestCase):
 
     def test_candidate_policy_replay_uses_layer_two_candidate_handoff_symbols(self):
         original_loader = replay_module._load_layer_two_candidate_handoff_rows
+        original_feature_loader = replay_module._load_option_candidate_features
+        original_plan_builder = replay_module._option_expression_plan_for_bar
         try:
             replay_module._load_layer_two_candidate_handoff_rows = lambda **_: [
                 {
@@ -342,6 +335,15 @@ class ReplayExecutionTests(unittest.TestCase):
                     "holding_name": "Apple Inc.",
                 }
             ]
+            replay_module._load_option_candidate_features = lambda **_: {
+                ("AAPL", "2021-01-04T16:00:00-05:00"): [{"contract_ref": "AAPL_2021-01-15_C_100"}]
+            }
+            replay_module._option_expression_plan_for_bar = lambda **_: {
+                "model_ref": "storage://trading-manager/model_group/test_fold/model_09_option_expression/test",
+                "target_ref": "AAPL",
+                "asset_expression_route": "option_expression_unfilled",
+                "option_surface_status": "optionable_chain_available",
+            }
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 dataset_root = self._dataset(root)
@@ -364,6 +366,8 @@ class ReplayExecutionTests(unittest.TestCase):
                 self.assertEqual(rows[0]["target_ref"], "AAPL")
         finally:
             replay_module._load_layer_two_candidate_handoff_rows = original_loader
+            replay_module._load_option_candidate_features = original_feature_loader
+            replay_module._option_expression_plan_for_bar = original_plan_builder
 
     def test_candidate_policy_replay_runs_one_month_from_feed_plan_cache(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -473,23 +477,18 @@ class ReplayExecutionTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            result = build_candidate_policy_replay_execution_run(
-                dataset_root=dataset_root,
-                run_id="test_month_replay",
-                candidate_model_ref="storage://trading-manager/model_group/test_fold",
-                after_cost_alpha_model=_after_cost_alpha_model(),
-                replay_month="2021-01",
-                include_crypto=False,
-                equity_symbols=["AAPL"],
-                max_decision_rows=1,
-                option_feature_database_url="",
-            )
-
-            self.assertEqual(result.receipt["replay_month"], "2021-01")
-            self.assertIsNone(result.receipt["replay_freeze_receipt_ref"])
-            self.assertEqual(result.receipt["asset_class_counts"]["us_equity"], 1)
-            rows = [json.loads(line) for line in result.decision_rows_path.read_text(encoding="utf-8").splitlines()]
-            self.assertEqual(rows[0]["target_ref"], "AAPL")
+            with self.assertRaisesRegex(ValueError, "replay_option_feature_acquisition_required"):
+                build_candidate_policy_replay_execution_run(
+                    dataset_root=dataset_root,
+                    run_id="test_month_replay",
+                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    after_cost_alpha_model=_after_cost_alpha_model(),
+                    replay_month="2021-01",
+                    include_crypto=False,
+                    equity_symbols=["AAPL"],
+                    max_decision_rows=1,
+                    option_feature_database_url="",
+                )
 
     def test_candidate_policy_replay_uses_m09_option_path_return(self):
         original_feature_loader = replay_module._load_option_candidate_features
@@ -644,10 +643,11 @@ class ReplayExecutionTests(unittest.TestCase):
         summary = replay_module._option_replay_coverage_summary(
             bars_by_target={
                 "AAPL": [
-                    {"asset_class": "us_equity", "date": "2021-01-04"},
-                    {"asset_class": "us_equity", "date": "2021-01-05"},
+                    {"asset_class": "us_equity", "timestamp": "2021-01-04T16:00:00-05:00"},
+                    {"asset_class": "us_equity", "timestamp": "2021-01-05T16:00:00-05:00"},
+                    {"asset_class": "us_equity", "timestamp": "2021-01-06T16:00:00-05:00"},
                 ],
-                "SOL": [{"asset_class": "crypto_spot", "date": "2021-01-04"}],
+                "SOL": [{"asset_class": "crypto_spot", "timestamp": "2021-01-04T16:00:00-05:00"}],
             },
             option_candidates_by_underlying_time={("AAPL", "2021-01-04T16:00:00-05:00"): [{}]},
             option_contract_paths_by_symbol={"AAPL_2021-01-15_C_100": [{"bar_close": 2.0}]},
@@ -660,7 +660,8 @@ class ReplayExecutionTests(unittest.TestCase):
         )
 
         self.assertEqual(summary["feature_snapshot_coverage_status"], "partial")
-        self.assertEqual(summary["expected_equity_target_date_snapshot_count"], 2)
+        self.assertEqual(summary["expected_equity_decision_snapshot_count"], 2)
+        self.assertEqual(summary["missing_equity_decision_snapshot_count"], 1)
         self.assertEqual(summary["selected_option_decision_count"], 1)
         self.assertEqual(summary["contract_path_coverage_status"], "complete")
 

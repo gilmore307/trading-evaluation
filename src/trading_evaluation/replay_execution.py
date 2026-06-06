@@ -64,6 +64,8 @@ REPLAY_INITIAL_CAPITAL_CURRENCY = "USD"
 DISALLOWED_PLACEHOLDER_CANDIDATE_MODEL_REFS = (
     "trading-model://candidate_policy_replay/current_deterministic_crypto_policy",
 )
+REPLAY_OPTION_FEATURE_ACQUISITION_REQUIRED = "replay_option_feature_acquisition_required"
+MISSING_OPTION_FEATURE_SAMPLE_LIMIT = 20
 
 
 @dataclass(frozen=True)
@@ -214,6 +216,16 @@ def build_candidate_policy_replay_execution_run(
         table=option_feature_table,
         targets=bars_by_target.keys(),
     )
+    missing_option_features = _missing_option_feature_requirements(
+        bars_by_target=bars_by_target,
+        option_candidates_by_underlying_time=option_candidates_by_underlying_time,
+    )
+    if missing_option_features:
+        raise ValueError(
+            REPLAY_OPTION_FEATURE_ACQUISITION_REQUIRED
+            + ": "
+            + json.dumps(missing_option_features, sort_keys=True)
+        )
     option_contract_paths_by_symbol = _load_option_contract_path_bars(
         database_url=resolved_option_feature_database_url,
         schema=option_feature_schema,
@@ -326,7 +338,7 @@ def build_candidate_policy_replay_execution_run(
         "notes": [
             "candidate-policy replay over frozen base context and gated on-demand candidate inputs",
             "C01-C07 component artifacts share live execution output contracts; evaluation_replay_decision_row is a settlement view",
-            "equity/options account uses direct-underlying fallback when option surface status is optionable_chain_missing",
+            "equity/options account requires point-in-time M09 option features at each replay decision timestamp",
             "listed option decisions use M09 selected-contract paths when available and zero realized return when selected-contract exit data is missing",
             "initial capital is a replay-normalization input for equity-path diagnostics and never broker/account state",
             "this run emits settlement-ready decision rows but is not a promotion eligibility decision",
@@ -1251,13 +1263,18 @@ def _option_expression_plan_for_bar(
             }
         )
         return plan
-    return {
-        "model_ref": f"{candidate_model_ref}/model_09_option_expression/{target}/{timestamp}",
-        "target_ref": target,
-        "asset_expression_route": "direct_underlying_fallback",
-        "option_surface_status": "optionable_chain_missing",
-        "reason_codes": ["option_expression_source_missing_direct_underlying_replay_fallback"],
-    }
+    raise ValueError(
+        REPLAY_OPTION_FEATURE_ACQUISITION_REQUIRED
+        + ": "
+        + json.dumps(
+            {
+                "missing_count": 1,
+                "sample": [{"target_ref": target, "timestamp": timestamp}],
+                "required_next_step": "run ThetaData option acquisition and M09 option feature generation for the missing replay decision timestamp before replay execution",
+            },
+            sort_keys=True,
+        )
+    )
 
 
 def _replay_market_snapshot(
@@ -1338,19 +1355,20 @@ def _option_replay_coverage_summary(
     option_contract_paths_by_symbol: Mapping[str, Sequence[Mapping[str, Any]]],
     decision_rows: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    equity_target_dates: set[tuple[str, str]] = set()
+    equity_decision_times: set[tuple[str, str]] = set()
     for target, rows in bars_by_target.items():
-        for row in rows:
+        for row in rows[:-1]:
             if str(row.get("asset_class") or "") != "us_equity":
                 continue
-            date_text = str(row.get("date") or str(row.get("timestamp") or "")[:10])
-            if date_text:
-                equity_target_dates.add((target, date_text))
+            timestamp = _time_key(row.get("timestamp"))
+            if timestamp:
+                equity_decision_times.add((target.upper(), timestamp))
     selected_option_rows = [row for row in decision_rows if row.get("selected_option_contract_ref")]
     path_available_count = sum(1 for row in selected_option_rows if row.get("option_contract_path_status") == "available")
     path_missing_count = sum(1 for row in selected_option_rows if row.get("option_contract_path_status") == "missing")
-    expected_snapshot_count = len(equity_target_dates)
-    feature_snapshot_count = len(option_candidates_by_underlying_time)
+    expected_snapshot_count = len(equity_decision_times)
+    feature_snapshot_count = sum(1 for key in equity_decision_times if option_candidates_by_underlying_time.get(key))
+    feature_missing_count = max(0, expected_snapshot_count - feature_snapshot_count)
     feature_coverage_ratio = feature_snapshot_count / expected_snapshot_count if expected_snapshot_count else None
     if expected_snapshot_count == 0:
         feature_status = "not_applicable"
@@ -1371,7 +1389,9 @@ def _option_replay_coverage_summary(
     return {
         "feature_snapshot_coverage_status": feature_status,
         "feature_snapshot_count": feature_snapshot_count,
+        "expected_equity_decision_snapshot_count": expected_snapshot_count,
         "expected_equity_target_date_snapshot_count": expected_snapshot_count,
+        "missing_equity_decision_snapshot_count": feature_missing_count,
         "feature_snapshot_coverage_ratio": feature_coverage_ratio,
         "contract_path_coverage_status": path_status,
         "contract_path_symbol_count": len(option_contract_paths_by_symbol),
@@ -1379,6 +1399,44 @@ def _option_replay_coverage_summary(
         "selected_option_decision_count": len(selected_option_rows),
         "selected_option_path_available_count": path_available_count,
         "selected_option_path_missing_count": path_missing_count,
+    }
+
+
+def _missing_option_feature_requirements(
+    *,
+    bars_by_target: Mapping[str, Sequence[Mapping[str, Any]]],
+    option_candidates_by_underlying_time: Mapping[tuple[str, str], Sequence[Mapping[str, Any]]],
+) -> dict[str, Any]:
+    missing: list[dict[str, str]] = []
+    expected_count = 0
+    available_count = 0
+    for target, rows in sorted(bars_by_target.items()):
+        for row in rows[:-1]:
+            if str(row.get("asset_class") or "") != "us_equity":
+                continue
+            timestamp = _time_key(row.get("timestamp"))
+            if not timestamp:
+                continue
+            expected_count += 1
+            key = (str(target).upper(), timestamp)
+            if option_candidates_by_underlying_time.get(key):
+                available_count += 1
+                continue
+            if len(missing) < MISSING_OPTION_FEATURE_SAMPLE_LIMIT:
+                missing.append({"target_ref": str(target).upper(), "timestamp": timestamp})
+    missing_count = expected_count - available_count
+    if missing_count <= 0:
+        return {}
+    return {
+        "missing_count": missing_count,
+        "expected_count": expected_count,
+        "available_count": available_count,
+        "sample": missing,
+        "required_next_step": "run ThetaData option acquisition and M09 option feature generation for the missing replay decision timestamps before replay execution",
+        "source_tables": [
+            "trading_data.option_chain_state_source",
+            "trading_data.m09_option_expression_feature_generation",
+        ],
     }
 
 
