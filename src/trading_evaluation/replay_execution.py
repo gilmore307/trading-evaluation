@@ -65,7 +65,17 @@ DISALLOWED_PLACEHOLDER_CANDIDATE_MODEL_REFS = (
     "trading-model://candidate_policy_replay/current_deterministic_crypto_policy",
 )
 REPLAY_OPTION_FEATURE_ACQUISITION_REQUIRED = "replay_option_feature_acquisition_required"
+REPLAY_OPTION_FEATURE_FUTURE_DATA_REJECTED = "replay_option_feature_future_data_rejected"
 MISSING_OPTION_FEATURE_SAMPLE_LIMIT = 20
+OPTION_CANDIDATE_POINT_IN_TIME_FIELDS = (
+    "snapshot_time",
+    "available_time",
+    "tradeable_time",
+    "option_quote_available_time",
+    "quote_timestamp",
+    "underlying_timestamp",
+    "source_available_time",
+)
 
 
 @dataclass(frozen=True)
@@ -1230,6 +1240,11 @@ def _option_expression_plan_for_bar(
         return None
     target = str(bar.get("symbol") or "").upper()
     if option_candidates:
+        _validate_option_candidates_point_in_time(
+            target=target,
+            timestamp=timestamp,
+            option_candidates=option_candidates,
+        )
         generators = _trading_model_generators()
         model_row = generators["model_09_option_expression"](
             [
@@ -1423,7 +1438,13 @@ def _missing_option_feature_requirements(
                 available_count += 1
                 continue
             if len(missing) < MISSING_OPTION_FEATURE_SAMPLE_LIMIT:
-                missing.append({"target_ref": str(target).upper(), "timestamp": timestamp})
+                missing.append(
+                    {
+                        "target_ref": str(target).upper(),
+                        "timestamp": timestamp,
+                        "maximum_permitted_source_end": timestamp,
+                    }
+                )
     missing_count = expected_count - available_count
     if missing_count <= 0:
         return {}
@@ -1432,12 +1453,58 @@ def _missing_option_feature_requirements(
         "expected_count": expected_count,
         "available_count": available_count,
         "sample": missing,
-        "required_next_step": "run ThetaData option acquisition and M09 option feature generation for the missing replay decision timestamps before replay execution",
+        "required_next_step": "run ThetaData option acquisition with source_end no later than each missing replay decision timestamp, then generate M09 option features and retry replay execution",
+        "point_in_time_policy": "option provider acquisition for replay must not request or consume data after the replay decision timestamp being completed",
         "source_tables": [
             "trading_data.option_chain_state_source",
             "trading_data.m09_option_expression_feature_generation",
         ],
     }
+
+
+def _validate_option_candidates_point_in_time(
+    *,
+    target: str,
+    timestamp: str,
+    option_candidates: Sequence[Mapping[str, Any]],
+) -> None:
+    decision_time = _timestamp_sort_key(timestamp)
+    if decision_time <= 0:
+        return
+    violations: list[dict[str, str]] = []
+    for index, candidate in enumerate(option_candidates):
+        contract_ref = str(candidate.get("contract_ref") or candidate.get("option_symbol") or f"candidate_{index}")
+        for field in OPTION_CANDIDATE_POINT_IN_TIME_FIELDS:
+            value = candidate.get(field)
+            if value in (None, ""):
+                continue
+            value_time = _timestamp_sort_key(value)
+            if value_time > decision_time:
+                violations.append(
+                    {
+                        "target_ref": target,
+                        "timestamp": timestamp,
+                        "contract_ref": contract_ref,
+                        "field": field,
+                        "field_value": str(value),
+                    }
+                )
+                break
+        if len(violations) >= MISSING_OPTION_FEATURE_SAMPLE_LIMIT:
+            break
+    if violations:
+        raise ValueError(
+            REPLAY_OPTION_FEATURE_FUTURE_DATA_REJECTED
+            + ": "
+            + json.dumps(
+                {
+                    "violation_count": len(violations),
+                    "sample": violations,
+                    "point_in_time_policy": "replay option-expression decisions may consume only option candidate evidence available at or before the replay timestamp",
+                },
+                sort_keys=True,
+            )
+        )
 
 
 def _asset_class_counts(bars_by_target: Mapping[str, Sequence[Mapping[str, Any]]]) -> dict[str, int]:

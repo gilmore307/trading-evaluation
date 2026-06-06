@@ -619,6 +619,22 @@ class ReplayExecutionTests(unittest.TestCase):
         self.assertEqual(plan["selected_expression_type"], "long_call")
         self.assertEqual(plan["selected_contract"]["contract_ref"], "AAPL_20210115_C_100")
 
+    def test_option_expression_plan_rejects_future_option_candidate_evidence(self):
+        with self.assertRaisesRegex(ValueError, "replay_option_feature_future_data_rejected"):
+            replay_module._option_expression_plan_for_bar(
+                bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
+                candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                timestamp="2021-01-04T10:00:00-05:00",
+                layer_outputs={},
+                option_candidates=[
+                    {
+                        "contract_ref": "AAPL_2021-01-15_C_100",
+                        "snapshot_time": "2021-01-04T10:00:00-05:00",
+                        "option_quote_available_time": "2021-01-04T10:01:00-05:00",
+                    }
+                ],
+            )
+
     def test_option_contract_path_return_uses_entry_and_exit_prices(self):
         result = replay_module._option_contract_path_return(
             selected_option_contract_ref="AAPL_2021-01-15_C_100",
