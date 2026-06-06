@@ -47,6 +47,13 @@ active config write occurred. Provider calls are allowed only through reviewed
 on-demand replay acquisition gates. This is Replay evidence, not a promotion
 eligibility decision.
 
+Every replay decision owns an explicit `replay_time_pointer`. Decision inputs
+must be available at or before that pointer. Data after the pointer is invalid
+for C01-C07 model/execution inputs, including on-demand option-chain evidence.
+Future bars, selected-contract path rows, fill settlement, labels, and realized
+returns are allowed only after the decision row is emitted and only for
+evaluation settlement. They must not feed the same-row decision inputs.
+
 Runtime component artifacts are not replay-specific. Replay uses the same
 execution-owned component output contracts as live execution:
 `execution_intake_snapshot`, `entry_decision`,

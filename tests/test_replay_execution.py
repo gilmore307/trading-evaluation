@@ -254,6 +254,11 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertFalse(result.receipt["initial_capital"]["broker_or_account_state"])
             self.assertEqual(result.receipt["decision_row_count"], 2)
             self.assertEqual(result.receipt["completed_replay_month_count"], 1)
+            self.assertEqual(result.receipt["replay_time_pointer_policy"]["pointer_field"], "replay_time_pointer")
+            self.assertEqual(
+                result.receipt["replay_time_pointer_policy"]["policy_ref"],
+                "replay_time_pointer_excludes_future_decision_inputs",
+            )
             self.assertIn(
                 result.receipt["entry_threshold_calibration_status"],
                 {
@@ -266,6 +271,8 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertFalse(result.receipt["side_effects"]["account_mutation_performed"])
             rows = [json.loads(line) for line in result.decision_rows_path.read_text(encoding="utf-8").splitlines()]
             self.assertEqual(rows[0]["contract_type"], "evaluation_replay_decision_row")
+            self.assertEqual(rows[0]["replay_time_pointer"], rows[0]["timestamp"])
+            self.assertEqual(rows[0]["point_in_time_policy"], "replay_time_pointer_excludes_future_decision_inputs")
             self.assertEqual(rows[0]["target_ref"], "SOL")
             self.assertEqual(rows[0]["decision_expression_type"], "crypto_spot")
             self.assertEqual(rows[0]["decision_instrument_scope"], "crypto_spot")
@@ -550,6 +557,8 @@ class ReplayExecutionTests(unittest.TestCase):
 
                 rows = [json.loads(line) for line in result.decision_rows_path.read_text(encoding="utf-8").splitlines()]
                 self.assertEqual(rows[0]["asset_expression_route"], "listed_option_contract")
+                self.assertEqual(rows[0]["replay_time_pointer"], "2021-01-04T16:00:00-05:00")
+                self.assertEqual(rows[0]["point_in_time_policy"], "replay_time_pointer_excludes_future_decision_inputs")
                 self.assertEqual(rows[0]["asset_class"], "us_option")
                 self.assertEqual(rows[0]["decision_expression_type"], "long_put")
                 self.assertEqual(rows[0]["decision_instrument_scope"], "listed_option_contract")

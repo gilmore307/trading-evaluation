@@ -35,6 +35,7 @@ Required properties:
 Required replay behavior:
 
 - the execution runtime component graph gets the full replay period and must operate according to the same component route intended for live use.
+- each decision advances an explicit `replay_time_pointer`; C01-C07 decision inputs may consume only evidence available at or before that pointer. Data after the pointer is unavailable until settlement, where it may be used only for labels, simulated fills, option contract paths, and realized-return evaluation.
 - Layer 2 produces sector context point-in-time; C01 reads that evidence, account state, positions, market universe, and watch/admission policy to create candidate-entry and open-position pools.
 - C02-C07 decide entry, lifecycle, option review, order intent, execution gate, and failure review. Downstream model outputs are consumed inside those component contracts rather than used as an evaluation-owned execution route.
 - Layer 10 EventRiskGovernor remains an independent model and is invoked only through the execution-owned Failure Explanation Component after observed model or trade failure.

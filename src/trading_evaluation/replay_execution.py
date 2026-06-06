@@ -66,6 +66,7 @@ DISALLOWED_PLACEHOLDER_CANDIDATE_MODEL_REFS = (
 )
 REPLAY_OPTION_FEATURE_ACQUISITION_REQUIRED = "replay_option_feature_acquisition_required"
 REPLAY_OPTION_FEATURE_FUTURE_DATA_REJECTED = "replay_option_feature_future_data_rejected"
+REPLAY_TIME_POINTER_POLICY_REF = "replay_time_pointer_excludes_future_decision_inputs"
 MISSING_OPTION_FEATURE_SAMPLE_LIMIT = 20
 OPTION_CANDIDATE_POINT_IN_TIME_FIELDS = (
     "snapshot_time",
@@ -334,6 +335,7 @@ def build_candidate_policy_replay_execution_run(
         "option_contract_path_symbol_count": len(option_contract_paths_by_symbol),
         "option_contract_path_bar_count": sum(len(rows) for rows in option_contract_paths_by_symbol.values()),
         "option_replay_coverage": option_replay_coverage,
+        "replay_time_pointer_policy": _replay_time_pointer_policy(),
         "market_date_count": len(market_dates),
         "generated_at_utc": generated_at,
         "validation_status": "passed",
@@ -348,6 +350,7 @@ def build_candidate_policy_replay_execution_run(
         "notes": [
             "candidate-policy replay over frozen base context and gated on-demand candidate inputs",
             "C01-C07 component artifacts share live execution output contracts; evaluation_replay_decision_row is a settlement view",
+            "each replay decision has an explicit replay_time_pointer; decision inputs after that pointer are invalid",
             "equity/options account requires point-in-time M09 option features at each replay decision timestamp",
             "listed option decisions use M09 selected-contract paths when available and zero realized return when selected-contract exit data is missing",
             "initial capital is a replay-normalization input for equity-path diagnostics and never broker/account state",
@@ -629,6 +632,7 @@ def _build_candidate_policy_decision_rows(
             if max_decision_rows is not None and len(rows) >= max_decision_rows:
                 return rows
             next_bar = target_rows[index + 1]
+            replay_time_pointer = _replay_time_pointer_for_bar(bar)
             date_text = str(bar["date"])
             market_universe = _market_universe_for_date(history_by_target, index_by_target_date, date_text)
             reference_price = float(bar["bar_close"])
@@ -645,9 +649,9 @@ def _build_candidate_policy_decision_rows(
             option_expression_plan = _option_expression_plan_for_bar(
                 bar=bar,
                 candidate_model_ref=candidate_model_ref,
-                timestamp=str(bar["timestamp"]),
+                timestamp=replay_time_pointer,
                 layer_outputs=layer_outputs,
-                option_candidates=option_candidates_by_underlying_time.get((target.upper(), _time_key(bar["timestamp"])), ()),
+                option_candidates=option_candidates_by_underlying_time.get((target.upper(), replay_time_pointer), ()),
             )
             replay_market_snapshot = _replay_market_snapshot(
                 bar=bar,
@@ -684,7 +688,7 @@ def _build_candidate_policy_decision_rows(
             asset_class = "us_option" if selected_option_contract_ref else entry.get("asset_class") or bar.get("asset_class")
             option_path_result = _option_contract_path_return(
                 selected_option_contract_ref=selected_option_contract_ref,
-                entry_timestamp=str(bar["timestamp"]),
+                entry_timestamp=replay_time_pointer,
                 exit_timestamp=str(next_bar["timestamp"]),
                 option_contract_paths_by_symbol=option_contract_paths_by_symbol,
             )
@@ -738,6 +742,8 @@ def _build_candidate_policy_decision_rows(
                     "option_exit_price": option_exit_price,
                     "return_source": return_source,
                     "timestamp": bar["timestamp"],
+                    "replay_time_pointer": replay_time_pointer,
+                    "point_in_time_policy": REPLAY_TIME_POINTER_POLICY_REF,
                     "next_timestamp": next_bar["timestamp"],
                     "decision_status": entry["decision_status"],
                     "decision_action": entry["decision_action"],
@@ -1284,8 +1290,9 @@ def _option_expression_plan_for_bar(
         + json.dumps(
             {
                 "missing_count": 1,
-                "sample": [{"target_ref": target, "timestamp": timestamp}],
-                "required_next_step": "run ThetaData option acquisition and M09 option feature generation for the missing replay decision timestamp before replay execution",
+                "sample": [{"target_ref": target, "timestamp": timestamp, "maximum_permitted_source_end": timestamp}],
+                "required_next_step": "run ThetaData option acquisition with source_end no later than the missing replay_time_pointer, then generate M09 option features and retry replay execution",
+                "point_in_time_policy": "option provider acquisition for replay must not request or consume data after the replay_time_pointer being completed",
             },
             sort_keys=True,
         )
@@ -1375,7 +1382,7 @@ def _option_replay_coverage_summary(
         for row in rows[:-1]:
             if str(row.get("asset_class") or "") != "us_equity":
                 continue
-            timestamp = _time_key(row.get("timestamp"))
+            timestamp = _replay_time_pointer_for_bar(row)
             if timestamp:
                 equity_decision_times.add((target.upper(), timestamp))
     selected_option_rows = [row for row in decision_rows if row.get("selected_option_contract_ref")]
@@ -1429,7 +1436,7 @@ def _missing_option_feature_requirements(
         for row in rows[:-1]:
             if str(row.get("asset_class") or "") != "us_equity":
                 continue
-            timestamp = _time_key(row.get("timestamp"))
+            timestamp = _replay_time_pointer_for_bar(row)
             if not timestamp:
                 continue
             expected_count += 1
@@ -1460,6 +1467,19 @@ def _missing_option_feature_requirements(
             "trading_data.m09_option_expression_feature_generation",
         ],
     }
+
+
+def _replay_time_pointer_policy() -> dict[str, Any]:
+    return {
+        "policy_ref": REPLAY_TIME_POINTER_POLICY_REF,
+        "pointer_field": "replay_time_pointer",
+        "rule": "decision inputs must have available_time less than or equal to replay_time_pointer",
+        "settlement_exception": "future bars and selected-contract path rows may be used only after the decision row is emitted for labels, fills, and realized-return settlement",
+    }
+
+
+def _replay_time_pointer_for_bar(bar: Mapping[str, Any]) -> str:
+    return _time_key(bar.get("replay_time_pointer") or bar.get("timestamp"))
 
 
 def _validate_option_candidates_point_in_time(
@@ -1500,7 +1520,7 @@ def _validate_option_candidates_point_in_time(
                 {
                     "violation_count": len(violations),
                     "sample": violations,
-                    "point_in_time_policy": "replay option-expression decisions may consume only option candidate evidence available at or before the replay timestamp",
+                    "point_in_time_policy": "replay option-expression decisions may consume only option candidate evidence available at or before replay_time_pointer",
                 },
                 sort_keys=True,
             )
