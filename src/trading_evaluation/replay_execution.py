@@ -66,6 +66,9 @@ DISALLOWED_PLACEHOLDER_CANDIDATE_MODEL_REFS = (
 )
 REPLAY_OPTION_FEATURE_ACQUISITION_REQUIRED = "replay_option_feature_acquisition_required"
 REPLAY_OPTION_FEATURE_FUTURE_DATA_REJECTED = "replay_option_feature_future_data_rejected"
+OPTION_SOURCE_UNAVAILABLE_SNAPSHOT_TYPE = "source_unavailable"
+OPTION_SOURCE_UNAVAILABLE_STATUS = "option_source_unavailable"
+OPTION_SOURCE_UNAVAILABLE_SYMBOL = "__OPTION_SOURCE_UNAVAILABLE__"
 REPLAY_TIME_POINTER_POLICY_REF = "replay_time_pointer_excludes_future_decision_inputs"
 OPTION_CANDIDATE_POINT_IN_TIME_SAMPLE_LIMIT = 20
 OPTION_EXPRESSION_SIGNAL_ACTION_TYPES = frozenset(
@@ -1016,9 +1019,24 @@ class _LazyOptionCandidateFeatures:
 def _option_candidate_feature_row_payload(row: Mapping[str, Any]) -> dict[str, Any] | None:
     underlying = str(row.get("underlying") or "").upper()
     snapshot_time = _time_key(row.get("snapshot_time"))
+    snapshot_type = str(row.get("snapshot_type") or "")
     contract_ref = str(row.get("option_symbol") or "")
     payload = _coerce_json_mapping(row.get("feature_payload_json"))
     diagnostics = _coerce_json_mapping(row.get("feature_quality_diagnostics"))
+    if snapshot_type == OPTION_SOURCE_UNAVAILABLE_SNAPSHOT_TYPE or payload.get("option_surface_status") == OPTION_SOURCE_UNAVAILABLE_STATUS:
+        if not underlying or not snapshot_time:
+            return None
+        return {
+            "contract_ref": OPTION_SOURCE_UNAVAILABLE_SYMBOL,
+            "option_symbol": OPTION_SOURCE_UNAVAILABLE_SYMBOL,
+            "underlying": underlying,
+            "snapshot_time": snapshot_time,
+            "snapshot_type": OPTION_SOURCE_UNAVAILABLE_SNAPSHOT_TYPE,
+            "option_surface_status": OPTION_SOURCE_UNAVAILABLE_STATUS,
+            "asset_expression_route": "option_expression_unfilled",
+            "candidate_quality_diagnostics": diagnostics,
+            **payload,
+        }
     if not underlying or not snapshot_time or not contract_ref:
         return None
     option_right = payload.get("option_right") or payload.get("right") or payload.get("option_right_type")
@@ -1078,7 +1096,7 @@ def _load_option_candidate_features_for_timestamp(
                 FROM "{schema}"."{table}" AS f
                 WHERE f."underlying" = %s
                   AND f."snapshot_time" = %s::timestamptz
-                  AND COALESCE(f."snapshot_type", 'entry') IN ('entry', 'source_cache')
+                  AND COALESCE(f."snapshot_type", 'entry') IN ('entry', 'source_cache', 'source_unavailable')
                 ORDER BY f."option_symbol" ASC
                 """,
                 (target, timestamp),
@@ -1129,7 +1147,7 @@ def _load_option_candidate_features(
                   f."feature_quality_diagnostics"
                 FROM "{schema}"."{table}" AS f
                 WHERE f."underlying" = ANY(%s)
-                  AND COALESCE(f."snapshot_type", 'entry') IN ('entry', 'source_cache')
+                  AND COALESCE(f."snapshot_type", 'entry') IN ('entry', 'source_cache', 'source_unavailable')
                 ORDER BY f."underlying" ASC, f."snapshot_time" ASC, f."option_symbol" ASC
                 """,
                 (target_filter,),
@@ -1422,6 +1440,16 @@ def _option_expression_plan_for_bar(
     target = str(bar.get("symbol") or "").upper()
     if not _option_expression_signal_required(layer_outputs):
         return None
+    if _option_source_unavailable(option_candidates):
+        return {
+            "model_ref": f"{candidate_model_ref}/model_09_option_expression/{target}_{_time_key(timestamp)}_option_source_unavailable",
+            "target_ref": target,
+            "asset_expression_route": "option_expression_unfilled",
+            "option_surface_status": OPTION_SOURCE_UNAVAILABLE_STATUS,
+            "selected_expression_type": "no_option_source_available",
+            "selected_contract": None,
+            "source_unavailable_reason": "historical option source unavailable at replay signal timestamp",
+        }
     if option_candidates:
         _validate_option_candidates_point_in_time(
             target=target,
@@ -1491,6 +1519,15 @@ def _option_expression_signal_required(layer_outputs: Mapping[str, Any]) -> bool
     handoff = _as_mapping(plan.get("handoff_to_layer_9"))
     direction = str(handoff.get("underlying_path_direction") or plan.get("action_side") or "").lower()
     return bool(handoff) and direction in {"bullish", "bearish", "long", "short", "bearish_no_direct_short"}
+
+
+def _option_source_unavailable(option_candidates: Sequence[Mapping[str, Any]]) -> bool:
+    return any(
+        str(candidate.get("option_surface_status") or "") == OPTION_SOURCE_UNAVAILABLE_STATUS
+        or str(candidate.get("snapshot_type") or "") == OPTION_SOURCE_UNAVAILABLE_SNAPSHOT_TYPE
+        or str(candidate.get("option_symbol") or "") == OPTION_SOURCE_UNAVAILABLE_SYMBOL
+        for candidate in option_candidates
+    )
 
 
 def _replay_market_snapshot(

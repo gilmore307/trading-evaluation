@@ -54,6 +54,14 @@ Future bars, selected-contract path rows, fill settlement, labels, and realized
 returns are allowed only after the decision row is emitted and only for
 evaluation settlement. They must not feed the same-row decision inputs.
 
+Replay option-expression inputs come from
+`trading_data.m09_option_expression_feature_generation` only after Layer 8 emits
+an option-expression handoff for the current replay timestamp. If the manager
+records `snapshot_type = source_unavailable` for that exact target/timestamp,
+replay treats the option surface as `option_source_unavailable` and continues
+with `asset_expression_route = option_expression_unfilled` instead of requesting
+future evidence or repeating provider acquisition.
+
 Runtime component artifacts are not replay-specific. Replay uses the same
 execution-owned component output contracts as live execution:
 `execution_intake_snapshot`, `entry_decision`,

@@ -345,6 +345,36 @@ class ReplayExecutionTests(unittest.TestCase):
                 option_candidates=[],
             )
 
+    def test_option_expression_plan_continues_when_option_source_unavailable(self):
+        plan = replay_module._option_expression_plan_for_bar(
+            bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
+            candidate_model_ref="storage://trading-manager/model_group/test_fold",
+            timestamp="2021-01-04T16:00:00-05:00",
+            layer_outputs={
+                "target_candidate_id": "replay_aapl_test",
+                "underlying_action_plan": {
+                    "model_ref": "underlying-action-ref",
+                    "planned_underlying_action_type": "open_long",
+                    "action_side": "long",
+                    "handoff_to_layer_9": {
+                        "underlying_path_direction": "bullish",
+                        "expected_holding_time_minutes": 1440,
+                    },
+                },
+            },
+            option_candidates=[
+                {
+                    "option_symbol": "__OPTION_SOURCE_UNAVAILABLE__",
+                    "snapshot_type": "source_unavailable",
+                    "option_surface_status": "option_source_unavailable",
+                }
+            ],
+        )
+
+        self.assertEqual(plan["asset_expression_route"], "option_expression_unfilled")
+        self.assertEqual(plan["option_surface_status"], "option_source_unavailable")
+        self.assertEqual(plan["selected_contract"], None)
+
         self.assertIsNone(
             replay_module._option_expression_plan_for_bar(
                 bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
