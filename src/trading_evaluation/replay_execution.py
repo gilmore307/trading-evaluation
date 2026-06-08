@@ -1020,7 +1020,7 @@ def _load_option_candidate_features(
                   f."feature_quality_diagnostics"
                 FROM "{schema}"."{table}" AS f
                 WHERE f."underlying" = ANY(%s)
-                  AND COALESCE(f."snapshot_type", 'entry') = 'entry'
+                  AND COALESCE(f."snapshot_type", 'entry') IN ('entry', 'source_cache')
                 ORDER BY f."underlying" ASC, f."snapshot_time" ASC, f."option_symbol" ASC
                 """,
                 (target_filter,),
