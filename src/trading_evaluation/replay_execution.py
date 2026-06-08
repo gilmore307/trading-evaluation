@@ -833,11 +833,13 @@ def _load_candidate_policy_bars(
 ) -> dict[str, list[dict[str, Any]]]:
     rows_by_target = _load_crypto_bars(plan_path, replay_month=replay_month) if include_crypto else {}
     if include_equity:
-        equity_rows = (
-            _load_equity_bars_from_plan(plan_path=plan_path, replay_month=replay_month, equity_symbols=equity_symbols)
-            if replay_month
-            else _load_equity_bars(equity_source_root=equity_source_root, equity_symbols=equity_symbols)
+        equity_rows = _load_equity_bars_from_plan(
+            plan_path=plan_path,
+            replay_month=replay_month,
+            equity_symbols=equity_symbols,
         )
+        if not equity_rows:
+            equity_rows = _load_equity_bars(equity_source_root=equity_source_root, equity_symbols=equity_symbols)
         for target, rows in equity_rows.items():
             if rows:
                 rows_by_target[target] = rows
@@ -1169,6 +1171,7 @@ def _load_equity_bars_from_plan(
             if not symbol or (symbol_filter and symbol not in symbol_filter):
                 continue
             receipt = _load_json(Path(str(plan_row["coverage_receipt_path"])))
+            csv_rows_loaded = False
             for output in _latest_succeeded_outputs(receipt):
                 path = Path(str(output))
                 if path.name != "equity_bar.csv":
@@ -1180,6 +1183,16 @@ def _load_equity_bars_from_plan(
                     row["asset_class"] = "us_equity"
                     row["source_id"] = "alpaca_bars"
                     rows_by_target[symbol].append(row)
+                    csv_rows_loaded = True
+            if not csv_rows_loaded:
+                rows_by_target[symbol].extend(
+                    _load_equity_bars_from_sql(
+                        symbol=symbol,
+                        start_date=str(plan_row.get("start_date") or ""),
+                        end_date_exclusive=str(plan_row.get("end_date_exclusive") or ""),
+                        database_url=_default_option_feature_database_url(),
+                    )
+                )
     deduped: dict[str, list[dict[str, Any]]] = {}
     for target, rows in rows_by_target.items():
         by_timestamp = {str(row["timestamp"]): row for row in rows}
@@ -1228,6 +1241,82 @@ def _load_equity_bars(*, equity_source_root: Path, equity_symbols: Sequence[str]
         if len(rows) >= 2:
             rows_by_target[symbol] = rows
     return rows_by_target
+
+
+def _load_equity_bars_from_sql(
+    *,
+    symbol: str,
+    start_date: str,
+    end_date_exclusive: str,
+    database_url: str | None,
+    schema: str = "trading_data",
+    table: str = "m01_market_regime_data_acquisition",
+) -> list[dict[str, Any]]:
+    if not database_url or not symbol or not start_date or not end_date_exclusive:
+        return []
+    _validate_identifier(schema)
+    _validate_identifier(table)
+    try:
+        import psycopg  # type: ignore
+        from psycopg.rows import dict_row  # type: ignore
+    except ModuleNotFoundError as exc:  # pragma: no cover
+        raise RuntimeError("psycopg is required to load SQL-retained replay equity bars") from exc
+    with psycopg.connect(database_url, row_factory=dict_row) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT to_regclass(%s) AS table_ref", (f"{schema}.{table}",))
+            exists = cursor.fetchone()
+            if not exists or exists.get("table_ref") is None:
+                return []
+            cursor.execute(
+                f"""
+                SELECT
+                  b."symbol",
+                  b."timeframe",
+                  b."timestamp",
+                  b."bar_open",
+                  b."bar_high",
+                  b."bar_low",
+                  b."bar_close",
+                  b."bar_volume"
+                FROM "{schema}"."{table}" AS b
+                WHERE b."symbol" = %s
+                  AND b."timestamp" >= %s::timestamptz
+                  AND b."timestamp" < %s::timestamptz
+                  AND b."bar_close" IS NOT NULL
+                ORDER BY b."timestamp" ASC
+                """,
+                (symbol, start_date, end_date_exclusive),
+            )
+            rows = [dict(row) for row in cursor.fetchall()]
+    parsed_rows: list[dict[str, Any]] = []
+    for row in rows:
+        timestamp_value = row.get("timestamp")
+        date_text = _sql_bar_date(timestamp_value)
+        if not date_text:
+            continue
+        parsed_rows.append(
+            {
+                "symbol": str(row.get("symbol") or symbol).upper(),
+                "asset_class": "us_equity",
+                "source_id": "alpaca_bars",
+                "timeframe": str(row.get("timeframe") or "1Day"),
+                "timestamp": f"{date_text}T16:00:00-05:00",
+                "date": date_text,
+                "bar_open": float(row["bar_open"]),
+                "bar_high": float(row["bar_high"]),
+                "bar_low": float(row["bar_low"]),
+                "bar_close": float(row["bar_close"]),
+                "bar_volume": float(row.get("bar_volume") or 0.0),
+            }
+        )
+    return parsed_rows
+
+
+def _sql_bar_date(value: Any) -> str:
+    if hasattr(value, "date"):
+        return value.date().isoformat()
+    text = str(value or "")
+    return text.split("T", 1)[0].split(" ", 1)[0] if text else ""
 
 
 def _account_sleeve_for_bar(bar: Mapping[str, Any]) -> str:

@@ -497,6 +497,72 @@ class ReplayExecutionTests(unittest.TestCase):
                     option_feature_database_url="",
                 )
 
+    def test_equity_feed_plan_uses_sql_retained_bars_when_csv_payload_is_absent(self):
+        original_sql_loader = replay_module._load_equity_bars_from_sql
+        try:
+            replay_module._load_equity_bars_from_sql = lambda **kwargs: [
+                {
+                    "symbol": kwargs["symbol"],
+                    "asset_class": "us_equity",
+                    "source_id": "alpaca_bars",
+                    "timeframe": "1Day",
+                    "timestamp": "2021-01-04T16:00:00-05:00",
+                    "date": "2021-01-04",
+                    "bar_open": 100.0,
+                    "bar_high": 101.0,
+                    "bar_low": 99.0,
+                    "bar_close": 100.5,
+                    "bar_volume": 1000.0,
+                }
+            ]
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                dataset_root = root / "dataset"
+                dataset_root.mkdir(parents=True)
+                receipt_path = root / "completion_receipt.json"
+                receipt_path.write_text(
+                    json.dumps({"runs": [{"status": "succeeded", "row_counts": {"equity_bar": 1}, "outputs": []}]}) + "\n",
+                    encoding="utf-8",
+                )
+                plan_path = dataset_root / "feed_acquisition_plan.csv"
+                with plan_path.open("w", newline="", encoding="utf-8") as handle:
+                    writer = csv.DictWriter(
+                        handle,
+                        fieldnames=[
+                            "source_id",
+                            "month",
+                            "start_date",
+                            "end_date_exclusive",
+                            "target_ref",
+                            "coverage_status",
+                            "coverage_receipt_path",
+                        ],
+                    )
+                    writer.writeheader()
+                    writer.writerow(
+                        {
+                            "source_id": "alpaca_bars",
+                            "month": "2021-01",
+                            "start_date": "2021-01-01",
+                            "end_date_exclusive": "2021-02-01",
+                            "target_ref": "AAPL",
+                            "coverage_status": "available",
+                            "coverage_receipt_path": str(receipt_path),
+                        }
+                    )
+
+                rows = replay_module._load_equity_bars_from_plan(
+                    plan_path=plan_path,
+                    replay_month="2021-01",
+                    equity_symbols=["AAPL"],
+                )
+
+                self.assertEqual(list(rows), ["AAPL"])
+                self.assertEqual(rows["AAPL"][0]["timestamp"], "2021-01-04T16:00:00-05:00")
+                self.assertEqual(rows["AAPL"][0]["source_id"], "alpaca_bars")
+        finally:
+            replay_module._load_equity_bars_from_sql = original_sql_loader
+
     def test_candidate_policy_replay_uses_m09_option_path_return(self):
         original_feature_loader = replay_module._load_option_candidate_features
         original_path_loader = replay_module._load_option_contract_path_bars
