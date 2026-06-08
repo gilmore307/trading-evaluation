@@ -295,7 +295,13 @@ class ReplayExecutionTests(unittest.TestCase):
 
     def test_candidate_policy_replay_does_not_prefetch_option_features_for_materialized_equity_rows(self):
         original_plan_builder = replay_module._option_expression_plan_for_bar
+        original_bulk_feature_loader = replay_module._load_option_candidate_features
+        original_point_feature_loader = replay_module._load_option_candidate_features_for_timestamp
         try:
+            replay_module._load_option_candidate_features = lambda **_: self.fail("bulk option feature loader must not run")
+            replay_module._load_option_candidate_features_for_timestamp = (
+                lambda **_: self.fail("point option feature loader must not run without a Layer 8 signal")
+            )
             replay_module._option_expression_plan_for_bar = lambda **_: None
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
@@ -315,6 +321,8 @@ class ReplayExecutionTests(unittest.TestCase):
                 self.assertEqual(result.receipt["decision_row_count"], 1)
         finally:
             replay_module._option_expression_plan_for_bar = original_plan_builder
+            replay_module._load_option_candidate_features = original_bulk_feature_loader
+            replay_module._load_option_candidate_features_for_timestamp = original_point_feature_loader
 
     def test_option_expression_plan_requires_features_only_after_layer_eight_signal(self):
         with self.assertRaisesRegex(ValueError, "replay_option_feature_acquisition_required"):
@@ -614,6 +622,7 @@ class ReplayExecutionTests(unittest.TestCase):
 
     def test_candidate_policy_replay_uses_m09_option_path_return(self):
         original_feature_loader = replay_module._load_option_candidate_features
+        original_point_feature_loader = replay_module._load_option_candidate_features_for_timestamp
         original_path_loader = replay_module._load_option_contract_path_bars
         original_plan_builder = replay_module._option_expression_plan_for_bar
         try:
@@ -638,6 +647,12 @@ class ReplayExecutionTests(unittest.TestCase):
                     }
                 ]
             }
+            replay_module._load_option_candidate_features_for_timestamp = lambda **_: [
+                {
+                    "contract_ref": "AAPL_2021-01-15_P_100",
+                    "option_right": "PUT",
+                }
+            ]
             replay_module._load_option_contract_path_bars = lambda **_: {
                 "AAPL_2021-01-15_P_100": [
                     {"option_symbol": "AAPL_2021-01-15_P_100", "timestamp": "2021-01-04T16:00:00-05:00", "bar_close": 2.0},
@@ -688,6 +703,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 self.assertEqual(result.receipt["option_replay_coverage"]["selected_option_path_available_count"], 1)
         finally:
             replay_module._load_option_candidate_features = original_feature_loader
+            replay_module._load_option_candidate_features_for_timestamp = original_point_feature_loader
             replay_module._load_option_contract_path_bars = original_path_loader
             replay_module._option_expression_plan_for_bar = original_plan_builder
 

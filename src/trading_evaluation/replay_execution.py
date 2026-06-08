@@ -230,11 +230,10 @@ def build_candidate_policy_replay_execution_run(
         candidate_handoff=candidate_handoff,
         bars_by_target=bars_by_target,
     )
-    option_candidates_by_underlying_time = _load_option_candidate_features(
+    option_candidates_by_underlying_time = _LazyOptionCandidateFeatures(
         database_url=resolved_option_feature_database_url,
         schema=option_feature_schema,
         table=option_feature_table,
-        targets=bars_by_target.keys(),
     )
     option_contract_paths_by_symbol = _load_option_contract_path_bars(
         database_url=resolved_option_feature_database_url,
@@ -645,12 +644,15 @@ def _build_candidate_policy_decision_rows(
                 after_cost_alpha_model=after_cost_alpha_model,
                 entry_calibration=entry_calibration.artifact,
             )
+            option_candidates: Sequence[Mapping[str, Any]] = ()
+            if _option_expression_signal_required(layer_outputs):
+                option_candidates = option_candidates_by_underlying_time.get((target.upper(), replay_time_pointer), ())
             option_expression_plan = _option_expression_plan_for_bar(
                 bar=bar,
                 candidate_model_ref=candidate_model_ref,
                 timestamp=replay_time_pointer,
                 layer_outputs=layer_outputs,
-                option_candidates=option_candidates_by_underlying_time.get((target.upper(), replay_time_pointer), ()),
+                option_candidates=option_candidates,
             )
             replay_market_snapshot = _replay_market_snapshot(
                 bar=bar,
@@ -982,6 +984,114 @@ def _string_set(value: Any) -> set[str]:
     return set()
 
 
+class _LazyOptionCandidateFeatures:
+    """Point-in-time option candidates loaded only after replay emits a signal."""
+
+    def __init__(self, *, database_url: str | None, schema: str, table: str) -> None:
+        self.database_url = database_url
+        self.schema = schema
+        self.table = table
+        self._cache: dict[tuple[str, str], list[dict[str, Any]]] = {}
+
+    def get(self, key: tuple[str, str], default: Sequence[Mapping[str, Any]] = ()) -> Sequence[Mapping[str, Any]]:
+        target, timestamp = key
+        normalized_key = (str(target).upper(), _time_key(timestamp))
+        if normalized_key not in self._cache:
+            self._cache[normalized_key] = _load_option_candidate_features_for_timestamp(
+                database_url=self.database_url,
+                schema=self.schema,
+                table=self.table,
+                target=normalized_key[0],
+                timestamp=normalized_key[1],
+            )
+        return self._cache[normalized_key] or default
+
+    def values(self) -> Sequence[Sequence[Mapping[str, Any]]]:
+        return tuple(self._cache.values())
+
+    def __len__(self) -> int:
+        return sum(1 for rows in self._cache.values() if rows)
+
+
+def _option_candidate_feature_row_payload(row: Mapping[str, Any]) -> dict[str, Any] | None:
+    underlying = str(row.get("underlying") or "").upper()
+    snapshot_time = _time_key(row.get("snapshot_time"))
+    contract_ref = str(row.get("option_symbol") or "")
+    payload = _coerce_json_mapping(row.get("feature_payload_json"))
+    diagnostics = _coerce_json_mapping(row.get("feature_quality_diagnostics"))
+    if not underlying or not snapshot_time or not contract_ref:
+        return None
+    option_right = payload.get("option_right") or payload.get("right") or payload.get("option_right_type")
+    expiration = payload.get("expiration") or row.get("expiration")
+    dte = payload.get("dte") or payload.get("days_to_expiration")
+    mid = payload.get("mid_price") or payload.get("mid")
+    implied_vol = payload.get("iv") or payload.get("implied_volatility") or payload.get("implied_vol")
+    return {
+        "contract_ref": contract_ref,
+        "option_symbol": contract_ref,
+        "option_right": option_right,
+        "right": option_right,
+        "expiration": expiration,
+        "dte": dte,
+        "days_to_expiration": dte,
+        "mid_price": mid,
+        "mid": mid,
+        "iv": implied_vol,
+        "implied_volatility": implied_vol,
+        "candidate_quality_diagnostics": diagnostics,
+        **payload,
+    }
+
+
+def _load_option_candidate_features_for_timestamp(
+    *,
+    database_url: str | None,
+    schema: str,
+    table: str,
+    target: str,
+    timestamp: str,
+) -> list[dict[str, Any]]:
+    if not database_url or not target or not timestamp:
+        return []
+    _validate_identifier(schema)
+    _validate_identifier(table)
+    try:
+        import psycopg  # type: ignore
+        from psycopg.rows import dict_row  # type: ignore
+    except ModuleNotFoundError as exc:  # pragma: no cover
+        raise RuntimeError("psycopg is required to load replay option feature rows") from exc
+    with psycopg.connect(database_url, row_factory=dict_row) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT to_regclass(%s) AS table_ref", (f"{schema}.{table}",))
+            exists = cursor.fetchone()
+            if not exists or exists.get("table_ref") is None:
+                return []
+            cursor.execute(
+                f"""
+                SELECT
+                  f."underlying",
+                  f."snapshot_time",
+                  f."snapshot_type",
+                  f."option_symbol",
+                  f."feature_payload_json",
+                  f."feature_quality_diagnostics"
+                FROM "{schema}"."{table}" AS f
+                WHERE f."underlying" = %s
+                  AND f."snapshot_time" = %s::timestamptz
+                  AND COALESCE(f."snapshot_type", 'entry') IN ('entry', 'source_cache')
+                ORDER BY f."option_symbol" ASC
+                """,
+                (target, timestamp),
+            )
+            feature_rows = [dict(row) for row in cursor.fetchall()]
+    output: list[dict[str, Any]] = []
+    for row in feature_rows:
+        payload = _option_candidate_feature_row_payload(row)
+        if payload is not None:
+            output.append(payload)
+    return output
+
+
 def _load_option_candidate_features(
     *,
     database_url: str | None,
@@ -1028,33 +1138,10 @@ def _load_option_candidate_features(
     for row in feature_rows:
         underlying = str(row.get("underlying") or "").upper()
         snapshot_time = _time_key(row.get("snapshot_time"))
-        contract_ref = str(row.get("option_symbol") or "")
-        payload = _coerce_json_mapping(row.get("feature_payload_json"))
-        diagnostics = _coerce_json_mapping(row.get("feature_quality_diagnostics"))
-        if not underlying or not snapshot_time or not contract_ref:
+        payload = _option_candidate_feature_row_payload(row)
+        if not underlying or not snapshot_time or payload is None:
             continue
-        option_right = payload.get("option_right") or payload.get("right") or payload.get("option_right_type")
-        expiration = payload.get("expiration") or row.get("expiration")
-        dte = payload.get("dte") or payload.get("days_to_expiration")
-        mid = payload.get("mid_price") or payload.get("mid")
-        implied_vol = payload.get("iv") or payload.get("implied_volatility") or payload.get("implied_vol")
-        rows_by_key[(underlying, snapshot_time)].append(
-            {
-                "contract_ref": contract_ref,
-                "option_symbol": contract_ref,
-                "option_right": option_right,
-                "right": option_right,
-                "expiration": expiration,
-                "dte": dte,
-                "days_to_expiration": dte,
-                "mid_price": mid,
-                "mid": mid,
-                "iv": implied_vol,
-                "implied_volatility": implied_vol,
-                "candidate_quality_diagnostics": diagnostics,
-                **payload,
-            }
-        )
+        rows_by_key[(underlying, snapshot_time)].append(payload)
     return rows_by_key
 
 
