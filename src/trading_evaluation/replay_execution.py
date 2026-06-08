@@ -67,7 +67,16 @@ DISALLOWED_PLACEHOLDER_CANDIDATE_MODEL_REFS = (
 REPLAY_OPTION_FEATURE_ACQUISITION_REQUIRED = "replay_option_feature_acquisition_required"
 REPLAY_OPTION_FEATURE_FUTURE_DATA_REJECTED = "replay_option_feature_future_data_rejected"
 REPLAY_TIME_POINTER_POLICY_REF = "replay_time_pointer_excludes_future_decision_inputs"
-MISSING_OPTION_FEATURE_SAMPLE_LIMIT = 20
+OPTION_CANDIDATE_POINT_IN_TIME_SAMPLE_LIMIT = 20
+OPTION_EXPRESSION_SIGNAL_ACTION_TYPES = frozenset(
+    {
+        "open_long",
+        "increase_long",
+        "open_short",
+        "increase_short",
+        "bearish_underlying_path_but_no_short_allowed",
+    }
+)
 OPTION_CANDIDATE_POINT_IN_TIME_FIELDS = (
     "snapshot_time",
     "available_time",
@@ -227,16 +236,6 @@ def build_candidate_policy_replay_execution_run(
         table=option_feature_table,
         targets=bars_by_target.keys(),
     )
-    missing_option_features = _missing_option_feature_requirements(
-        bars_by_target=bars_by_target,
-        option_candidates_by_underlying_time=option_candidates_by_underlying_time,
-    )
-    if missing_option_features:
-        raise ValueError(
-            REPLAY_OPTION_FEATURE_ACQUISITION_REQUIRED
-            + ": "
-            + json.dumps(missing_option_features, sort_keys=True)
-        )
     option_contract_paths_by_symbol = _load_option_contract_path_bars(
         database_url=resolved_option_feature_database_url,
         schema=option_feature_schema,
@@ -1334,6 +1333,8 @@ def _option_expression_plan_for_bar(
     if str(bar.get("asset_class") or "") == "crypto_spot":
         return None
     target = str(bar.get("symbol") or "").upper()
+    if not _option_expression_signal_required(layer_outputs):
+        return None
     if option_candidates:
         _validate_option_candidates_point_in_time(
             target=target,
@@ -1379,13 +1380,30 @@ def _option_expression_plan_for_bar(
         + json.dumps(
             {
                 "missing_count": 1,
-                "sample": [{"target_ref": target, "timestamp": timestamp, "maximum_permitted_source_end": timestamp}],
-                "required_next_step": "run ThetaData option acquisition with source_end no later than the missing replay_time_pointer, then generate M09 option features and retry replay execution",
-                "point_in_time_policy": "option provider acquisition for replay must not request or consume data after the replay_time_pointer being completed",
+                "sample": [
+                    {
+                        "target_ref": target,
+                        "timestamp": timestamp,
+                        "maximum_permitted_source_end": timestamp,
+                        "signal_source": "layer_08_underlying_action.handoff_to_layer_9",
+                    }
+                ],
+                "required_next_step": "run ThetaData option acquisition only for this emitted replay signal timestamp, generate M09 option features, then retry replay execution from the same replay clock",
+                "point_in_time_policy": "option provider acquisition for replay must not request or consume data after the replay_time_pointer that emitted the option-expression signal",
             },
             sort_keys=True,
         )
     )
+
+
+def _option_expression_signal_required(layer_outputs: Mapping[str, Any]) -> bool:
+    plan = _as_mapping(layer_outputs.get("underlying_action_plan"))
+    action_type = str(plan.get("planned_underlying_action_type") or plan.get("8_resolved_underlying_action_type") or "").lower()
+    if action_type not in OPTION_EXPRESSION_SIGNAL_ACTION_TYPES:
+        return False
+    handoff = _as_mapping(plan.get("handoff_to_layer_9"))
+    direction = str(handoff.get("underlying_path_direction") or plan.get("action_side") or "").lower()
+    return bool(handoff) and direction in {"bullish", "bearish", "long", "short", "bearish_no_direct_short"}
 
 
 def _replay_market_snapshot(
@@ -1466,19 +1484,17 @@ def _option_replay_coverage_summary(
     option_contract_paths_by_symbol: Mapping[str, Sequence[Mapping[str, Any]]],
     decision_rows: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    equity_decision_times: set[tuple[str, str]] = set()
-    for target, rows in bars_by_target.items():
-        for row in rows[:-1]:
-            if str(row.get("asset_class") or "") != "us_equity":
-                continue
-            timestamp = _replay_time_pointer_for_bar(row)
-            if timestamp:
-                equity_decision_times.add((target.upper(), timestamp))
+    option_signal_times = {
+        (str(row.get("target_ref") or "").upper(), str(row.get("replay_time_pointer") or ""))
+        for row in decision_rows
+        if str(row.get("asset_expression_route") or "").strip()
+    }
+    option_signal_times = {(target, timestamp) for target, timestamp in option_signal_times if target and timestamp}
     selected_option_rows = [row for row in decision_rows if row.get("selected_option_contract_ref")]
     path_available_count = sum(1 for row in selected_option_rows if row.get("option_contract_path_status") == "available")
     path_missing_count = sum(1 for row in selected_option_rows if row.get("option_contract_path_status") == "missing")
-    expected_snapshot_count = len(equity_decision_times)
-    feature_snapshot_count = sum(1 for key in equity_decision_times if option_candidates_by_underlying_time.get(key))
+    expected_snapshot_count = len(option_signal_times)
+    feature_snapshot_count = sum(1 for key in option_signal_times if option_candidates_by_underlying_time.get(key))
     feature_missing_count = max(0, expected_snapshot_count - feature_snapshot_count)
     feature_coverage_ratio = feature_snapshot_count / expected_snapshot_count if expected_snapshot_count else None
     if expected_snapshot_count == 0:
@@ -1500,6 +1516,7 @@ def _option_replay_coverage_summary(
     return {
         "feature_snapshot_coverage_status": feature_status,
         "feature_snapshot_count": feature_snapshot_count,
+        "expected_option_signal_snapshot_count": expected_snapshot_count,
         "expected_equity_decision_snapshot_count": expected_snapshot_count,
         "expected_equity_target_date_snapshot_count": expected_snapshot_count,
         "missing_equity_decision_snapshot_count": feature_missing_count,
@@ -1510,51 +1527,6 @@ def _option_replay_coverage_summary(
         "selected_option_decision_count": len(selected_option_rows),
         "selected_option_path_available_count": path_available_count,
         "selected_option_path_missing_count": path_missing_count,
-    }
-
-
-def _missing_option_feature_requirements(
-    *,
-    bars_by_target: Mapping[str, Sequence[Mapping[str, Any]]],
-    option_candidates_by_underlying_time: Mapping[tuple[str, str], Sequence[Mapping[str, Any]]],
-) -> dict[str, Any]:
-    missing: list[dict[str, str]] = []
-    expected_count = 0
-    available_count = 0
-    for target, rows in sorted(bars_by_target.items()):
-        for row in rows[:-1]:
-            if str(row.get("asset_class") or "") != "us_equity":
-                continue
-            timestamp = _replay_time_pointer_for_bar(row)
-            if not timestamp:
-                continue
-            expected_count += 1
-            key = (str(target).upper(), timestamp)
-            if option_candidates_by_underlying_time.get(key):
-                available_count += 1
-                continue
-            if len(missing) < MISSING_OPTION_FEATURE_SAMPLE_LIMIT:
-                missing.append(
-                    {
-                        "target_ref": str(target).upper(),
-                        "timestamp": timestamp,
-                        "maximum_permitted_source_end": timestamp,
-                    }
-                )
-    missing_count = expected_count - available_count
-    if missing_count <= 0:
-        return {}
-    return {
-        "missing_count": missing_count,
-        "expected_count": expected_count,
-        "available_count": available_count,
-        "sample": missing,
-        "required_next_step": "run ThetaData option acquisition with source_end no later than each missing replay decision timestamp, then generate M09 option features and retry replay execution",
-        "point_in_time_policy": "option provider acquisition for replay must not request or consume data after the replay decision timestamp being completed",
-        "source_tables": [
-            "trading_data.option_chain_state_source",
-            "trading_data.m09_option_expression_feature_generation",
-        ],
     }
 
 
@@ -1599,8 +1571,8 @@ def _validate_option_candidates_point_in_time(
                     }
                 )
                 break
-        if len(violations) >= MISSING_OPTION_FEATURE_SAMPLE_LIMIT:
-            break
+            if len(violations) >= OPTION_CANDIDATE_POINT_IN_TIME_SAMPLE_LIMIT:
+                break
     if violations:
         raise ValueError(
             REPLAY_OPTION_FEATURE_FUTURE_DATA_REJECTED

@@ -293,14 +293,16 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(progress_rows[0]["status"], "completed")
             self.assertEqual(progress_rows[0]["initial_capital_usd"], 25000.0)
 
-    def test_candidate_policy_replay_requires_option_features_for_materialized_equity_rows(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            dataset_root = self._dataset(root)
-            equity_source_root = self._equity_source_root(root)
+    def test_candidate_policy_replay_does_not_prefetch_option_features_for_materialized_equity_rows(self):
+        original_plan_builder = replay_module._option_expression_plan_for_bar
+        try:
+            replay_module._option_expression_plan_for_bar = lambda **_: None
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                dataset_root = self._dataset(root)
+                equity_source_root = self._equity_source_root(root)
 
-            with self.assertRaisesRegex(ValueError, "replay_option_feature_acquisition_required"):
-                build_candidate_policy_replay_execution_run(
+                result = build_candidate_policy_replay_execution_run(
                     dataset_root=dataset_root,
                     run_id="test_candidate_policy",
                     candidate_model_ref="storage://trading-manager/model_group/test_fold",
@@ -310,6 +312,48 @@ class ReplayExecutionTests(unittest.TestCase):
                     max_decision_rows=1,
                     option_feature_database_url="",
                 )
+                self.assertEqual(result.receipt["decision_row_count"], 1)
+        finally:
+            replay_module._option_expression_plan_for_bar = original_plan_builder
+
+    def test_option_expression_plan_requires_features_only_after_layer_eight_signal(self):
+        with self.assertRaisesRegex(ValueError, "replay_option_feature_acquisition_required"):
+            replay_module._option_expression_plan_for_bar(
+                bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
+                candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                timestamp="2021-01-04T16:00:00-05:00",
+                layer_outputs={
+                    "target_candidate_id": "replay_aapl_test",
+                    "underlying_action_plan": {
+                        "model_ref": "underlying-action-ref",
+                        "planned_underlying_action_type": "open_long",
+                        "action_side": "long",
+                        "handoff_to_layer_9": {
+                            "underlying_path_direction": "bullish",
+                            "expected_holding_time_minutes": 1440,
+                        },
+                    },
+                },
+                option_candidates=[],
+            )
+
+        self.assertIsNone(
+            replay_module._option_expression_plan_for_bar(
+                bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
+                candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                timestamp="2021-01-04T16:00:00-05:00",
+                layer_outputs={
+                    "target_candidate_id": "replay_aapl_test",
+                    "underlying_action_plan": {
+                        "model_ref": "underlying-action-ref",
+                        "planned_underlying_action_type": "no_trade",
+                        "action_side": "none",
+                        "handoff_to_layer_9": {"underlying_path_direction": "neutral"},
+                    },
+                },
+                option_candidates=[],
+            )
+        )
 
     def test_candidate_policy_replay_requires_layer_two_candidate_handoff_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -484,8 +528,10 @@ class ReplayExecutionTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(ValueError, "replay_option_feature_acquisition_required"):
-                build_candidate_policy_replay_execution_run(
+            original_plan_builder = replay_module._option_expression_plan_for_bar
+            try:
+                replay_module._option_expression_plan_for_bar = lambda **_: None
+                result = build_candidate_policy_replay_execution_run(
                     dataset_root=dataset_root,
                     run_id="test_month_replay",
                     candidate_model_ref="storage://trading-manager/model_group/test_fold",
@@ -496,6 +542,9 @@ class ReplayExecutionTests(unittest.TestCase):
                     max_decision_rows=1,
                     option_feature_database_url="",
                 )
+                self.assertEqual(result.receipt["decision_row_count"], 1)
+            finally:
+                replay_module._option_expression_plan_for_bar = original_plan_builder
 
     def test_equity_feed_plan_uses_sql_retained_bars_when_csv_payload_is_absent(self):
         original_sql_loader = replay_module._load_equity_bars_from_sql
@@ -654,7 +703,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 "event_failure_risk_vector": {},
                 "underlying_action_plan": {
                     "model_ref": "underlying-action-ref",
-                    "planned_underlying_action_type": "open",
+                    "planned_underlying_action_type": "open_long",
                     "action_side": "long",
                     "handoff_to_layer_9": {
                         "underlying_path_direction": "bullish",
@@ -700,7 +749,15 @@ class ReplayExecutionTests(unittest.TestCase):
                 bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
                 candidate_model_ref="storage://trading-manager/model_group/test_fold",
                 timestamp="2021-01-04T10:00:00-05:00",
-                layer_outputs={},
+                layer_outputs={
+                    "target_candidate_id": "replay_aapl_test",
+                    "underlying_action_plan": {
+                        "model_ref": "underlying-action-ref",
+                        "planned_underlying_action_type": "open_long",
+                        "action_side": "long",
+                        "handoff_to_layer_9": {"underlying_path_direction": "bullish"},
+                    },
+                },
                 option_candidates=[
                     {
                         "contract_ref": "AAPL_2021-01-15_C_100",
@@ -744,15 +801,18 @@ class ReplayExecutionTests(unittest.TestCase):
             option_contract_paths_by_symbol={"AAPL_2021-01-15_C_100": [{"bar_close": 2.0}]},
             decision_rows=[
                 {
+                    "target_ref": "AAPL",
+                    "replay_time_pointer": "2021-01-04T16:00:00-05:00",
+                    "asset_expression_route": "listed_option_contract",
                     "selected_option_contract_ref": "AAPL_2021-01-15_C_100",
                     "option_contract_path_status": "available",
                 }
             ],
         )
 
-        self.assertEqual(summary["feature_snapshot_coverage_status"], "partial")
-        self.assertEqual(summary["expected_equity_decision_snapshot_count"], 2)
-        self.assertEqual(summary["missing_equity_decision_snapshot_count"], 1)
+        self.assertEqual(summary["feature_snapshot_coverage_status"], "complete")
+        self.assertEqual(summary["expected_option_signal_snapshot_count"], 1)
+        self.assertEqual(summary["missing_equity_decision_snapshot_count"], 0)
         self.assertEqual(summary["selected_option_decision_count"], 1)
         self.assertEqual(summary["contract_path_coverage_status"], "complete")
 
