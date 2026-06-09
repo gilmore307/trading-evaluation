@@ -349,6 +349,26 @@ class ReplayExecutionTests(unittest.TestCase):
                 option_candidates=[],
             )
 
+    def test_replay_option_feature_acquisition_payload_can_report_multiple_missing_points(self):
+        message = replay_module._replay_option_feature_acquisition_message(
+            [
+                replay_module._replay_option_feature_requirement_sample(
+                    target="AAPL",
+                    timestamp="2021-05-19T16:00:00-04:00",
+                ),
+                replay_module._replay_option_feature_requirement_sample(
+                    target="AAPL",
+                    timestamp="2021-05-21T16:00:00-04:00",
+                ),
+            ]
+        )
+
+        payload = json.loads(message.split(": ", 1)[1])
+        self.assertEqual(payload["missing_count"], 2)
+        self.assertEqual(len(payload["sample"]), 2)
+        self.assertEqual(payload["sample"][0]["maximum_permitted_source_end"], "2021-05-19T16:00:00-04:00")
+        self.assertEqual(payload["sample"][1]["timestamp"], "2021-05-21T16:00:00-04:00")
+
     def test_option_expression_plan_continues_when_option_source_unavailable(self):
         plan = replay_module._option_expression_plan_for_bar(
             bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},

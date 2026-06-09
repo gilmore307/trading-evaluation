@@ -68,6 +68,7 @@ DISALLOWED_PLACEHOLDER_CANDIDATE_MODEL_REFS = (
 )
 REPLAY_OPTION_FEATURE_ACQUISITION_REQUIRED = "replay_option_feature_acquisition_required"
 REPLAY_OPTION_FEATURE_FUTURE_DATA_REJECTED = "replay_option_feature_future_data_rejected"
+REPLAY_OPTION_FEATURE_MISSING_SAMPLE_LIMIT = 100
 OPTION_SOURCE_UNAVAILABLE_SNAPSHOT_TYPE = "source_unavailable"
 OPTION_SOURCE_UNAVAILABLE_STATUS = "option_source_unavailable"
 OPTION_SOURCE_UNAVAILABLE_SYMBOL = "__OPTION_SOURCE_UNAVAILABLE__"
@@ -624,6 +625,7 @@ def _build_candidate_policy_decision_rows(
     option_contract_paths_by_symbol: Mapping[str, Sequence[Mapping[str, Any]]],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    missing_option_feature_requirements: list[dict[str, str]] = []
     history_by_target = {target: list(bars) for target, bars in bars_by_target.items()}
     index_by_target_date = {
         target: {str(row["date"]): index for index, row in enumerate(target_rows)}
@@ -652,6 +654,11 @@ def _build_candidate_policy_decision_rows(
             option_candidates: Sequence[Mapping[str, Any]] = ()
             if _option_expression_signal_required(layer_outputs):
                 option_candidates = option_candidates_by_underlying_time.get((target.upper(), replay_time_pointer), ())
+                if not option_candidates:
+                    missing_option_feature_requirements.append(
+                        _replay_option_feature_requirement_sample(target=target, timestamp=replay_time_pointer)
+                    )
+                    continue
             option_expression_plan = _option_expression_plan_for_bar(
                 bar=bar,
                 candidate_model_ref=candidate_model_ref,
@@ -782,6 +789,8 @@ def _build_candidate_policy_decision_rows(
                     "side_effects": replay_result["side_effects"],
                 }
             )
+    if missing_option_feature_requirements:
+        raise _replay_option_feature_acquisition_error(missing_option_feature_requirements)
     return rows
 
 
@@ -1500,24 +1509,48 @@ def _option_expression_plan_for_bar(
         )
         return plan
     raise ValueError(
-        REPLAY_OPTION_FEATURE_ACQUISITION_REQUIRED
-        + ": "
-        + json.dumps(
-            {
-                "missing_count": 1,
-                "sample": [
-                    {
-                        "target_ref": target,
-                        "timestamp": timestamp,
-                        "maximum_permitted_source_end": timestamp,
-                        "signal_source": "layer_08_underlying_action.handoff_to_layer_9",
-                    }
-                ],
-                "required_next_step": "run ThetaData option acquisition only for this emitted replay signal timestamp, generate M09 option features, then retry replay execution from the same replay clock",
-                "point_in_time_policy": "option provider acquisition for replay must not request or consume data after the replay_time_pointer that emitted the option-expression signal",
-            },
-            sort_keys=True,
+        _replay_option_feature_acquisition_message(
+            [_replay_option_feature_requirement_sample(target=target, timestamp=timestamp)]
         )
+    )
+
+
+def _replay_option_feature_requirement_sample(*, target: str, timestamp: str) -> dict[str, str]:
+    return {
+        "target_ref": str(target).upper(),
+        "timestamp": timestamp,
+        "maximum_permitted_source_end": timestamp,
+        "signal_source": "layer_08_underlying_action.handoff_to_layer_9",
+    }
+
+
+def _replay_option_feature_acquisition_error(requirements: Sequence[Mapping[str, str]]) -> ValueError:
+    return ValueError(_replay_option_feature_acquisition_message(requirements))
+
+
+def _replay_option_feature_acquisition_message(requirements: Sequence[Mapping[str, str]]) -> str:
+    deduped: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in requirements:
+        target = str(item.get("target_ref") or "").upper()
+        timestamp = str(item.get("timestamp") or item.get("maximum_permitted_source_end") or "")
+        if not target or not timestamp:
+            continue
+        key = (target, timestamp)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(_replay_option_feature_requirement_sample(target=target, timestamp=timestamp))
+    sample = deduped[:REPLAY_OPTION_FEATURE_MISSING_SAMPLE_LIMIT]
+    return REPLAY_OPTION_FEATURE_ACQUISITION_REQUIRED + ": " + json.dumps(
+        {
+            "missing_count": len(deduped),
+            "sample": sample,
+            "sample_limit": REPLAY_OPTION_FEATURE_MISSING_SAMPLE_LIMIT,
+            "required_next_step": "run ThetaData option acquisition only for emitted replay signal timestamps, generate M09 option features, then retry replay execution from the same replay clock",
+            "point_in_time_policy": "option provider acquisition for replay must not request or consume data after each replay_time_pointer that emitted an option-expression signal",
+        },
+        sort_keys=True,
     )
 
 
