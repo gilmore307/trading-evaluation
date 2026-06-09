@@ -16,6 +16,10 @@ from models.model_05_alpha_confidence.contract import HORIZONS
 
 
 class ReplayExecutionTests(unittest.TestCase):
+    def test_equity_market_close_timestamp_uses_new_york_dst_offset(self):
+        self.assertEqual(replay_module._equity_market_close_timestamp("2021-01-04"), "2021-01-04T16:00:00-05:00")
+        self.assertEqual(replay_module._equity_market_close_timestamp("2021-04-14"), "2021-04-14T16:00:00-04:00")
+
     def _dataset(self, root: Path) -> Path:
         dataset_root = root / "dataset"
         dataset_root.mkdir()

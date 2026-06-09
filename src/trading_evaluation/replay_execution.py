@@ -16,9 +16,10 @@ import math
 import os
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
+from zoneinfo import ZoneInfo
 
 from .execution_runtime import EXECUTION_REPLAY_ROUTE_REF, build_replay_runtime_dry_run
 
@@ -60,6 +61,7 @@ DEFAULT_ENTRY_ALPHA_THRESHOLD = 0.50
 DEFAULT_MINIMUM_TRADE_INTENSITY = 0.05
 REPLAY_COST_PER_FILLED_DECISION = 0.0015
 DEFAULT_REPLAY_INITIAL_CAPITAL_USD = 25_000.0
+NEW_YORK = ZoneInfo("America/New_York")
 REPLAY_INITIAL_CAPITAL_CURRENCY = "USD"
 DISALLOWED_PLACEHOLDER_CANDIDATE_MODEL_REFS = (
     "trading-model://candidate_policy_replay/current_deterministic_crypto_policy",
@@ -1283,6 +1285,9 @@ def _load_equity_bars_from_plan(
                 for row in _read_bar_csv(path):
                     if replay_month and str(row["timestamp"])[:7] != replay_month:
                         continue
+                    row["timestamp"] = _equity_market_close_timestamp(
+                        str(row.get("date") or _sql_bar_date(row["timestamp"]))
+                    )
                     row["symbol"] = symbol
                     row["asset_class"] = "us_equity"
                     row["source_id"] = "alpaca_bars"
@@ -1328,7 +1333,7 @@ def _load_equity_bars(*, equity_source_root: Path, equity_symbols: Sequence[str]
                         "asset_class": "us_equity",
                         "source_id": "alpaca_bars",
                         "timeframe": "1Day",
-                        "timestamp": f"{date_text}T16:00:00-05:00",
+                        "timestamp": _equity_market_close_timestamp(date_text),
                         "date": date_text,
                         "bar_open": float(row["bar_open"]),
                         "bar_high": float(row["bar_high"]),
@@ -1404,7 +1409,7 @@ def _load_equity_bars_from_sql(
                 "asset_class": "us_equity",
                 "source_id": "alpaca_bars",
                 "timeframe": str(row.get("timeframe") or "1Day"),
-                "timestamp": f"{date_text}T16:00:00-05:00",
+                "timestamp": _equity_market_close_timestamp(date_text),
                 "date": date_text,
                 "bar_open": float(row["bar_open"]),
                 "bar_high": float(row["bar_high"]),
@@ -1421,6 +1426,11 @@ def _sql_bar_date(value: Any) -> str:
         return value.date().isoformat()
     text = str(value or "")
     return text.split("T", 1)[0].split(" ", 1)[0] if text else ""
+
+
+def _equity_market_close_timestamp(date_text: str) -> str:
+    parsed = datetime.fromisoformat(str(date_text)[:10])
+    return datetime.combine(parsed.date(), time(16, 0), tzinfo=NEW_YORK).isoformat()
 
 
 def _account_sleeve_for_bar(bar: Mapping[str, Any]) -> str:
