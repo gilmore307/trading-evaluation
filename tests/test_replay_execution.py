@@ -266,7 +266,9 @@ class ReplayExecutionTests(unittest.TestCase):
                 result.receipt["entry_threshold_calibration_status"],
                 {
                     "selected_positive_validation_threshold",
-                    "selected_best_available_nonpositive_validation_threshold",
+                    "fallback_insufficient_validation_observations",
+                    "fallback_degenerate_validation_alpha_scores",
+                    "fallback_no_positive_validation_threshold_candidate",
                     "fallback_no_validation_threshold_candidate",
                 },
             )
@@ -299,6 +301,37 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(progress_rows[0]["month"], "2021-01")
             self.assertEqual(progress_rows[0]["status"], "completed")
             self.assertEqual(progress_rows[0]["initial_capital_usd"], 25000.0)
+
+    def test_entry_calibration_rejects_tiny_validation_windows(self):
+        selected = replay_module._select_entry_thresholds([_calibration_row(index=0, alpha_confidence=0.72)])
+
+        self.assertEqual(selected["status"], "fallback_insufficient_validation_observations")
+        self.assertEqual(selected["thresholds"]["minimum_entry_alpha_confidence"], 0.5)
+        self.assertEqual(selected["thresholds"]["minimum_trade_intensity"], 0.05)
+
+    def test_entry_calibration_rejects_constant_alpha_scores(self):
+        rows = [_calibration_row(index=index, alpha_confidence=0.529398) for index in range(72)]
+
+        selected = replay_module._select_entry_thresholds(rows)
+
+        self.assertEqual(selected["status"], "fallback_degenerate_validation_alpha_scores")
+        self.assertEqual(selected["diagnostics"]["alpha_unique_value_count"], 1)
+
+    def test_entry_calibration_never_selects_below_neutral_alpha_threshold(self):
+        rows = [_calibration_row(index=index, alpha_confidence=0.56 + (index % 8) * 0.01) for index in range(72)]
+
+        selected = replay_module._select_entry_thresholds(rows)
+
+        self.assertEqual(selected["status"], "selected_positive_validation_threshold")
+        self.assertGreaterEqual(selected["thresholds"]["minimum_entry_alpha_confidence"], 0.5)
+
+    def test_replay_rejects_degenerate_after_cost_alpha_artifact(self):
+        artifact = _after_cost_alpha_model()
+        for horizon_artifact in artifact["artifacts_by_horizon"].values():
+            horizon_artifact["booster_model"] = "tree\nTree=0\nnum_leaves=1\nleaf_value=0.5\n"
+
+        with self.assertRaisesRegex(ValueError, "degenerate_after_cost_alpha_artifact"):
+            replay_module._validate_after_cost_alpha_model_for_replay(artifact)
 
     def test_candidate_policy_replay_does_not_prefetch_option_features_for_materialized_equity_rows(self):
         original_plan_builder = replay_module._option_expression_plan_for_bar
@@ -1055,6 +1088,21 @@ def _write_after_cost_alpha_model(root: Path) -> Path:
     path = root / "after_cost_alpha_model.json"
     path.write_text(json.dumps(_after_cost_alpha_model(), sort_keys=True), encoding="utf-8")
     return path
+
+
+def _calibration_row(*, index: int, alpha_confidence: float) -> dict[str, object]:
+    return {
+        "target_ref": "AAPL",
+        "timestamp": f"2021-01-{(index % 28) + 1:02d}T16:00:00-05:00",
+        "replay_month": "2021-01",
+        "alpha_confidence": alpha_confidence,
+        "trade_intensity": 0.02 + (index % 5) * 0.002,
+        "action_confidence": 0.80,
+        "action_direction": 0.60,
+        "expected_return_score": 0.04,
+        "gross_return": 0.01,
+        "return_after_cost": 0.008,
+    }
 
 
 def _after_cost_alpha_model() -> dict[str, object]:

@@ -59,6 +59,12 @@ MODEL_EVIDENCE_CHAIN = (
 )
 DEFAULT_ENTRY_ALPHA_THRESHOLD = 0.50
 DEFAULT_MINIMUM_TRADE_INTENSITY = 0.05
+DEFAULT_CALIBRATION_WINDOW_MONTH_COUNT = 3
+MINIMUM_ENTRY_ALPHA_THRESHOLD = 0.50
+MINIMUM_CALIBRATION_OBSERVATION_COUNT = 60
+MINIMUM_CALIBRATION_SELECTED_TRADE_COUNT = 5
+MINIMUM_CALIBRATION_ALPHA_UNIQUE_VALUES = 3
+MINIMUM_CALIBRATION_ALPHA_STDEV = 0.0001
 REPLAY_COST_PER_FILLED_DECISION = 0.0015
 DEFAULT_REPLAY_INITIAL_CAPITAL_USD = 25_000.0
 NEW_YORK = ZoneInfo("America/New_York")
@@ -132,7 +138,7 @@ def build_crypto_replay_execution_run(
     max_decision_rows: int | None = None,
     generated_at_utc: str | None = None,
     progress_path: Path | None = None,
-    calibration_window_month_count: int = 1,
+    calibration_window_month_count: int = DEFAULT_CALIBRATION_WINDOW_MONTH_COUNT,
     initial_capital_usd: float = DEFAULT_REPLAY_INITIAL_CAPITAL_USD,
 ) -> ReplayExecutionResult:
     """Run the frozen crypto sleeve through the execution-owned Replay route."""
@@ -165,7 +171,7 @@ def build_candidate_policy_replay_execution_run(
     max_decision_rows: int | None = None,
     generated_at_utc: str | None = None,
     progress_path: Path | None = None,
-    calibration_window_month_count: int = 1,
+    calibration_window_month_count: int = DEFAULT_CALIBRATION_WINDOW_MONTH_COUNT,
     include_crypto: bool = True,
     include_equity: bool = True,
     equity_source_root: Path = EQUITY_SOURCE_ROOT,
@@ -185,6 +191,7 @@ def build_candidate_policy_replay_execution_run(
     candidate_model_ref = _require_candidate_model_ref(candidate_model_ref)
     if after_cost_alpha_model is None:
         raise ValueError("after_cost_alpha_model is required for replay Layer 5 inference")
+    _validate_after_cost_alpha_model_for_replay(after_cost_alpha_model)
     initial_capital_usd = _validated_initial_capital_usd(initial_capital_usd)
     manifest = _load_json(dataset_root / "dataset_manifest.json")
     freeze_receipt_path = dataset_root / "replay_freeze_receipt.json"
@@ -387,6 +394,47 @@ def _validated_initial_capital_usd(value: float) -> float:
     return capital
 
 
+def _validate_after_cost_alpha_model_for_replay(after_cost_alpha_model: Mapping[str, Any]) -> None:
+    artifacts = after_cost_alpha_model.get("artifacts_by_horizon")
+    if isinstance(artifacts, Mapping):
+        artifact_items = [(str(horizon), artifact) for horizon, artifact in artifacts.items()]
+    else:
+        horizon = str(after_cost_alpha_model.get("horizon") or "unknown")
+        artifact_items = [(horizon, after_cost_alpha_model)]
+    if not artifact_items:
+        raise ValueError("degenerate_after_cost_alpha_artifact: artifact bundle contains no horizons")
+    degenerate: list[str] = []
+    for horizon, artifact in artifact_items:
+        if not isinstance(artifact, Mapping) or _after_cost_artifact_is_degenerate(artifact):
+            degenerate.append(horizon)
+    if degenerate:
+        raise ValueError(
+            "degenerate_after_cost_alpha_artifact: "
+            "Layer 5 after-cost alpha artifact has no usable LightGBM split structure for "
+            + ", ".join(sorted(degenerate))
+        )
+
+
+def _after_cost_artifact_is_degenerate(artifact: Mapping[str, Any]) -> bool:
+    model_text = str(artifact.get("booster_model") or "")
+    if not model_text.strip():
+        return True
+    saw_tree = False
+    saw_split = False
+    for line in model_text.splitlines():
+        if line.startswith("Tree="):
+            saw_tree = True
+        elif line.startswith("num_leaves="):
+            try:
+                if int(line.split("=", 1)[1].strip()) > 1:
+                    saw_split = True
+            except ValueError:
+                continue
+        elif line.startswith("split_feature=") and line.split("=", 1)[1].strip():
+            saw_split = True
+    return not (saw_tree and saw_split)
+
+
 def _build_replay_progress_rows(
     *,
     decision_rows: Sequence[Mapping[str, Any]],
@@ -457,6 +505,7 @@ def _build_entry_calibration(
         "total_observation_count": len(observations),
         "selected_thresholds": selected["thresholds"],
         "selected_metrics": selected["metrics"],
+        "calibration_diagnostics": selected["diagnostics"],
         "calibration_status": selected["status"],
         "candidate_threshold_count": selected["candidate_threshold_count"],
         "notes": [
@@ -523,9 +572,21 @@ def _entry_calibration_observations(
 
 
 def _select_entry_thresholds(validation_rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    alpha_thresholds = [round(value / 100.0, 2) for value in range(0, 91, 5)]
+    diagnostics = _entry_calibration_diagnostics(validation_rows)
+    if len(validation_rows) < MINIMUM_CALIBRATION_OBSERVATION_COUNT:
+        return _fallback_entry_threshold_selection(
+            status="fallback_insufficient_validation_observations",
+            diagnostics=diagnostics,
+        )
+    if diagnostics["alpha_unique_value_count"] < MINIMUM_CALIBRATION_ALPHA_UNIQUE_VALUES or diagnostics["alpha_stdev"] < MINIMUM_CALIBRATION_ALPHA_STDEV:
+        return _fallback_entry_threshold_selection(
+            status="fallback_degenerate_validation_alpha_scores",
+            diagnostics=diagnostics,
+        )
+
+    alpha_thresholds = [round(value / 100.0, 2) for value in range(int(MINIMUM_ENTRY_ALPHA_THRESHOLD * 100), 91, 5)]
     intensity_thresholds = [round(value / 1000.0, 3) for value in range(1, 31)]
-    min_trade_count = max(3, math.ceil(len(validation_rows) * 0.02))
+    min_trade_count = max(MINIMUM_CALIBRATION_SELECTED_TRADE_COUNT, math.ceil(len(validation_rows) * 0.02))
     candidates: list[dict[str, Any]] = []
     for alpha_threshold in alpha_thresholds:
         for intensity_threshold in intensity_thresholds:
@@ -567,18 +628,54 @@ def _select_entry_thresholds(validation_rows: Sequence[Mapping[str, Any]]) -> di
             "status": "selected_positive_validation_threshold",
             "thresholds": selected["thresholds"],
             "metrics": selected["metrics"],
+            "diagnostics": diagnostics,
             "candidate_threshold_count": len(candidates),
         }
-    if candidates:
-        selected = max(candidates, key=lambda item: (item["objective_score"], item["metrics"]["average_return_after_cost"]))
-        return {
-            "status": "selected_best_available_nonpositive_validation_threshold",
-            "thresholds": selected["thresholds"],
-            "metrics": selected["metrics"],
-            "candidate_threshold_count": len(candidates),
-        }
+    return _fallback_entry_threshold_selection(
+        status="fallback_no_positive_validation_threshold_candidate" if candidates else "fallback_no_validation_threshold_candidate",
+        diagnostics=diagnostics,
+        candidate_threshold_count=len(candidates),
+    )
+
+
+def _entry_calibration_diagnostics(validation_rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    alpha_scores = [float(row["alpha_confidence"]) for row in validation_rows]
+    alpha_mean = sum(alpha_scores) / len(alpha_scores) if alpha_scores else 0.0
+    alpha_stdev = (
+        math.sqrt(sum((score - alpha_mean) ** 2 for score in alpha_scores) / len(alpha_scores))
+        if alpha_scores
+        else 0.0
+    )
+    alpha_positive_edge_rows = sum(1 for row in validation_rows if float(row["alpha_confidence"]) >= MINIMUM_ENTRY_ALPHA_THRESHOLD)
+    action_candidate_rows = sum(
+        1
+        for row in validation_rows
+        if float(row["action_direction"]) > 0
+        and float(row["expected_return_score"]) > 0
+        and float(row["trade_intensity"]) > 0
+    )
     return {
-        "status": "fallback_no_validation_threshold_candidate",
+        "minimum_required_observation_count": MINIMUM_CALIBRATION_OBSERVATION_COUNT,
+        "minimum_required_selected_trade_count": MINIMUM_CALIBRATION_SELECTED_TRADE_COUNT,
+        "minimum_entry_alpha_threshold": MINIMUM_ENTRY_ALPHA_THRESHOLD,
+        "observation_count": len(validation_rows),
+        "alpha_unique_value_count": len({round(score, 6) for score in alpha_scores}),
+        "alpha_stdev": round(alpha_stdev, 8),
+        "alpha_min": round(min(alpha_scores), 8) if alpha_scores else None,
+        "alpha_max": round(max(alpha_scores), 8) if alpha_scores else None,
+        "alpha_positive_edge_row_count": alpha_positive_edge_rows,
+        "action_candidate_row_count": action_candidate_rows,
+    }
+
+
+def _fallback_entry_threshold_selection(
+    *,
+    status: str,
+    diagnostics: Mapping[str, Any],
+    candidate_threshold_count: int = 0,
+) -> dict[str, Any]:
+    return {
+        "status": status,
         "thresholds": {
             "minimum_entry_alpha_confidence": DEFAULT_ENTRY_ALPHA_THRESHOLD,
             "minimum_trade_intensity": DEFAULT_MINIMUM_TRADE_INTENSITY,
@@ -590,7 +687,8 @@ def _select_entry_thresholds(validation_rows: Sequence[Mapping[str, Any]]) -> di
             "total_return_after_cost": 0.0,
             "max_drawdown": 0.0,
         },
-        "candidate_threshold_count": 0,
+        "diagnostics": dict(diagnostics),
+        "candidate_threshold_count": candidate_threshold_count,
     }
 
 
