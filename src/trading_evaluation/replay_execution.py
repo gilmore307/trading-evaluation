@@ -171,11 +171,11 @@ def build_candidate_policy_replay_execution_run(
     replay_month: str | None = None,
     option_feature_database_url: str | None = None,
     option_feature_schema: str = "trading_data",
-    option_feature_table: str = "m05_option_expression_feature_generation",
+    option_feature_table: str = "model_05_option_expression_feature_generation",
     option_contract_path_table: str = "m05_option_expression_data_acquisition_contract_path",
     candidate_handoff_database_url: str | None = None,
     candidate_handoff_schema: str = "trading_data",
-    candidate_handoff_table: str = "m02_sector_context_data_acquisition",
+    candidate_handoff_table: str = "model_02_sector_context_data_acquisition",
     initial_capital_usd: float = DEFAULT_REPLAY_INITIAL_CAPITAL_USD,
 ) -> ReplayExecutionResult:
     """Run candidate-policy replay over frozen crypto plus materialized equity bars."""
@@ -1370,7 +1370,7 @@ def _load_equity_bars_from_sql(
     end_date_exclusive: str,
     database_url: str | None,
     schema: str = "trading_data",
-    table: str = "m01_market_regime_data_acquisition",
+    table: str = "model_01_market_regime_data_acquisition",
 ) -> list[dict[str, Any]]:
     if not database_url or not symbol or not start_date or not end_date_exclusive:
         return []

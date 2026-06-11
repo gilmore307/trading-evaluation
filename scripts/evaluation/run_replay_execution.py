@@ -49,11 +49,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--option-feature-database-url", help="Load point-in-time Layer 9 option feature rows from PostgreSQL.")
     parser.add_argument("--option-feature-schema", default="trading_data")
-    parser.add_argument("--option-feature-table", default="m05_option_expression_feature_generation")
+    parser.add_argument("--option-feature-table", default="model_05_option_expression_feature_generation")
     parser.add_argument("--option-contract-path-table", default="m05_option_expression_data_acquisition_contract_path")
     parser.add_argument("--candidate-handoff-database-url", help="Load Layer 2 target-candidate handoff rows from PostgreSQL.")
     parser.add_argument("--candidate-handoff-schema", default="trading_data")
-    parser.add_argument("--candidate-handoff-table", default="m02_sector_context_data_acquisition")
+    parser.add_argument("--candidate-handoff-table", default="model_02_sector_context_data_acquisition")
     args = parser.parse_args(argv)
     after_cost_alpha_model = json.loads(args.after_cost_alpha_model_json.read_text(encoding="utf-8"))
 
