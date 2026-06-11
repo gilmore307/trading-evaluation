@@ -51,6 +51,8 @@ MODEL_EVIDENCE_CHAIN = (
     "model_02_sector_context_state",
     "model_03_target_state_vector_state",
     "model_03_event_state",
+    "model_04_event_failure_risk",
+    "model_05_alpha_confidence",
     "model_04_unified_decision",
     "model_05_option_expression",
     "model_06_residual_event_governance",
@@ -449,7 +451,7 @@ def _build_entry_calibration(
         "candidate_model_ref": candidate_model_ref,
         "replay_contract_ref": replay_contract_ref,
         "generated_at_utc": generated_at_utc,
-        "calibration_method": "current_model_04_unified_decision_validation_trade_intensity_selection",
+        "calibration_method": "current_model_05_alpha_confidence_and_model_04_trade_intensity_validation_selection",
         "validation_months": validation_months,
         "validation_observation_count": len(validation_rows),
         "total_observation_count": len(observations),
@@ -458,9 +460,9 @@ def _build_entry_calibration(
         "calibration_status": selected["status"],
         "candidate_threshold_count": selected["candidate_threshold_count"],
         "notes": [
-            "M04 unified decision confidence uses the normalized entry boundary: 0.5 is neutral, above 0.5 is positive edge",
-            "validation selects M04 trade intensity without changing the economic neutral boundary",
-            "selection uses M04 trade intensity, positive expected-return direction, and next-bar validation utility after replay costs",
+            "M05 after-cost alpha confidence uses the normalized entry boundary: 0.5 is neutral, above 0.5 is positive edge",
+            "validation selects M05 alpha confidence and M04 trade intensity thresholds from frozen replay observations",
+            "selection uses M05 alpha confidence, M04 trade intensity, positive expected-return direction, and next-bar validation utility after replay costs",
             "post-replay attribution is not used for same-run entry decisions",
         ],
     }
@@ -521,7 +523,7 @@ def _entry_calibration_observations(
 
 
 def _select_entry_thresholds(validation_rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    alpha_thresholds = [DEFAULT_ENTRY_ALPHA_THRESHOLD]
+    alpha_thresholds = [round(value / 100.0, 2) for value in range(0, 91, 5)]
     intensity_thresholds = [round(value / 1000.0, 3) for value in range(1, 31)]
     min_trade_count = max(3, math.ceil(len(validation_rows) * 0.02))
     candidates: list[dict[str, Any]] = []
@@ -1817,9 +1819,47 @@ def _candidate_layer_outputs(
     )
     event_state = _event_state_vector(candidate_model_ref=candidate_model_ref, available_time=available_time)
     quality_state = _quality_calibration_state()
+    event_failure_row = generators["model_04_event_failure_risk"](
+        [
+            {
+                "available_time": available_time,
+                "tradeable_time": available_time,
+                "target_candidate_id": target_candidate_id,
+                "market_context_state_ref": market_state.get("model_ref"),
+                "sector_context_state_ref": sector_state.get("model_ref"),
+                "target_context_state_ref": target_state.get("model_ref"),
+                "market_context_state": market_state,
+                "sector_context_state": sector_state,
+                "target_context_state": target_state,
+                "event_context_vector": event_state,
+            }
+        ]
+    )[0]
+    event_failure_vector = dict(_as_mapping(event_failure_row.get("event_failure_risk_vector")))
+    event_failure_vector["model_ref"] = f"{candidate_model_ref}/model_04_event_failure_risk/{event_failure_row['event_failure_risk_vector_ref']}"
+    alpha_row = generators["model_05_alpha_confidence"](
+        [
+            {
+                "available_time": available_time,
+                "tradeable_time": available_time,
+                "target_candidate_id": target_candidate_id,
+                "market_context_state_ref": market_state.get("model_ref"),
+                "sector_context_state_ref": sector_state.get("model_ref"),
+                "target_context_state_ref": target_state.get("model_ref"),
+                "event_failure_risk_vector_ref": event_failure_row["event_failure_risk_vector_ref"],
+                "market_context_state": market_state,
+                "sector_context_state": sector_state,
+                "target_context_state": target_state,
+                "event_failure_risk_vector": event_failure_vector,
+                "quality_calibration_state": quality_state,
+            }
+        ],
+        after_cost_alpha_model=after_cost_alpha_model,
+    )[0]
+    alpha_vector = dict(_as_mapping(alpha_row.get("alpha_confidence_vector")))
+    alpha_score = _resolved_alpha_score(alpha_vector)
 
-    selected_thresholds = _selected_entry_thresholds(entry_calibration)
-    policy_gate_state = _entry_policy_gate_state(entry_calibration)
+    policy_gate_state = _entry_policy_gate_state(entry_calibration, alpha_score=alpha_score)
     unified_row = generators["model_04_unified_decision"](
         [
             {
@@ -1829,7 +1869,7 @@ def _candidate_layer_outputs(
                 "background_context_state": market_state,
                 "sector_context_state": sector_state,
                 "target_context_state": target_state,
-                "event_state_vector": event_state,
+                "event_state_vector": event_failure_vector,
                 "quality_calibration_state": quality_state,
                 "portfolio_exposure_state": _flat_portfolio_state(),
                 "account_capacity_state": _account_capacity_state(),
@@ -1848,6 +1888,7 @@ def _candidate_layer_outputs(
         candidate_model_ref=candidate_model_ref,
         reference_price=reference_price,
         entry_calibration=entry_calibration,
+        alpha_score=alpha_score,
     )
     direct_intent = dict(unified_row["direct_underlying_intent"])
     direct_intent["model_ref"] = unified_decision["model_ref"]
@@ -1858,24 +1899,31 @@ def _candidate_layer_outputs(
         "available_time": available_time,
         "market_context_state": market_state,
         "target_context_state": target_state_for_execution,
-        "event_state_vector": event_state,
+        "event_state_vector": event_failure_vector,
         "unified_decision_vector": unified_decision,
         "direct_underlying_intent": direct_intent,
-        "prediction_score": _safe_float(unified_decision.get("unified_decision_confidence_score")) or 0.0,
+        "prediction_score": alpha_score,
         "model_layer_refs": {
+            "model_04_event_failure_risk": event_failure_row["event_failure_risk_vector_ref"],
+            "model_05_alpha_confidence": alpha_row["alpha_confidence_vector_ref"],
             "model_04_unified_decision": unified_row["unified_decision_vector_ref"],
         },
         "model_layer_diagnostics": _model_layer_diagnostics(
             unified_row=unified_row,
             unified_decision=unified_decision,
+            event_failure_row=event_failure_row,
+            alpha_row=alpha_row,
+            alpha_score=alpha_score,
             entry_calibration=entry_calibration,
         ),
     }
 
 
-def _trading_model_generators() -> dict[str, Callable[[Iterable[Mapping[str, Any]]], list[dict[str, Any]]]]:
+def _trading_model_generators() -> dict[str, Callable[..., list[dict[str, Any]]]]:
     try:
+        from models.model_04_event_failure_risk.generator import generate_rows as generate_event_failure_risk
         from models.model_04_unified_decision.generator import generate_rows as generate_unified_decision
+        from models.model_05_alpha_confidence.generator import generate_rows as generate_alpha_confidence
         from models.model_05_option_expression.generator import generate_rows as generate_option_expression
         from models.model_06_residual_event_governance.generator import generate_rows as generate_residual_event_governance
     except ModuleNotFoundError as exc:
@@ -1884,7 +1932,9 @@ def _trading_model_generators() -> dict[str, Callable[[Iterable[Mapping[str, Any
             "include /root/projects/trading-model/src on PYTHONPATH"
         ) from exc
     return {
+        "model_04_event_failure_risk": generate_event_failure_risk,
         "model_04_unified_decision": generate_unified_decision,
+        "model_05_alpha_confidence": generate_alpha_confidence,
         "model_05_option_expression": generate_option_expression,
         "model_06_residual_event_governance": generate_residual_event_governance,
     }
@@ -1910,13 +1960,25 @@ def _raw_entry_calibration() -> dict[str, Any]:
     }
 
 
-def _entry_policy_gate_state(entry_calibration: Mapping[str, Any] | None) -> dict[str, Any]:
+def _entry_policy_gate_state(entry_calibration: Mapping[str, Any] | None, *, alpha_score: float) -> dict[str, Any]:
     selected = _selected_entry_thresholds(entry_calibration)
-    return {
+    output = {
         "minimum_entry_alpha_confidence": selected["minimum_entry_alpha_confidence"],
         "minimum_trade_intensity": selected["minimum_trade_intensity"],
+        "after_cost_alpha_score": alpha_score,
         "entry_threshold_calibration_status": str((entry_calibration or {}).get("calibration_status") or "uncalibrated_default"),
     }
+    if alpha_score < selected["minimum_entry_alpha_confidence"]:
+        output.update(
+            {
+                "allow_new_exposure": "false",
+                "new_exposure_permission_score": 0.0,
+                "alpha_confidence_gate_status": "below_entry_threshold",
+            }
+        )
+    else:
+        output["alpha_confidence_gate_status"] = "passed"
+    return output
 
 
 def _entry_calibration_role(*, timestamp: str, entry_calibration: Mapping[str, Any]) -> str:
@@ -1933,6 +1995,9 @@ def _model_layer_diagnostics(
     *,
     unified_row: Mapping[str, Any],
     unified_decision: Mapping[str, Any],
+    event_failure_row: Mapping[str, Any],
+    alpha_row: Mapping[str, Any],
+    alpha_score: float,
     entry_calibration: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     vector = _as_mapping(unified_row.get("unified_decision_vector"))
@@ -1944,6 +2009,19 @@ def _model_layer_diagnostics(
     dominant_scores = _as_mapping(horizon_scores.get(dominant_horizon))
     return {
         "entry_thresholds": _selected_entry_thresholds(entry_calibration),
+        "model_04_event_failure_risk": {
+            "event_failure_risk_vector_ref": event_failure_row.get("event_failure_risk_vector_ref"),
+            "resolved_event_failure_risk_status": event_failure_row.get("4_resolved_event_failure_risk_status"),
+            "reason_codes": _as_mapping(event_failure_row.get("event_failure_risk_diagnostics")).get("horizon_reason_codes") or {},
+        },
+        "model_05_alpha_confidence": {
+            "alpha_confidence_vector_ref": alpha_row.get("alpha_confidence_vector_ref"),
+            "resolved_alpha_score": alpha_score,
+            "alpha_gate_status": "passed"
+            if alpha_score >= _selected_entry_thresholds(entry_calibration)["minimum_entry_alpha_confidence"]
+            else "below_entry_threshold",
+            "horizon_scores": _as_mapping(_as_mapping(alpha_row.get("alpha_confidence_diagnostics")).get("after_cost_alpha_score")),
+        },
         "model_04_unified_decision": {
             "resolved_underlying_action_type": direct_intent.get("underlying_action_type")
             or vector.get("4_resolved_underlying_action_type"),
@@ -2115,6 +2193,7 @@ def _execution_unified_decision_vector(
     candidate_model_ref: str,
     reference_price: float,
     entry_calibration: Mapping[str, Any] | None,
+    alpha_score: float,
 ) -> dict[str, Any]:
     vector = dict(_as_mapping(unified_row.get("unified_decision_vector")))
     intent = _as_mapping(unified_row.get("direct_underlying_intent"))
@@ -2125,7 +2204,7 @@ def _execution_unified_decision_vector(
     target_price = _safe_float(handoff.get("expected_target_price")) or _safe_float(intent.get("expected_target_price"))
     stop_price = _safe_float(handoff.get("stop_loss_price")) or _safe_float(intent.get("thesis_invalidation_price"))
     invalidation_price = _safe_float(handoff.get("thesis_invalidation_price")) or stop_price
-    confidence = (
+    model_04_confidence = (
         _safe_float(vector.get("4_resolved_action_confidence_score"))
         or _safe_float(vector.get("4_action_confidence_score_1D"))
         or 0.0
@@ -2136,7 +2215,8 @@ def _execution_unified_decision_vector(
         {
             "model_ref": f"{candidate_model_ref}/model_04_unified_decision/{unified_row['unified_decision_vector_ref']}",
             "unified_decision_vector_ref": unified_row["unified_decision_vector_ref"],
-            "unified_decision_confidence_score": confidence,
+            "unified_decision_confidence_score": alpha_score,
+            "model_04_action_confidence_score": model_04_confidence,
             "minimum_entry_confidence": selected["minimum_entry_alpha_confidence"],
             "entry_direction": direction,
             "entry_zone": {
