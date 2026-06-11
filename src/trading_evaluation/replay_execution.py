@@ -174,7 +174,7 @@ def build_candidate_policy_replay_execution_run(
     option_feature_database_url: str | None = None,
     option_feature_schema: str = "trading_data",
     option_feature_table: str = "model_05_option_expression_feature_generation",
-    option_contract_path_table: str = "m05_option_expression_data_acquisition_contract_path",
+    option_contract_path_table: str = "model_05_option_expression_data_acquisition_contract_path",
     candidate_handoff_database_url: str | None = None,
     candidate_handoff_schema: str = "trading_data",
     candidate_handoff_table: str = "model_02_sector_context_data_acquisition",
