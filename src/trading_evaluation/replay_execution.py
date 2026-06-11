@@ -50,12 +50,10 @@ MODEL_EVIDENCE_CHAIN = (
     "model_01_market_regime_state",
     "model_02_sector_context_state",
     "model_03_target_state_vector_state",
-    "model_04_event_failure_risk_state",
-    "model_05_alpha_confidence",
-    "model_06_dynamic_risk_policy",
-    "model_07_position_projection",
-    "model_08_underlying_action",
-    "model_09_option_expression",
+    "model_03_event_state",
+    "model_04_unified_decision",
+    "model_05_option_expression",
+    "model_06_residual_event_governance",
 )
 DEFAULT_ENTRY_ALPHA_THRESHOLD = 0.50
 DEFAULT_MINIMUM_TRADE_INTENSITY = 0.05
@@ -173,8 +171,8 @@ def build_candidate_policy_replay_execution_run(
     replay_month: str | None = None,
     option_feature_database_url: str | None = None,
     option_feature_schema: str = "trading_data",
-    option_feature_table: str = "m09_option_expression_feature_generation",
-    option_contract_path_table: str = "m09_option_expression_data_acquisition_contract_path",
+    option_feature_table: str = "m05_option_expression_feature_generation",
+    option_contract_path_table: str = "m05_option_expression_data_acquisition_contract_path",
     candidate_handoff_database_url: str | None = None,
     candidate_handoff_schema: str = "trading_data",
     candidate_handoff_table: str = "m02_sector_context_data_acquisition",
@@ -355,8 +353,8 @@ def build_candidate_policy_replay_execution_run(
             "candidate-policy replay over frozen base context and gated on-demand candidate inputs",
             "C01-C07 component artifacts share live execution output contracts; evaluation_replay_decision_row is a settlement view",
             "each replay decision has an explicit replay_time_pointer; decision inputs after that pointer are invalid",
-            "equity/options account requires point-in-time M09 option features at each replay decision timestamp",
-            "listed option decisions use M09 selected-contract paths when available and zero realized return when selected-contract exit data is missing",
+            "equity/options account requires point-in-time M05 option features at each replay decision timestamp",
+            "listed option decisions use M05 selected-contract paths when available and zero realized return when selected-contract exit data is missing",
             "initial capital is a replay-normalization input for equity-path diagnostics and never broker/account state",
             "this run emits settlement-ready decision rows but is not a promotion eligibility decision",
         ],
@@ -451,7 +449,7 @@ def _build_entry_calibration(
         "candidate_model_ref": candidate_model_ref,
         "replay_contract_ref": replay_contract_ref,
         "generated_at_utc": generated_at_utc,
-        "calibration_method": "fixed_layer_5_neutral_score_with_validation_trade_intensity_selection",
+        "calibration_method": "current_model_04_unified_decision_validation_trade_intensity_selection",
         "validation_months": validation_months,
         "validation_observation_count": len(validation_rows),
         "total_observation_count": len(observations),
@@ -460,10 +458,10 @@ def _build_entry_calibration(
         "calibration_status": selected["status"],
         "candidate_threshold_count": selected["candidate_threshold_count"],
         "notes": [
-            "Layer 5 alpha uses the normalized after-cost score boundary: 0.5 is neutral, above 0.5 is positive edge",
-            "validation may select Layer 8 trade intensity, but it does not move the Layer 5 economic neutral boundary",
-            "selection uses Layer 8 trade intensity, positive expected-return direction, and next-bar validation utility after replay costs",
-            "Layer 10 remains post-replay attribution and is not used for same-run entry decisions",
+            "M04 unified decision confidence uses the normalized entry boundary: 0.5 is neutral, above 0.5 is positive edge",
+            "validation selects M04 trade intensity without changing the economic neutral boundary",
+            "selection uses M04 trade intensity, positive expected-return direction, and next-bar validation utility after replay costs",
+            "post-replay attribution is not used for same-run entry decisions",
         ],
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -502,8 +500,8 @@ def _entry_calibration_observations(
                 entry_calibration=_raw_entry_calibration(),
             )
             diagnostics = layer_outputs["model_layer_diagnostics"]
-            layer8 = diagnostics["model_08_underlying_action"]
-            dominant = layer8["dominant_horizon_scores"]
+            layer4 = diagnostics["model_04_unified_decision"]
+            dominant = layer4["dominant_horizon_scores"]
             gross_return = (float(next_bar["bar_close"]) - reference_price) / reference_price
             observations.append(
                 {
@@ -652,7 +650,7 @@ def _build_candidate_policy_decision_rows(
                 entry_calibration=entry_calibration.artifact,
             )
             option_candidates: Sequence[Mapping[str, Any]] = ()
-            if _option_expression_signal_required(layer_outputs):
+            if str(bar.get("asset_class") or "") == "us_equity" and _option_expression_signal_required(layer_outputs):
                 option_candidates = option_candidates_by_underlying_time.get((target.upper(), replay_time_pointer), ())
                 if not option_candidates:
                     missing_option_feature_requirements.append(
@@ -678,11 +676,15 @@ def _build_candidate_policy_decision_rows(
                 target_ref=target,
                 market_universe=market_universe,
                 target_context_state=layer_outputs["target_context_state"],
-                event_failure_risk_vector=layer_outputs["event_failure_risk_vector"],
-                alpha_confidence_vector=layer_outputs["alpha_confidence_vector"],
-                dynamic_risk_policy_state=layer_outputs["dynamic_risk_policy_state"],
-                underlying_action_plan=layer_outputs["underlying_action_plan"],
+                event_state_vector=layer_outputs["event_state_vector"],
+                unified_decision_vector=layer_outputs["unified_decision_vector"],
                 option_expression_plan=option_expression_plan,
+                residual_event_governance=_residual_event_governance_for_bar(
+                    candidate_model_ref=candidate_model_ref,
+                    timestamp=replay_time_pointer,
+                    layer_outputs=layer_outputs,
+                    option_expression_plan=option_expression_plan,
+                ),
                 trade_risk_cap=replay_trade_risk_cap,
                 market_snapshot=replay_market_snapshot,
                 replay_fill_policy={
@@ -712,7 +714,7 @@ def _build_candidate_policy_decision_rows(
             if selected_option_contract_ref:
                 if option_path_result:
                     gross_return = float(option_path_result["gross_return"])
-                    return_source = "m09_option_expression_contract_path"
+                    return_source = "m05_option_expression_contract_path"
                     option_contract_path_status = "available"
                     option_entry_price = option_path_result["entry_price"]
                     option_exit_price = option_path_result["exit_price"]
@@ -1461,7 +1463,7 @@ def _option_expression_plan_for_bar(
         return None
     if _option_source_unavailable(option_candidates):
         return {
-            "model_ref": f"{candidate_model_ref}/model_09_option_expression/{target}_{_time_key(timestamp)}_option_source_unavailable",
+            "model_ref": f"{candidate_model_ref}/model_05_option_expression/{target}_{_time_key(timestamp)}_option_source_unavailable",
             "target_ref": target,
             "asset_expression_route": "option_expression_unfilled",
             "option_surface_status": OPTION_SOURCE_UNAVAILABLE_STATUS,
@@ -1476,21 +1478,24 @@ def _option_expression_plan_for_bar(
             option_candidates=option_candidates,
         )
         generators = _trading_model_generators()
-        model_row = generators["model_09_option_expression"](
+        unified_decision = _as_mapping(layer_outputs["unified_decision_vector"])
+        direct_intent = _as_mapping(layer_outputs["direct_underlying_intent"])
+        model_row = generators["model_05_option_expression"](
             [
                 {
                     "available_time": timestamp,
                     "tradeable_time": timestamp,
                     "target_candidate_id": layer_outputs["target_candidate_id"],
-                    "underlying_action_plan_ref": _as_mapping(layer_outputs["underlying_action_plan"]).get("model_ref"),
-                    "underlying_action_plan": layer_outputs["underlying_action_plan"],
-                    "layer_8_underlying_handoff": _as_mapping(layer_outputs["underlying_action_plan"]).get("handoff_to_layer_9") or {},
+                    "unified_decision_vector_ref": unified_decision.get("model_ref"),
+                    "unified_decision_vector": unified_decision,
+                    "direct_underlying_intent": direct_intent,
+                    "model_05_underlying_handoff": direct_intent.get("handoff_to_model_05") or {},
                     "market_context_state": layer_outputs["market_context_state"],
-                    "event_context_vector": layer_outputs["event_failure_risk_vector"],
+                    "event_state_vector": layer_outputs["event_state_vector"],
                     "option_expression_policy": {},
                     "option_contract_candidates": list(option_candidates),
                     "option_surface_status": "optionable_chain_available",
-                    "option_chain_snapshot_ref": f"m09_option_expression_feature_generation:{target}:{_time_key(timestamp)}",
+                    "option_chain_snapshot_ref": f"m05_option_expression_feature_generation:{target}:{_time_key(timestamp)}",
                     "option_quote_available_time": timestamp,
                     "underlying_quote_snapshot_ref": _as_mapping(layer_outputs["target_context_state"]).get("model_ref"),
                     "underlying_reference_price": bar.get("bar_close"),
@@ -1501,7 +1506,7 @@ def _option_expression_plan_for_bar(
         selected_contract = _as_mapping(plan.get("selected_contract"))
         plan.update(
             {
-                "model_ref": f"{candidate_model_ref}/model_09_option_expression/{model_row['option_expression_plan_ref']}",
+                "model_ref": f"{candidate_model_ref}/model_05_option_expression/{model_row['option_expression_plan_ref']}",
                 "target_ref": target,
                 "asset_expression_route": "listed_option_contract" if selected_contract else "option_expression_unfilled",
                 "option_surface_status": model_row.get("option_surface_status") or "optionable_chain_available",
@@ -1520,7 +1525,7 @@ def _replay_option_feature_requirement_sample(*, target: str, timestamp: str) ->
         "target_ref": str(target).upper(),
         "timestamp": timestamp,
         "maximum_permitted_source_end": timestamp,
-        "signal_source": "layer_08_underlying_action.handoff_to_layer_9",
+        "signal_source": "model_04_unified_decision.direct_underlying_intent.handoff_to_model_05",
     }
 
 
@@ -1547,7 +1552,7 @@ def _replay_option_feature_acquisition_message(requirements: Sequence[Mapping[st
             "missing_count": len(deduped),
             "sample": sample,
             "sample_limit": REPLAY_OPTION_FEATURE_MISSING_SAMPLE_LIMIT,
-            "required_next_step": "run ThetaData option acquisition only for emitted replay signal timestamps, generate M09 option features, then retry replay execution from the same replay clock",
+            "required_next_step": "run ThetaData option acquisition only for emitted replay signal timestamps, generate M05 option features, then retry replay execution from the same replay clock",
             "point_in_time_policy": "option provider acquisition for replay must not request or consume data after each replay_time_pointer that emitted an option-expression signal",
         },
         sort_keys=True,
@@ -1555,11 +1560,11 @@ def _replay_option_feature_acquisition_message(requirements: Sequence[Mapping[st
 
 
 def _option_expression_signal_required(layer_outputs: Mapping[str, Any]) -> bool:
-    plan = _as_mapping(layer_outputs.get("underlying_action_plan"))
-    action_type = str(plan.get("planned_underlying_action_type") or plan.get("8_resolved_underlying_action_type") or "").lower()
+    plan = _as_mapping(layer_outputs.get("direct_underlying_intent"))
+    action_type = str(plan.get("underlying_action_type") or plan.get("planned_underlying_action_type") or "").lower()
     if action_type not in OPTION_EXPRESSION_SIGNAL_ACTION_TYPES:
         return False
-    handoff = _as_mapping(plan.get("handoff_to_layer_9"))
+    handoff = _as_mapping(plan.get("handoff_to_model_05"))
     direction = str(handoff.get("underlying_path_direction") or plan.get("action_side") or "").lower()
     return bool(handoff) and direction in {"bullish", "bearish", "long", "short", "bearish_no_direct_short"}
 
@@ -1810,107 +1815,42 @@ def _candidate_layer_outputs(
         candidate_model_ref=candidate_model_ref,
         reference_price=reference_price,
     )
-    event_state = _event_failure_risk_state(candidate_model_ref=candidate_model_ref, available_time=available_time)
+    event_state = _event_state_vector(candidate_model_ref=candidate_model_ref, available_time=available_time)
     quality_state = _quality_calibration_state()
 
-    alpha_row = generators["model_05_alpha_confidence"](
+    selected_thresholds = _selected_entry_thresholds(entry_calibration)
+    policy_gate_state = _entry_policy_gate_state(entry_calibration)
+    unified_row = generators["model_04_unified_decision"](
         [
             {
                 "available_time": available_time,
                 "tradeable_time": available_time,
                 "target_candidate_id": target_candidate_id,
-                "market_context_state": market_state,
+                "background_context_state": market_state,
                 "sector_context_state": sector_state,
                 "target_context_state": target_state,
-                "event_failure_risk_vector": event_state,
+                "event_state_vector": event_state,
                 "quality_calibration_state": quality_state,
-            }
-        ],
-        after_cost_alpha_model=after_cost_alpha_model,
-    )[0]
-    alpha_vector = dict(alpha_row["alpha_confidence_vector"])
-    alpha_score = _resolved_alpha_score(alpha_vector)
-    alpha_vector.update(
-        {
-            "model_ref": f"{candidate_model_ref}/model_05_alpha_confidence/{alpha_row['alpha_confidence_vector_ref']}",
-            "alpha_confidence_score": alpha_score,
-            "score": alpha_score,
-        }
-    )
-
-    policy_row = generators["model_06_dynamic_risk_policy"](
-        [
-            {
-                "available_time": available_time,
-                "tradeable_time": available_time,
-                "target_candidate_id": target_candidate_id,
-                "policy_scope": "target_candidate",
-                "market_context_state": market_state,
-                "systemic_event_risk_state": event_state,
-                "alpha_confidence_vector": alpha_vector,
                 "portfolio_exposure_state": _flat_portfolio_state(),
                 "account_capacity_state": _account_capacity_state(),
-            }
-        ]
-    )[0]
-    risk_policy = dict(policy_row["dynamic_risk_policy_state"])
-    selected_thresholds = _selected_entry_thresholds(entry_calibration)
-    risk_policy.update(
-        {
-            "model_ref": f"{candidate_model_ref}/model_06_dynamic_risk_policy/{policy_row['dynamic_risk_policy_state_ref']}",
-            "minimum_entry_alpha_confidence": selected_thresholds["minimum_entry_alpha_confidence"],
-            "minimum_trade_intensity": selected_thresholds["minimum_trade_intensity"],
-        }
-    )
-    policy_gate_state = _entry_policy_gate_state(entry_calibration)
-
-    projection_row = generators["model_07_position_projection"](
-        [
-            {
-                "available_time": available_time,
-                "tradeable_time": available_time,
-                "target_candidate_id": target_candidate_id,
-                "alpha_confidence_vector": alpha_vector,
-                "current_position_state": {"current_position_exposure_score": 0.0},
-                "pending_position_state": {"pending_exposure_score": 0.0, "pending_order_fill_probability_estimate": 0.0},
-                "position_level_friction": {"spread_cost_score": 0.05, "cost_to_adjust_position_score": 0.05},
-                "price_location_state": {
-                    "current_price": reference_price,
-                    "reference_price": reference_price,
-                    "alpha_reference_price": reference_price,
-                    "thesis_intact_score": 1.0,
-                },
-                "portfolio_exposure_state": _flat_portfolio_state(),
-                "risk_budget_state": {"risk_budget_fit_score": risk_policy.get("6_resolved_new_exposure_permission_score", 0.7)},
-                "policy_gate_state": policy_gate_state,
-            }
-        ]
-    )[0]
-    projection_vector = dict(projection_row["position_projection_vector"])
-
-    underlying_row = generators["model_08_underlying_action"](
-        [
-            {
-                "available_time": available_time,
-                "tradeable_time": available_time,
-                "target_candidate_id": target_candidate_id,
-                "alpha_confidence_vector": alpha_vector,
-                "position_projection_vector": projection_vector,
                 "current_underlying_position_state": {"current_underlying_exposure_score": 0.0},
                 "pending_underlying_order_state": {"pending_underlying_exposure_score": 0.0, "pending_fill_probability_estimate": 0.0},
                 "underlying_quote_state": {"reference_price": reference_price, "last_price": reference_price, "halt_status": "active"},
                 "underlying_liquidity_state": {"spread_bps": 10.0, "dollar_volume": _dollar_volume(target_rows[index])},
-                "risk_budget_state": {"risk_budget_fit_score": risk_policy.get("6_resolved_new_exposure_permission_score", 0.7)},
+                "underlying_borrow_state": {"short_allowed": False},
+                "risk_budget_state": {"risk_budget_fit_score": 0.75},
                 "policy_gate_state": policy_gate_state,
             }
         ]
     )[0]
-    underlying_plan = _execution_underlying_plan(
-        plan=underlying_row["underlying_action_plan"],
+    unified_decision = _execution_unified_decision_vector(
+        unified_row=unified_row,
         candidate_model_ref=candidate_model_ref,
-        plan_ref=str(underlying_row["underlying_action_plan_ref"]),
         reference_price=reference_price,
+        entry_calibration=entry_calibration,
     )
+    direct_intent = dict(unified_row["direct_underlying_intent"])
+    direct_intent["model_ref"] = unified_decision["model_ref"]
     target_state_for_execution = dict(target_state)
     target_state_for_execution.update({"current_price": reference_price, "last_price": reference_price, "mark_price": reference_price})
     return {
@@ -1918,22 +1858,16 @@ def _candidate_layer_outputs(
         "available_time": available_time,
         "market_context_state": market_state,
         "target_context_state": target_state_for_execution,
-        "event_failure_risk_vector": event_state,
-        "alpha_confidence_vector": alpha_vector,
-        "dynamic_risk_policy_state": risk_policy,
-        "underlying_action_plan": underlying_plan,
-        "prediction_score": alpha_score,
+        "event_state_vector": event_state,
+        "unified_decision_vector": unified_decision,
+        "direct_underlying_intent": direct_intent,
+        "prediction_score": _safe_float(unified_decision.get("unified_decision_confidence_score")) or 0.0,
         "model_layer_refs": {
-            "model_05_alpha_confidence": alpha_row["alpha_confidence_vector_ref"],
-            "model_06_dynamic_risk_policy": policy_row["dynamic_risk_policy_state_ref"],
-            "model_07_position_projection": projection_row["position_projection_vector_ref"],
-            "model_08_underlying_action": underlying_row["underlying_action_plan_ref"],
+            "model_04_unified_decision": unified_row["unified_decision_vector_ref"],
         },
         "model_layer_diagnostics": _model_layer_diagnostics(
-            alpha_vector=alpha_vector,
-            risk_policy=risk_policy,
-            projection_vector=projection_vector,
-            underlying_plan=underlying_row["underlying_action_plan"],
+            unified_row=unified_row,
+            unified_decision=unified_decision,
             entry_calibration=entry_calibration,
         ),
     }
@@ -1941,22 +1875,18 @@ def _candidate_layer_outputs(
 
 def _trading_model_generators() -> dict[str, Callable[[Iterable[Mapping[str, Any]]], list[dict[str, Any]]]]:
     try:
-        from models.model_05_alpha_confidence.generator import generate_rows as generate_alpha_confidence
-        from models.model_06_dynamic_risk_policy.generator import generate_rows as generate_dynamic_risk_policy
-        from models.model_07_position_projection.generator import generate_rows as generate_position_projection
-        from models.model_08_underlying_action.generator import generate_rows as generate_underlying_action
-        from models.model_09_option_expression.generator import generate_rows as generate_option_expression
+        from models.model_04_unified_decision.generator import generate_rows as generate_unified_decision
+        from models.model_05_option_expression.generator import generate_rows as generate_option_expression
+        from models.model_06_residual_event_governance.generator import generate_rows as generate_residual_event_governance
     except ModuleNotFoundError as exc:
         raise RuntimeError(
             "trading-model must be importable for model-group replay inference; "
             "include /root/projects/trading-model/src on PYTHONPATH"
         ) from exc
     return {
-        "model_05_alpha_confidence": generate_alpha_confidence,
-        "model_06_dynamic_risk_policy": generate_dynamic_risk_policy,
-        "model_07_position_projection": generate_position_projection,
-        "model_08_underlying_action": generate_underlying_action,
-        "model_09_option_expression": generate_option_expression,
+        "model_04_unified_decision": generate_unified_decision,
+        "model_05_option_expression": generate_option_expression,
+        "model_06_residual_event_governance": generate_residual_event_governance,
     }
 
 
@@ -2001,57 +1931,43 @@ def _entry_calibration_role(*, timestamp: str, entry_calibration: Mapping[str, A
 
 def _model_layer_diagnostics(
     *,
-    alpha_vector: Mapping[str, Any],
-    risk_policy: Mapping[str, Any],
-    projection_vector: Mapping[str, Any],
-    underlying_plan: Mapping[str, Any],
+    unified_row: Mapping[str, Any],
+    unified_decision: Mapping[str, Any],
     entry_calibration: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
-    dominant_horizon = str(underlying_plan.get("dominant_horizon") or projection_vector.get("7_dominant_projection_horizon") or "1D")
+    vector = _as_mapping(unified_row.get("unified_decision_vector"))
+    direct_intent = _as_mapping(unified_row.get("direct_underlying_intent"))
+    diagnostics = _as_mapping(unified_row.get("unified_decision_diagnostics"))
+    dominant_horizon = str(vector.get("4_resolved_decision_horizon") or direct_intent.get("dominant_horizon") or "1D")
     dominant_suffix = dominant_horizon if dominant_horizon in {"1D", "1W"} else {"10min": "10min", "1h": "1h"}.get(dominant_horizon, "1D")
-    diagnostics = _as_mapping(underlying_plan.get("diagnostics"))
     horizon_scores = _as_mapping(diagnostics.get("horizon_scores"))
     dominant_scores = _as_mapping(horizon_scores.get(dominant_horizon))
     return {
         "entry_thresholds": _selected_entry_thresholds(entry_calibration),
-        "model_05_alpha_confidence": {
-            "alpha_confidence_score": _safe_float(alpha_vector.get(f"5_alpha_confidence_score_{dominant_suffix}")),
-            "expected_return_score": _safe_float(alpha_vector.get(f"5_expected_return_score_{dominant_suffix}")),
-            "alpha_direction_score": _safe_float(alpha_vector.get(f"5_alpha_direction_score_{dominant_suffix}")),
-            "path_quality_score": _safe_float(alpha_vector.get(f"5_path_quality_score_{dominant_suffix}")),
-            "reversal_risk_score": _safe_float(alpha_vector.get(f"5_reversal_risk_score_{dominant_suffix}")),
-            "drawdown_risk_score": _safe_float(alpha_vector.get(f"5_drawdown_risk_score_{dominant_suffix}")),
-        },
-        "model_06_dynamic_risk_policy": {
-            "minimum_entry_alpha_confidence": _safe_float(risk_policy.get("minimum_entry_alpha_confidence")),
-            "minimum_trade_intensity": _safe_float(risk_policy.get("minimum_trade_intensity")),
-            "new_exposure_permission_score": _safe_float(risk_policy.get("6_resolved_new_exposure_permission_score")),
-        },
-        "model_07_position_projection": {
-            "dominant_projection_horizon": projection_vector.get("7_dominant_projection_horizon"),
-            "target_exposure_score": _safe_float(projection_vector.get(f"7_target_exposure_score_{dominant_suffix}")),
-            "position_gap_score": _safe_float(projection_vector.get(f"7_position_gap_score_{dominant_suffix}")),
-            "expected_position_utility_score": _safe_float(projection_vector.get(f"7_expected_position_utility_score_{dominant_suffix}")),
-            "projection_confidence_score": _safe_float(projection_vector.get(f"7_projection_confidence_score_{dominant_suffix}")),
-            "risk_budget_fit_score": _safe_float(projection_vector.get(f"7_risk_budget_fit_score_{dominant_suffix}")),
-            "cost_to_adjust_position_score": _safe_float(projection_vector.get(f"7_cost_to_adjust_position_score_{dominant_suffix}")),
-        },
-        "model_08_underlying_action": {
-            "resolved_underlying_action_type": underlying_plan.get("planned_underlying_action_type"),
-            "resolved_action_side": underlying_plan.get("action_side"),
+        "model_04_unified_decision": {
+            "resolved_underlying_action_type": direct_intent.get("underlying_action_type")
+            or vector.get("4_resolved_underlying_action_type"),
+            "resolved_action_side": direct_intent.get("action_side") or vector.get("4_resolved_action_side"),
             "dominant_horizon": dominant_horizon,
-            "reason_codes": underlying_plan.get("reason_codes") or [],
+            "reason_codes": direct_intent.get("reason_codes") or vector.get("4_resolved_reason_codes") or [],
             "hard_gate_reason_codes": diagnostics.get("hard_gate_reason_codes") or [],
-            "soft_gate_reason_codes": dominant_scores.get("soft_gate_reason_codes") or [],
             "dominant_horizon_scores": {
-                "trade_eligibility_score": _safe_float(dominant_scores.get("trade_eligibility_score")) or 0.0,
-                "trade_intensity_score": _safe_float(dominant_scores.get("trade_intensity_score")) or 0.0,
+                "trade_intensity_score": _safe_float(dominant_scores.get("trade_intensity_score"))
+                or _safe_float(vector.get(f"4_trade_intensity_score_{dominant_suffix}"))
+                or 0.0,
                 "entry_quality_score": _safe_float(dominant_scores.get("entry_quality_score")) or 0.0,
-                "action_confidence_score": _safe_float(dominant_scores.get("action_confidence_score")) or 0.0,
-                "action_direction_score": _safe_float(dominant_scores.get("action_direction_score")) or 0.0,
-                "expected_return_score": _safe_float(dominant_scores.get("expected_return_score")) or 0.0,
-                "reward_risk_score": _safe_float(dominant_scores.get("reward_risk_score")) or 0.0,
-                "adverse_risk_score": _safe_float(dominant_scores.get("adverse_risk_score")) or 0.0,
+                "action_confidence_score": _safe_float(dominant_scores.get("action_confidence_score"))
+                or _safe_float(unified_decision.get("unified_decision_confidence_score"))
+                or 0.0,
+                "action_direction_score": _safe_float(dominant_scores.get("action_direction_score"))
+                or _safe_float(vector.get(f"4_action_direction_score_{dominant_suffix}"))
+                or 0.0,
+                "expected_return_score": _safe_float(dominant_scores.get("expected_return_score"))
+                or _safe_float(vector.get(f"4_expected_return_score_{dominant_suffix}"))
+                or 0.0,
+                "downside_risk_score": _safe_float(dominant_scores.get("downside_risk_score"))
+                or _safe_float(vector.get(f"4_downside_risk_score_{dominant_suffix}"))
+                or 0.0,
                 "minimum_entry_alpha_confidence": _safe_float(dominant_scores.get("minimum_entry_alpha_confidence")),
                 "minimum_trade_intensity": _safe_float(dominant_scores.get("minimum_trade_intensity")),
             },
@@ -2149,19 +2065,18 @@ def _target_context_state(
     }
 
 
-def _event_failure_risk_state(*, candidate_model_ref: str, available_time: str) -> dict[str, Any]:
-    state = {"model_ref": f"{candidate_model_ref}/model_04_event_failure_risk/{available_time}"}
+def _event_state_vector(*, candidate_model_ref: str, available_time: str) -> dict[str, Any]:
+    state = {"model_ref": f"{candidate_model_ref}/model_03_event_state/{available_time}"}
     for suffix in ("10min", "1h", "1D", "1W"):
         state.update(
             {
-                f"4_event_applicability_confidence_score_{suffix}": 0.0,
-                f"4_event_strategy_failure_risk_score_{suffix}": 0.0,
-                f"4_event_entry_block_pressure_score_{suffix}": 0.0,
-                f"4_event_evidence_quality_score_{suffix}": 0.75,
-                f"4_event_strategy_disable_pressure_score_{suffix}": 0.0,
-                f"4_event_path_risk_amplifier_score_{suffix}": 0.0,
-                f"4_event_session_gap_risk_score_{suffix}": 0.0,
-                f"4_event_exposure_cap_pressure_score_{suffix}": 0.0,
+                f"3_event_applicability_confidence_score_{suffix}": 0.0,
+                f"3_event_entry_block_pressure_score_{suffix}": 0.0,
+                f"3_event_exposure_cap_pressure_score_{suffix}": 0.0,
+                f"3_event_strategy_disable_pressure_score_{suffix}": 0.0,
+                f"3_event_path_risk_score_{suffix}": 0.0,
+                f"3_event_uncertainty_score_{suffix}": 0.0,
+                f"3_event_response_direction_score_{suffix}": 0.0,
             }
         )
     return state
@@ -2194,45 +2109,90 @@ def _account_capacity_state() -> dict[str, float]:
     }
 
 
-def _execution_underlying_plan(
+def _execution_unified_decision_vector(
     *,
-    plan: Mapping[str, Any],
+    unified_row: Mapping[str, Any],
     candidate_model_ref: str,
-    plan_ref: str,
     reference_price: float,
+    entry_calibration: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
-    entry = _as_mapping(plan.get("entry_plan"))
-    path = _as_mapping(plan.get("price_path_expectation"))
-    risk = _as_mapping(plan.get("risk_plan"))
-    action_side = str(plan.get("action_side") or "").strip()
-    entry_price = _safe_float(entry.get("expected_entry_price")) or reference_price
-    worst_price = _safe_float(entry.get("worst_acceptable_entry_price")) or entry_price
-    target_low = _safe_float(path.get("target_price_low"))
-    target_high = _safe_float(path.get("target_price_high"))
-    target_price = _safe_float(path.get("expected_target_price")) or _safe_float(risk.get("take_profit_price"))
-    stop_price = _safe_float(risk.get("stop_loss_price"))
-    invalidation_price = _safe_float(risk.get("thesis_invalidation_price")) or stop_price
-    output = dict(plan)
+    vector = dict(_as_mapping(unified_row.get("unified_decision_vector")))
+    intent = _as_mapping(unified_row.get("direct_underlying_intent"))
+    handoff = _as_mapping(intent.get("handoff_to_model_05"))
+    action_side = str(intent.get("action_side") or vector.get("4_resolved_action_side") or "").strip()
+    direction = "long" if action_side == "long" else "short" if action_side == "short" else None
+    entry_price = _safe_float(handoff.get("expected_entry_price")) or reference_price
+    target_price = _safe_float(handoff.get("expected_target_price")) or _safe_float(intent.get("expected_target_price"))
+    stop_price = _safe_float(handoff.get("stop_loss_price")) or _safe_float(intent.get("thesis_invalidation_price"))
+    invalidation_price = _safe_float(handoff.get("thesis_invalidation_price")) or stop_price
+    confidence = (
+        _safe_float(vector.get("4_resolved_action_confidence_score"))
+        or _safe_float(vector.get("4_action_confidence_score_1D"))
+        or 0.0
+    )
+    selected = _selected_entry_thresholds(entry_calibration)
+    output = dict(vector)
     output.update(
         {
-            "model_ref": f"{candidate_model_ref}/model_08_underlying_action/{plan_ref}",
-            "entry_direction": "long" if action_side == "long" else "short" if action_side == "short" else None,
+            "model_ref": f"{candidate_model_ref}/model_04_unified_decision/{unified_row['unified_decision_vector_ref']}",
+            "unified_decision_vector_ref": unified_row["unified_decision_vector_ref"],
+            "unified_decision_confidence_score": confidence,
+            "minimum_entry_confidence": selected["minimum_entry_alpha_confidence"],
+            "entry_direction": direction,
             "entry_zone": {
-                "low": min(entry_price, worst_price, reference_price),
-                "high": max(entry_price, worst_price, reference_price),
+                "low": min(entry_price, reference_price),
+                "high": max(entry_price, reference_price),
             },
             "target_price": target_price,
-            "take_profit_zone": {"low": min(target_low, target_high), "high": max(target_low, target_high)}
-            if target_low is not None and target_high is not None
-            else None,
             "model_invalidation_price": invalidation_price,
             "hard_stop_price": stop_price,
-            "expected_horizon": plan.get("dominant_horizon"),
+            "expected_horizon": intent.get("dominant_horizon") or vector.get("4_resolved_decision_horizon"),
             "current_price": reference_price,
             "reference_price": reference_price,
+            "direct_underlying_intent": dict(intent),
         }
     )
     return output
+
+
+def _residual_event_governance_for_bar(
+    *,
+    candidate_model_ref: str,
+    timestamp: str,
+    layer_outputs: Mapping[str, Any],
+    option_expression_plan: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    generators = _trading_model_generators()
+    option_plan = _as_mapping(option_expression_plan)
+    row = generators["model_06_residual_event_governance"](
+        [
+            {
+                "available_time": timestamp,
+                "tradeable_time": timestamp,
+                "target_candidate_id": layer_outputs["target_candidate_id"],
+                "background_context_state_ref": _as_mapping(layer_outputs["market_context_state"]).get("model_ref"),
+                "target_context_state_ref": _as_mapping(layer_outputs["target_context_state"]).get("model_ref"),
+                "event_state_vector_ref": _as_mapping(layer_outputs["event_state_vector"]).get("model_ref"),
+                "unified_decision_vector_ref": _as_mapping(layer_outputs["unified_decision_vector"]).get("model_ref"),
+                "option_expression_plan_ref": option_plan.get("model_ref"),
+                "target_context_state": layer_outputs["target_context_state"],
+                "unified_decision_vector": layer_outputs["unified_decision_vector"],
+                "option_expression_plan": option_plan,
+                "residual_event_observations": [],
+            }
+        ]
+    )[0]
+    governance = dict(row["event_risk_intervention"])
+    governance.update(
+        {
+            "model_ref": f"{candidate_model_ref}/model_06_residual_event_governance/{row['event_risk_intervention_ref']}",
+            "event_risk_intervention_ref": row["event_risk_intervention_ref"],
+            "risk_level": "low",
+            "block_new_entries": False,
+            "halt_new_entries": False,
+        }
+    )
+    return governance
 
 
 def _resolved_alpha_score(alpha_vector: Mapping[str, Any]) -> float:

@@ -15,8 +15,20 @@ class EvaluationExecutionRuntimeTests(unittest.TestCase):
         result = build_replay_runtime_dry_run(
             account_sleeve_id="crypto_spot_account",
             target_ref="SOL",
-            alpha_confidence_vector={"alpha_confidence_score": 0.90},
-            underlying_action_plan={"entry_direction": "long", "model_ref": "model_07_underlying_action/unit"},
+            event_state_vector={"model_ref": "model_03_event_state/unit", "risk_level": "low"},
+            unified_decision_vector={
+                "model_ref": "model_04_unified_decision/unit",
+                "unified_decision_confidence_score": 0.90,
+                "minimum_entry_confidence": 0.55,
+                "entry_direction": "long",
+                "entry_zone": {"low": 120.0, "high": 135.0},
+                "target_price": 145.0,
+                "model_invalidation_price": 120.0,
+                "hard_stop_price": 119.0,
+                "expected_horizon": "1D",
+                "current_price": 129.0,
+            },
+            residual_event_governance={"model_ref": "model_06_residual_event_governance/unit", "risk_level": "low"},
             trade_risk_cap={
                 "max_loss_usd": 25.0,
                 "max_loss_pct": 0.02,
@@ -42,8 +54,8 @@ class EvaluationExecutionRuntimeTests(unittest.TestCase):
         self.assertEqual(records["execution_order_intent"]["contract_type"], "execution_order_intent")
         self.assertEqual(records["execution_gate_result"]["contract_type"], "execution_gate_result")
         self.assertEqual(records["simulated_fill_event"]["contract_type"], "simulated_fill_event")
-        self.assertEqual(records["execution_gate_result"]["execution_gate_status"], "rejected_execution_gate")
-        self.assertEqual(records["simulated_fill_event"]["fill_status"], "simulated_rejected")
+        self.assertEqual(records["execution_gate_result"]["execution_gate_status"], "approved_for_simulated_fill")
+        self.assertEqual(records["simulated_fill_event"]["fill_status"], "simulated_filled")
         self.assertFalse(result["side_effects"]["broker_mutation_performed"])
         self.assertFalse(result["side_effects"]["account_mutation_performed"])
 

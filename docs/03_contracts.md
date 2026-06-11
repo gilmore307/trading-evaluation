@@ -55,7 +55,7 @@ returns are allowed only after the decision row is emitted and only for
 evaluation settlement. They must not feed the same-row decision inputs.
 
 Replay option-expression inputs come from
-`trading_data.m09_option_expression_feature_generation` only after Layer 8 emits
+`trading_data.m05_option_expression_feature_generation` only after M04 emits
 an option-expression handoff for the current replay timestamp. If the manager
 records `snapshot_type = source_unavailable` for that exact target/timestamp,
 replay treats the option surface as `option_source_unavailable` and continues

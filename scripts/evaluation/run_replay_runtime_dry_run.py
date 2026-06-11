@@ -25,7 +25,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     payload = build_replay_runtime_dry_run(
         account_sleeve_id=args.account_sleeve_id,
         target_ref=args.target_ref,
-        alpha_confidence_vector={"alpha_confidence_score": 0.90},
+        event_state_vector={"model_ref": "model_03_event_state/dry_run", "risk_level": "low"},
+        unified_decision_vector={
+            "model_ref": "model_04_unified_decision/dry_run",
+            "unified_decision_confidence_score": 0.90,
+            "minimum_entry_confidence": 0.55,
+            "entry_direction": "long",
+            "entry_zone": {"low": 120.0, "high": 135.0},
+            "target_price": 145.0,
+            "model_invalidation_price": 120.0,
+            "hard_stop_price": 119.0,
+            "expected_horizon": "1D",
+            "current_price": 129.0,
+        },
+        residual_event_governance={"model_ref": "model_06_residual_event_governance/dry_run", "risk_level": "low"},
         trade_risk_cap={
             "max_loss_usd": 25.0,
             "max_loss_pct": 0.02,

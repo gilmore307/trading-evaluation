@@ -11,8 +11,6 @@ sys.path.insert(0, str(Path("/root/projects/trading-model/src")))
 
 from trading_evaluation import build_candidate_policy_replay_execution_run, build_crypto_replay_execution_run
 from trading_evaluation import replay_execution as replay_module
-from models.model_05_alpha_confidence import train_after_cost_alpha_model
-from models.model_05_alpha_confidence.contract import HORIZONS
 
 
 class ReplayExecutionTests(unittest.TestCase):
@@ -283,11 +281,10 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertIn(rows[0]["validation_status"], {"passed", "failed"})
             self.assertIn("feature_momentum_7d", rows[0])
             self.assertEqual(rows[0]["model_evidence_mode"], "component_input_model_evidence_generators")
-            self.assertIn("model_05_alpha_confidence", rows[0]["model_layer_refs"])
-            self.assertIn("model_08_underlying_action", rows[0]["model_layer_refs"])
-            self.assertIn("model_05_alpha_confidence", rows[0]["model_layer_diagnostics"])
-            self.assertIn("model_07_position_projection", rows[0]["model_layer_diagnostics"])
-            self.assertIn("model_08_underlying_action", rows[0]["model_layer_diagnostics"])
+            self.assertIn("model_04_unified_decision", rows[0]["model_layer_refs"])
+            self.assertIn("model_04_unified_decision", rows[0]["model_layer_diagnostics"])
+            self.assertIn("model_05_option_expression", rows[0]["model_evidence_chain"])
+            self.assertIn("model_06_residual_event_governance", rows[0]["model_evidence_chain"])
             self.assertIn(rows[0]["entry_threshold_calibration_role"], {"validation", "test"})
             self.assertIn("entry_minimum_trade_intensity", rows[0])
             progress_rows = [json.loads(line) for line in result.progress_path.read_text(encoding="utf-8").splitlines()]
@@ -304,7 +301,7 @@ class ReplayExecutionTests(unittest.TestCase):
         try:
             replay_module._load_option_candidate_features = lambda **_: self.fail("bulk option feature loader must not run")
             replay_module._load_option_candidate_features_for_timestamp = (
-                lambda **_: self.fail("point option feature loader must not run without a Layer 8 signal")
+                lambda **_: self.fail("point option feature loader must not run without an M04 option-expression signal")
             )
             replay_module._option_expression_plan_for_bar = lambda **_: None
             with tempfile.TemporaryDirectory() as tmp:
@@ -328,24 +325,13 @@ class ReplayExecutionTests(unittest.TestCase):
             replay_module._load_option_candidate_features = original_bulk_feature_loader
             replay_module._load_option_candidate_features_for_timestamp = original_point_feature_loader
 
-    def test_option_expression_plan_requires_features_only_after_layer_eight_signal(self):
+    def test_option_expression_plan_requires_features_only_after_model_four_signal(self):
         with self.assertRaisesRegex(ValueError, "replay_option_feature_acquisition_required"):
             replay_module._option_expression_plan_for_bar(
                 bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
                 candidate_model_ref="storage://trading-manager/model_group/test_fold",
                 timestamp="2021-01-04T16:00:00-05:00",
-                layer_outputs={
-                    "target_candidate_id": "replay_aapl_test",
-                    "underlying_action_plan": {
-                        "model_ref": "underlying-action-ref",
-                        "planned_underlying_action_type": "open_long",
-                        "action_side": "long",
-                        "handoff_to_layer_9": {
-                            "underlying_path_direction": "bullish",
-                            "expected_holding_time_minutes": 1440,
-                        },
-                    },
-                },
+                layer_outputs=_current_layer_outputs(),
                 option_candidates=[],
             )
 
@@ -374,18 +360,7 @@ class ReplayExecutionTests(unittest.TestCase):
             bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
             candidate_model_ref="storage://trading-manager/model_group/test_fold",
             timestamp="2021-01-04T16:00:00-05:00",
-            layer_outputs={
-                "target_candidate_id": "replay_aapl_test",
-                "underlying_action_plan": {
-                    "model_ref": "underlying-action-ref",
-                    "planned_underlying_action_type": "open_long",
-                    "action_side": "long",
-                    "handoff_to_layer_9": {
-                        "underlying_path_direction": "bullish",
-                        "expected_holding_time_minutes": 1440,
-                    },
-                },
-            },
+            layer_outputs=_current_layer_outputs(),
             option_candidates=[
                 {
                     "option_symbol": "__OPTION_SOURCE_UNAVAILABLE__",
@@ -404,15 +379,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
                 candidate_model_ref="storage://trading-manager/model_group/test_fold",
                 timestamp="2021-01-04T16:00:00-05:00",
-                layer_outputs={
-                    "target_candidate_id": "replay_aapl_test",
-                    "underlying_action_plan": {
-                        "model_ref": "underlying-action-ref",
-                        "planned_underlying_action_type": "no_trade",
-                        "action_side": "none",
-                        "handoff_to_layer_9": {"underlying_path_direction": "neutral"},
-                    },
-                },
+                layer_outputs=_current_layer_outputs(action_type="no_trade", action_side="none", direction="neutral"),
                 option_candidates=[],
             )
         )
@@ -452,7 +419,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 ("AAPL", "2021-01-04T16:00:00-05:00"): [{"contract_ref": "AAPL_2021-01-15_C_100"}]
             }
             replay_module._option_expression_plan_for_bar = lambda **_: {
-                "model_ref": "storage://trading-manager/model_group/test_fold/model_09_option_expression/test",
+                "model_ref": "storage://trading-manager/model_group/test_fold/model_05_option_expression/test",
                 "target_ref": "AAPL",
                 "asset_expression_route": "option_expression_unfilled",
                 "option_surface_status": "optionable_chain_available",
@@ -674,7 +641,7 @@ class ReplayExecutionTests(unittest.TestCase):
         finally:
             replay_module._load_equity_bars_from_sql = original_sql_loader
 
-    def test_candidate_policy_replay_uses_m09_option_path_return(self):
+    def test_candidate_policy_replay_uses_m05_option_path_return(self):
         original_feature_loader = replay_module._load_option_candidate_features
         original_point_feature_loader = replay_module._load_option_candidate_features_for_timestamp
         original_path_loader = replay_module._load_option_contract_path_bars
@@ -714,7 +681,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 ]
             }
             replay_module._option_expression_plan_for_bar = lambda **_: {
-                "model_ref": "storage://trading-manager/model_group/test_fold/model_09_option_expression/test",
+                "model_ref": "storage://trading-manager/model_group/test_fold/model_05_option_expression/test",
                 "target_ref": "AAPL",
                 "asset_expression_route": "listed_option_contract",
                 "option_surface_status": "optionable_chain_available",
@@ -748,7 +715,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 self.assertEqual(rows[0]["decision_instrument_scope"], "listed_option_contract")
                 self.assertEqual(rows[0]["selected_option_contract_ref"], "AAPL_2021-01-15_P_100")
                 self.assertEqual(rows[0]["option_contract_path_status"], "available")
-                self.assertEqual(rows[0]["return_source"], "m09_option_expression_contract_path")
+                self.assertEqual(rows[0]["return_source"], "m05_option_expression_contract_path")
                 self.assertEqual(rows[0]["option_entry_price"], 2.0)
                 self.assertEqual(rows[0]["option_exit_price"], 3.0)
                 self.assertEqual(result.receipt["option_contract_path_symbol_count"], 1)
@@ -766,27 +733,7 @@ class ReplayExecutionTests(unittest.TestCase):
             bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
             candidate_model_ref="storage://trading-manager/model_group/test_fold",
             timestamp="2021-01-04T16:00:00-05:00",
-            layer_outputs={
-                "target_candidate_id": "replay_aapl_test",
-                "target_context_state": {"model_ref": "target-context-ref"},
-                "market_context_state": {"1_market_liquidity_support_score": 0.85},
-                "event_failure_risk_vector": {},
-                "underlying_action_plan": {
-                    "model_ref": "underlying-action-ref",
-                    "planned_underlying_action_type": "open_long",
-                    "action_side": "long",
-                    "handoff_to_layer_9": {
-                        "underlying_path_direction": "bullish",
-                        "expected_holding_time_minutes": 1440,
-                        "expected_entry_price": 100.0,
-                        "expected_target_price": 110.0,
-                        "target_price_high": 110.0,
-                        "expected_favorable_move_pct": 0.06,
-                        "expected_adverse_move_pct": 0.02,
-                        "path_quality_score": 0.80,
-                    },
-                },
-            },
+                layer_outputs=_current_layer_outputs(),
             option_candidates=[
                 {
                     "contract_ref": "AAPL_20210115_C_100",
@@ -819,15 +766,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
                 candidate_model_ref="storage://trading-manager/model_group/test_fold",
                 timestamp="2021-01-04T10:00:00-05:00",
-                layer_outputs={
-                    "target_candidate_id": "replay_aapl_test",
-                    "underlying_action_plan": {
-                        "model_ref": "underlying-action-ref",
-                        "planned_underlying_action_type": "open_long",
-                        "action_side": "long",
-                        "handoff_to_layer_9": {"underlying_path_direction": "bullish"},
-                    },
-                },
+                layer_outputs=_current_layer_outputs(),
                 option_candidates=[
                     {
                         "contract_ref": "AAPL_2021-01-15_C_100",
@@ -989,65 +928,42 @@ def _write_after_cost_alpha_model(root: Path) -> Path:
 
 
 def _after_cost_alpha_model() -> dict[str, object]:
-    training_rows = [_training_row(direction=-0.6, realized_return=-0.03), _training_row(direction=0.0, realized_return=0.0), _training_row(direction=0.6, realized_return=0.03)]
-    try:
-        return {
-            "artifacts_by_horizon": {
-                horizon: train_after_cost_alpha_model(
-                    training_rows,
-                    horizon=horizon,
-                    label_field=f"after_cost_return_{horizon}",
-                    iterations=25,
-                )
-                for horizon in HORIZONS
-            }
-        }
-    except RuntimeError as error:
-        raise unittest.SkipTest(str(error)) from error
+    return {"contract_type": "current_replay_placeholder_after_cost_alpha_model"}
 
 
-def _training_row(*, direction: float, realized_return: float) -> dict[str, object]:
+def _current_layer_outputs(
+    *,
+    action_type: str = "open_long",
+    action_side: str = "long",
+    direction: str = "bullish",
+) -> dict[str, object]:
     return {
-        "market_context_state": {
-            "1_market_risk_stress_score": 0.20,
-            "1_market_liquidity_support_score": 0.85,
-            "1_state_quality_score": 0.90,
+        "target_candidate_id": "replay_aapl_test",
+        "target_context_state": {"model_ref": "target-context-ref"},
+        "market_context_state": {"1_market_liquidity_support_score": 0.85},
+        "event_state_vector": {"model_ref": "event-state-ref"},
+        "unified_decision_vector": {
+            "model_ref": "unified-decision-ref",
+            "unified_decision_vector_ref": "udv_test",
+            "unified_decision_confidence_score": 0.82,
+            "minimum_entry_confidence": 0.50,
         },
-        "sector_context_state": {
-            "2_sector_context_support_quality_score": 0.80,
-            "2_state_quality_score": 0.88,
+        "direct_underlying_intent": {
+            "model_ref": "unified-decision-ref",
+            "underlying_action_type": action_type,
+            "action_side": action_side,
+            "handoff_to_model_05": {
+                "underlying_path_direction": direction,
+                "expected_holding_time_minutes": 1440,
+                "expected_entry_price": 100.0,
+                "expected_target_price": 110.0,
+                "target_price_high": 110.0,
+                "expected_favorable_move_pct": 0.06,
+                "expected_adverse_move_pct": 0.02,
+                "path_quality_score": 0.80,
+            },
         },
-        "target_context_state": _target_state(direction=direction),
-        "event_failure_risk_vector": {},
-        "quality_calibration_state": {
-            "sample_support_score": 0.85,
-            "walk_forward_reliability_score": 0.80,
-            "model_ensemble_agreement_score": 0.85,
-            "model_disagreement_score": 0.10,
-            "out_of_distribution_score": 0.10,
-            "data_quality_score": 0.90,
-        },
-        **{f"after_cost_return_{horizon}": realized_return for horizon in HORIZONS},
     }
-
-
-def _target_state(*, direction: float) -> dict[str, object]:
-    state: dict[str, object] = {"3_state_quality_score": 0.90}
-    for horizon in HORIZONS:
-        state.update(
-            {
-                f"3_target_direction_score_{horizon}": direction,
-                f"3_target_trend_quality_score_{horizon}": 0.75,
-                f"3_target_path_stability_score_{horizon}": 0.80,
-                f"3_target_noise_score_{horizon}": 0.20,
-                f"3_target_transition_risk_score_{horizon}": 0.15,
-                f"3_context_direction_alignment_score_{horizon}": 0.70 if direction >= 0 else -0.70,
-                f"3_context_support_quality_score_{horizon}": 0.80,
-                f"3_tradability_score_{horizon}": 0.85,
-                f"3_beta_dependency_score_{horizon}": 0.20,
-            }
-        )
-    return state
 
 
 if __name__ == "__main__":
