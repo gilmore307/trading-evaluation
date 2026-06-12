@@ -363,7 +363,7 @@ def build_candidate_policy_replay_execution_run(
             "C01-C07 component artifacts share live execution output contracts; evaluation_replay_decision_row is a settlement view",
             "each replay decision has an explicit replay_time_pointer; decision inputs after that pointer are invalid",
             "equity/options account requires point-in-time M05 option features at each replay decision timestamp",
-            "listed option decisions use M05 selected-contract paths when available and zero realized return when selected-contract exit data is missing",
+            "listed option decisions use M05 selected-contract paths when available; missing selected-contract paths are data-coverage diagnostics and not executable fills",
             "initial capital is a replay-normalization input for equity-path diagnostics and never broker/account state",
             "this run emits settlement-ready decision rows but is not a promotion eligibility decision",
         ],

@@ -256,6 +256,10 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(result.receipt["initial_capital"]["role"], "replay_equity_path_and_return_normalization")
             self.assertFalse(result.receipt["initial_capital"]["broker_or_account_state"])
             self.assertEqual(result.receipt["decision_row_count"], 2)
+            self.assertIn(
+                "missing selected-contract paths are data-coverage diagnostics",
+                " ".join(result.receipt["notes"]),
+            )
             self.assertEqual(result.receipt["completed_replay_month_count"], 1)
             self.assertEqual(result.receipt["replay_time_pointer_policy"]["pointer_field"], "replay_time_pointer")
             self.assertEqual(
