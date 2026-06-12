@@ -58,6 +58,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--candidate-handoff-database-url", help="Load Layer 2 target-candidate handoff rows from PostgreSQL.")
     parser.add_argument("--candidate-handoff-schema", default="trading_data")
     parser.add_argument("--candidate-handoff-table", default="model_02_sector_context_data_acquisition")
+    parser.add_argument(
+        "--candidate-universe-path",
+        type=Path,
+        help="Load the fixed historical replay candidate universe CSV. Defaults to the storage repo shared artifact.",
+    )
     args = parser.parse_args(argv)
     after_cost_alpha_model = json.loads(args.after_cost_alpha_model_json.read_text(encoding="utf-8"))
 
@@ -85,6 +90,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         candidate_handoff_database_url=args.candidate_handoff_database_url,
         candidate_handoff_schema=args.candidate_handoff_schema,
         candidate_handoff_table=args.candidate_handoff_table,
+        candidate_universe_path=args.candidate_universe_path,
     )
     print(json.dumps(result.receipt, indent=2, sort_keys=True))
     return 0

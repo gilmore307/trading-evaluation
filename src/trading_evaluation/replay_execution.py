@@ -46,6 +46,7 @@ CRYPTO_SYMBOLS_BY_INSTRUMENT = {
 EQUITY_SOURCE_ROOT = Path("/root/projects/trading-storage/storage/01_source_data/monthly_backfill/alpaca_bars")
 DEFAULT_DATASET_ROOT = Path("/root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy")
 DEFAULT_DB_URL_FILE = Path("/root/secrets/openclaw/database-url")
+DEFAULT_CANDIDATE_UNIVERSE_FILENAME = "historical_candidate_universe.csv"
 MODEL_EVIDENCE_CHAIN = (
     "model_01_market_regime_state",
     "model_02_sector_context_state",
@@ -184,6 +185,7 @@ def build_candidate_policy_replay_execution_run(
     candidate_handoff_database_url: str | None = None,
     candidate_handoff_schema: str = "trading_data",
     candidate_handoff_table: str = "model_02_sector_context_data_acquisition",
+    candidate_universe_path: Path | None = None,
     initial_capital_usd: float = DEFAULT_REPLAY_INITIAL_CAPITAL_USD,
 ) -> ReplayExecutionResult:
     """Run candidate-policy replay over frozen crypto plus materialized equity bars."""
@@ -214,6 +216,10 @@ def build_candidate_policy_replay_execution_run(
         database_url=resolved_candidate_handoff_database_url,
         schema=candidate_handoff_schema,
         table=candidate_handoff_table,
+        candidate_universe_path=_resolved_candidate_universe_path(
+            dataset_root=dataset_root,
+            candidate_universe_path=candidate_universe_path,
+        ),
         explicit_equity_symbols=equity_symbols,
         include_equity=include_equity,
         replay_month=replay_month,
@@ -331,8 +337,17 @@ def build_candidate_policy_replay_execution_run(
         "asset_class_counts": _asset_class_counts(bars_by_target),
         "candidate_handoff_table_ref": (
             None
-            if not resolved_candidate_handoff_database_url or candidate_handoff["source"] == "explicit_candidate_symbols_override"
+            if (
+                not resolved_candidate_handoff_database_url
+                or candidate_handoff["source"]
+                in {"explicit_candidate_symbols_override", "fixed_current_snapshot_historical_candidate_universe"}
+            )
             else f"{candidate_handoff_schema}.{candidate_handoff_table}"
+        ),
+        "candidate_handoff_artifact_ref": (
+            candidate_handoff.get("artifact_ref")
+            if candidate_handoff["source"] == "fixed_current_snapshot_historical_candidate_universe"
+            else None
         ),
         "candidate_handoff_status": candidate_handoff["status"],
         "candidate_handoff_source": candidate_handoff["source"],
@@ -962,6 +977,15 @@ def _load_candidate_policy_bars(
             replay_month=replay_month,
             equity_symbols=equity_symbols,
         )
+        if equity_rows and equity_symbols:
+            missing_symbols = sorted(_string_set(equity_symbols) - set(equity_rows))
+            if missing_symbols:
+                equity_rows.update(
+                    _load_equity_bars(
+                        equity_source_root=equity_source_root,
+                        equity_symbols=missing_symbols,
+                    )
+                )
         if not equity_rows:
             equity_rows = _load_equity_bars(equity_source_root=equity_source_root, equity_symbols=equity_symbols)
         for target, rows in equity_rows.items():
@@ -975,6 +999,7 @@ def _candidate_handoff_for_replay(
     database_url: str | None,
     schema: str,
     table: str,
+    candidate_universe_path: Path,
     explicit_equity_symbols: Sequence[str] | None,
     include_equity: bool,
     replay_month: str | None,
@@ -993,6 +1018,30 @@ def _candidate_handoff_for_replay(
             "source": "explicit_candidate_symbols_override",
             "candidate_symbols": explicit_symbols,
             "row_count": len(explicit_symbols),
+        }
+    fixed_rows = _load_fixed_historical_candidate_universe_rows(candidate_universe_path)
+    if fixed_rows:
+        symbols = tuple(
+            sorted(
+                {
+                    str(row.get("symbol") or row.get("target_ref") or "").upper()
+                    for row in fixed_rows
+                    if str(row.get("asset_class") or "").strip().lower() == "us_equity"
+                    and str(row.get("symbol") or row.get("target_ref") or "").strip()
+                }
+            )
+        )
+        if not symbols:
+            raise ValueError(
+                "fixed historical candidate universe contains no active us_equity candidates: "
+                f"{candidate_universe_path}"
+            )
+        return {
+            "status": "available",
+            "source": "fixed_current_snapshot_historical_candidate_universe",
+            "candidate_symbols": symbols,
+            "row_count": len(fixed_rows),
+            "artifact_ref": str(candidate_universe_path),
         }
     rows = _load_layer_two_candidate_handoff_rows(
         database_url=database_url,
@@ -1014,6 +1063,31 @@ def _candidate_handoff_for_replay(
     }
 
 
+def _resolved_candidate_universe_path(*, dataset_root: Path, candidate_universe_path: Path | None) -> Path:
+    if candidate_universe_path is not None:
+        return candidate_universe_path
+    try:
+        storage_repo_root = dataset_root.parents[2]
+    except IndexError:
+        return Path(DEFAULT_CANDIDATE_UNIVERSE_FILENAME)
+    return storage_repo_root / "main" / "shared" / DEFAULT_CANDIDATE_UNIVERSE_FILENAME
+
+
+def _load_fixed_historical_candidate_universe_rows(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
+        return []
+    rows: list[dict[str, str]] = []
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        for raw in csv.DictReader(handle):
+            row = {str(key): str(value or "").strip() for key, value in raw.items()}
+            symbol = str(row.get("symbol") or row.get("target_ref") or "").upper()
+            status = str(row.get("replay_candidate_status") or row.get("pool_membership_status") or "active").lower()
+            if not symbol or status != "active":
+                continue
+            rows.append(row)
+    return rows
+
+
 def _validate_equity_candidate_bar_coverage(
     *,
     include_equity: bool,
@@ -1032,10 +1106,20 @@ def _validate_equity_candidate_bar_coverage(
         if rows and str(rows[0].get("asset_class") or "") == "us_equity"
     }
     if loaded:
-        return
+        missing = sorted(expected - loaded)
+        if not missing:
+            return
     source = str(candidate_handoff.get("source") or "")
     if source == "explicit_candidate_symbols_override" and explicit_equity_symbols:
         return
+    missing = sorted(expected - loaded)
+    if missing:
+        sample = ", ".join(missing[:20])
+        raise ValueError(
+            "Layer 2 target-candidate handoff produced equity/options candidates but replay is missing "
+            f"materialized candidate bars for {len(missing)} of {len(expected)} symbols; sample={sample}. "
+            "Run the monthly on-demand Alpaca candidate acquisition for the fixed historical candidate universe before replay execution"
+        )
     raise ValueError(
         "Layer 2 target-candidate handoff produced equity/options candidates but replay found no materialized "
         "candidate bars; run the monthly on-demand Alpaca candidate acquisition before replay execution"

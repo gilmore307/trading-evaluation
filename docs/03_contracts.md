@@ -47,6 +47,12 @@ active config write occurred. Provider calls are allowed only through reviewed
 on-demand replay acquisition gates. This is Replay evidence, not a promotion
 eligibility decision.
 
+Ordinary promotion replay reads the fixed historical candidate universe from
+`trading-storage/main/shared/historical_candidate_universe.csv` and lets the
+component graph decide whether to trade no target, one target, or a target
+combination. Explicit `--equity-symbol` runs are diagnostic overrides only and
+must not satisfy canonical promotion replay completion.
+
 Every replay decision owns an explicit `replay_time_pointer`. Decision inputs
 must be available at or before that pointer. Data after the pointer is invalid
 for C01-C07 model/execution inputs, including on-demand option-chain evidence.

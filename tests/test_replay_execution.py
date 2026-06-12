@@ -226,6 +226,32 @@ class ReplayExecutionTests(unittest.TestCase):
             )
         return source_root
 
+    def _candidate_universe(self, root: Path, symbols: list[str]) -> Path:
+        path = root / "historical_candidate_universe.csv"
+        with path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(
+                handle,
+                fieldnames=[
+                    "symbol",
+                    "target_ref",
+                    "asset_class",
+                    "instrument_type",
+                    "replay_candidate_status",
+                ],
+            )
+            writer.writeheader()
+            for symbol in symbols:
+                writer.writerow(
+                    {
+                        "symbol": symbol,
+                        "target_ref": symbol,
+                        "asset_class": "us_equity",
+                        "instrument_type": "common_stock_or_optionable_underlying",
+                        "replay_candidate_status": "active",
+                    }
+                )
+        return path
+
     def test_builds_crypto_replay_decision_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
             dataset_root = self._dataset(Path(tmp))
@@ -615,6 +641,59 @@ class ReplayExecutionTests(unittest.TestCase):
             replay_module._load_layer_two_candidate_handoff_rows = original_loader
             replay_module._load_option_candidate_features = original_feature_loader
             replay_module._option_expression_plan_for_bar = original_plan_builder
+
+    def test_candidate_policy_replay_uses_fixed_historical_candidate_universe(self):
+        original_plan_builder = replay_module._option_expression_plan_for_bar
+        try:
+            replay_module._option_expression_plan_for_bar = lambda **_: None
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                dataset_root = self._dataset(root)
+                equity_source_root = self._equity_source_root(root)
+                candidate_universe_path = self._candidate_universe(root, ["AAPL"])
+
+                result = build_candidate_policy_replay_execution_run(
+                    dataset_root=dataset_root,
+                    run_id="test_fixed_candidate_universe",
+                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    after_cost_alpha_model=_after_cost_alpha_model(),
+                    equity_source_root=equity_source_root,
+                    include_crypto=False,
+                    max_decision_rows=1,
+                    option_feature_database_url="",
+                    candidate_universe_path=candidate_universe_path,
+                )
+
+                self.assertEqual(result.receipt["candidate_handoff_status"], "available")
+                self.assertEqual(
+                    result.receipt["candidate_handoff_source"],
+                    "fixed_current_snapshot_historical_candidate_universe",
+                )
+                self.assertEqual(result.receipt["candidate_handoff_symbols"], ["AAPL"])
+                self.assertEqual(result.receipt["candidate_handoff_artifact_ref"], str(candidate_universe_path))
+                self.assertIsNone(result.receipt["candidate_handoff_table_ref"])
+        finally:
+            replay_module._option_expression_plan_for_bar = original_plan_builder
+
+    def test_candidate_policy_replay_rejects_partial_candidate_bar_coverage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dataset_root = self._dataset(root)
+            equity_source_root = self._equity_source_root(root)
+            candidate_universe_path = self._candidate_universe(root, ["AAPL", "MSFT"])
+
+            with self.assertRaisesRegex(ValueError, "missing materialized candidate bars for 1 of 2 symbols"):
+                build_candidate_policy_replay_execution_run(
+                    dataset_root=dataset_root,
+                    run_id="test_partial_candidate_bars",
+                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    after_cost_alpha_model=_after_cost_alpha_model(),
+                    equity_source_root=equity_source_root,
+                    include_crypto=False,
+                    max_decision_rows=1,
+                    option_feature_database_url="",
+                    candidate_universe_path=candidate_universe_path,
+                )
 
     def test_candidate_policy_replay_runs_one_month_from_feed_plan_cache(self):
         with tempfile.TemporaryDirectory() as tmp:
