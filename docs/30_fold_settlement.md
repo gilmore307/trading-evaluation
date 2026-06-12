@@ -24,6 +24,11 @@ Detailed settlement reports and chart-ready summaries are durable artifacts and 
 
 `src/trading_evaluation/settlement.py` and `scripts/evaluation/build_fold_settlement_run.py` assemble a `fold_settlement_run` from replay decision rows. The settlement helper computes return, excess return, max drawdown, turnover proxy, hit rate, payoff ratio, AUROC, Brier score, and PCA/PCoA-style structure diagnostics when numeric feature columns are present.
 
+Rows with a selected option contract and `option_contract_path_status =
+missing` are retained as coverage diagnostics, but they are excluded from
+filled-trade turnover and label/score pairs. They must not create synthetic
+zero-return option losses.
+
 The settlement run always sets `agent_review_required=true` with `agent_review_scope=promotion-evaluation-review`. Deterministic gates can mark the run `passed` or `review_required`, but they do not promote a model or write execution active pointers by themselves.
 
 Current crypto fixed-sleeve settlement evidence is `review_required`, not

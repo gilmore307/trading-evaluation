@@ -73,6 +73,13 @@ historical-clock refs. It must not create evaluation-owned substitutes for C01-C
 decision artifacts. `evaluation_replay_decision_row` is only a settlement view
 over those component outputs.
 
+If a replay selects a listed option contract but the point-in-time option
+contract path is unavailable, the settlement view must preserve the selected
+contract and mark `option_contract_path_status = missing` and
+`return_source = option_contract_path_missing`. That row is a data-coverage
+diagnostic, not an executable fill: it must use `fill_status =
+simulated_rejected`, zero cost, and no outcome label.
+
 Canonical SQL tables:
 
 ```text

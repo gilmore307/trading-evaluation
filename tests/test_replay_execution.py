@@ -891,6 +891,79 @@ class ReplayExecutionTests(unittest.TestCase):
             replay_module._load_option_contract_path_bars = original_path_loader
             replay_module._option_expression_plan_for_bar = original_plan_builder
 
+    def test_candidate_policy_replay_rejects_selected_option_when_contract_path_missing(self):
+        original_feature_loader = replay_module._load_option_candidate_features
+        original_point_feature_loader = replay_module._load_option_candidate_features_for_timestamp
+        original_path_loader = replay_module._load_option_contract_path_bars
+        original_plan_builder = replay_module._option_expression_plan_for_bar
+        try:
+            replay_module._load_option_candidate_features = lambda **_: {
+                ("AAPL", "2021-01-04T16:00:00-05:00"): [
+                    {
+                        "contract_ref": "AAPL_2021-01-15_P_100",
+                        "option_right": "PUT",
+                        "expiration": "2021-01-15",
+                        "strike": 100.0,
+                        "dte": 11,
+                        "bid_price": 2.1,
+                        "ask_price": 2.2,
+                        "mid_price": 2.15,
+                        "delta": 0.45,
+                        "theta": -0.02,
+                        "vega": 0.12,
+                        "volume": 500,
+                        "open_interest": 2000,
+                        "spread_pct_mid": 0.0465,
+                        "quote_age_seconds": 10,
+                    }
+                ]
+            }
+            replay_module._load_option_candidate_features_for_timestamp = lambda **_: [
+                {
+                    "contract_ref": "AAPL_2021-01-15_P_100",
+                    "option_right": "PUT",
+                }
+            ]
+            replay_module._load_option_contract_path_bars = lambda **_: {}
+            replay_module._option_expression_plan_for_bar = lambda **_: {
+                "model_ref": "storage://trading-manager/model_group/test_fold/model_05_option_expression/test",
+                "target_ref": "AAPL",
+                "asset_expression_route": "listed_option_contract",
+                "option_surface_status": "optionable_chain_available",
+                "selected_expression_type": "long_put",
+                "selected_contract": {
+                    "contract_ref": "AAPL_2021-01-15_P_100",
+                    "mid_price": 2.15,
+                },
+            }
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                result = build_candidate_policy_replay_execution_run(
+                    dataset_root=self._dataset(root),
+                    run_id="test_candidate_policy_missing_option_path",
+                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    after_cost_alpha_model=_after_cost_alpha_model(),
+                    equity_source_root=self._equity_source_root(root),
+                    equity_symbols=["AAPL"],
+                    max_decision_rows=1,
+                    option_feature_database_url="postgresql://example/unused",
+                )
+
+                rows = [json.loads(line) for line in result.decision_rows_path.read_text(encoding="utf-8").splitlines()]
+                self.assertEqual(rows[0]["selected_option_contract_ref"], "AAPL_2021-01-15_P_100")
+                self.assertEqual(rows[0]["option_contract_path_status"], "missing")
+                self.assertEqual(rows[0]["return_source"], "option_contract_path_missing")
+                self.assertEqual(rows[0]["replay_rejection_reason"], "option_contract_path_missing")
+                self.assertEqual(rows[0]["fill_status"], "simulated_rejected")
+                self.assertIsNone(rows[0]["outcome_label"])
+                self.assertEqual(rows[0]["realized_return"], 0.0)
+                self.assertEqual(rows[0]["cost"], 0.0)
+        finally:
+            replay_module._load_option_candidate_features = original_feature_loader
+            replay_module._load_option_candidate_features_for_timestamp = original_point_feature_loader
+            replay_module._load_option_contract_path_bars = original_path_loader
+            replay_module._option_expression_plan_for_bar = original_plan_builder
+
     def test_option_expression_plan_selects_loaded_contract_candidate(self):
         plan = replay_module._option_expression_plan_for_bar(
             bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},

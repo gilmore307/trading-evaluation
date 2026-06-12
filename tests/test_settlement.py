@@ -50,6 +50,36 @@ class SettlementTests(unittest.TestCase):
         self.assertEqual(validate_fold_settlement_run(payload).validation_status, "passed")
         self.assertFalse(payload["model_activation_performed"])
 
+    def test_missing_option_contract_path_is_not_filled_or_scored(self):
+        rows = self._rows()
+        rows.append(
+            {
+                "decision_id": "missing_option_path",
+                "realized_return": 0.0,
+                "baseline_return": 0.0,
+                "cost": 0.0,
+                "outcome_label": None,
+                "prediction_score": 0.99,
+                "action": "trade",
+                "fill_status": "simulated_rejected",
+                "selected_option_contract_ref": "AAPL_2021-01-15_C_100",
+                "option_contract_path_status": "missing",
+            }
+        )
+
+        payload = build_fold_settlement_run(
+            fold_id="fold_2016-01_2016-06",
+            candidate_model_ref="model://candidate/a",
+            replay_contract_ref="replay://promotion",
+            replay_result_ref="storage://replay/result",
+            baseline_ref="baseline://incumbent",
+            decision_rows=rows,
+        )
+
+        self.assertEqual(payload["metrics"]["decision_row_count"], 31)
+        self.assertEqual(payload["metrics"]["turnover_proxy_count"], 20)
+        self.assertEqual(payload["metrics"]["auroc_pair_count"], 30)
+
     def test_small_or_weak_evidence_requires_review(self):
         payload = build_fold_settlement_run(
             fold_id="fold_2016-01_2016-06",

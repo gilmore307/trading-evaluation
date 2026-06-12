@@ -46,6 +46,8 @@ def _float(row: Mapping[str, Any], *names: str, default: float = 0.0) -> float:
 
 
 def _label(row: Mapping[str, Any]) -> int | None:
+    if _has_missing_option_contract_path(row):
+        return None
     value = row.get("outcome_label", row.get("label", row.get("realized_label")))
     if isinstance(value, bool):
         return 1 if value else 0
@@ -58,6 +60,12 @@ def _label(row: Mapping[str, Any]) -> int | None:
     if math.isfinite(realized):
         return 1 if realized > 0 else 0
     return None
+
+
+def _has_missing_option_contract_path(row: Mapping[str, Any]) -> bool:
+    selected_option = str(row.get("selected_option_contract_ref") or "").strip()
+    path_status = str(row.get("option_contract_path_status") or "").strip().lower()
+    return bool(selected_option) and path_status == "missing"
 
 
 def _score(row: Mapping[str, Any]) -> float | None:
@@ -273,6 +281,8 @@ def _is_filled_trade_row(row: Mapping[str, Any]) -> bool:
     fill_status = str(row.get("fill_status") or "").strip().lower()
     if fill_status in {"simulated_filled", "filled", "executed"}:
         return True
+    if fill_status in {"not_filled", "simulated_rejected", "rejected", "cancelled", "canceled"}:
+        return False
     action = str(row.get("action") or row.get("decision") or row.get("decision_action") or "").strip().lower()
     return action not in {"", "hold", "skip", "no_trade", "reject_entry_thesis", "defer_entry_thesis", "simulated_rejected"}
 

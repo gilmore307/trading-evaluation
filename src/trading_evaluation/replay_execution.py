@@ -797,7 +797,7 @@ def _build_candidate_policy_decision_rows(
             entry = replay_result["decision_records"]["entry_decision"]
             order_intent = replay_result["decision_records"]["execution_order_intent"]
             fill = replay_result["decision_records"]["simulated_fill_event"]
-            filled = fill.get("fill_status") == "simulated_filled"
+            fill_status = str(fill.get("fill_status") or "")
             selected_contract = _as_mapping(_as_mapping(option_expression_plan).get("selected_contract"))
             selected_option_contract_ref = str(selected_contract.get("contract_ref") or selected_contract.get("option_symbol") or "")
             asset_class = "us_option" if selected_option_contract_ref else entry.get("asset_class") or bar.get("asset_class")
@@ -810,6 +810,7 @@ def _build_candidate_policy_decision_rows(
             gross_return = (float(next_bar["bar_close"]) - reference_price) / reference_price
             return_source = "underlying_next_bar"
             option_contract_path_status = "not_applicable"
+            option_contract_path_rejection_reason = None
             option_entry_price = option_exit_price = None
             if selected_option_contract_ref:
                 if option_path_result:
@@ -822,8 +823,13 @@ def _build_candidate_policy_decision_rows(
                     gross_return = 0.0
                     return_source = "option_contract_path_missing"
                     option_contract_path_status = "missing"
+                    option_contract_path_rejection_reason = "option_contract_path_missing"
+                    if fill_status == "simulated_filled":
+                        fill_status = "simulated_rejected"
+            filled = fill_status == "simulated_filled"
             cost = REPLAY_COST_PER_FILLED_DECISION if filled else 0.0
             realized_return = gross_return if filled else 0.0
+            outcome_label = None if option_contract_path_rejection_reason else (1 if gross_return > 0 else 0)
             decision_expression_type = _decision_expression_type(
                 asset_class=str(asset_class or ""),
                 option_expression_plan=option_expression_plan,
@@ -853,6 +859,7 @@ def _build_candidate_policy_decision_rows(
                     "selected_option_contract_ref": selected_option_contract_ref or None,
                     "selected_option_mid_price": selected_contract.get("mid_price"),
                     "option_contract_path_status": option_contract_path_status,
+                    "replay_rejection_reason": option_contract_path_rejection_reason,
                     "option_entry_price": option_entry_price,
                     "option_exit_price": option_exit_price,
                     "return_source": return_source,
@@ -863,9 +870,9 @@ def _build_candidate_policy_decision_rows(
                     "decision_status": entry["decision_status"],
                     "decision_action": entry["decision_action"],
                     "action": entry["decision_action"],
-                    "fill_status": fill["fill_status"],
+                    "fill_status": fill_status,
                     "prediction_score": layer_outputs["prediction_score"],
-                    "outcome_label": 1 if gross_return > 0 else 0,
+                    "outcome_label": outcome_label,
                     "realized_return": realized_return,
                     "baseline_return": 0.0,
                     "cost": cost,
