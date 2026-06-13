@@ -426,6 +426,20 @@ class ReplayExecutionTests(unittest.TestCase):
         self.assertEqual(payload["sample"][0]["maximum_permitted_source_end"], "2021-05-19T16:00:00-04:00")
         self.assertEqual(payload["sample"][1]["timestamp"], "2021-05-21T16:00:00-04:00")
 
+    def test_replay_option_feature_acquisition_payload_can_reference_full_requirements_artifact(self):
+        message = replay_module._replay_option_feature_acquisition_message(
+            [
+                replay_module._replay_option_feature_requirement_sample(
+                    target="AAPL",
+                    timestamp="2021-05-19T16:00:00-04:00",
+                )
+            ],
+            artifact_ref=Path("/tmp/option_feature_requirements.jsonl"),
+        )
+
+        payload = json.loads(message.split(": ", 1)[1])
+        self.assertEqual(payload["requirements_artifact_ref"], "/tmp/option_feature_requirements.jsonl")
+
     def test_candidate_layer_outputs_uses_after_cost_alpha_model_for_prediction_score(self):
         original_generators = replay_module._trading_model_generators
         seen_policy_states: list[dict[str, object]] = []
@@ -706,50 +720,86 @@ class ReplayExecutionTests(unittest.TestCase):
                 json.dumps({"runs": [{"status": "succeeded", "outputs": []}]}) + "\n",
                 encoding="utf-8",
             )
-            calls: list[tuple[str, str, str]] = []
+            calls: list[dict[str, object]] = []
 
             def fake_sql_loader(**kwargs):
-                calls.append((kwargs["symbol"], kwargs["start_date"], kwargs["end_date_exclusive"]))
-                return [
-                    {
-                        "symbol": "MSFT",
-                        "asset_class": "us_equity",
-                        "source_id": "alpaca_bars",
-                        "timeframe": "1Day",
-                        "timestamp": "2021-01-04T16:00:00-05:00",
-                        "date": "2021-01-04",
-                        "bar_open": 200.0,
-                        "bar_high": 201.0,
-                        "bar_low": 199.0,
-                        "bar_close": 200.5,
-                        "bar_volume": 1000.0,
-                    },
-                    {
-                        "symbol": "MSFT",
-                        "asset_class": "us_equity",
-                        "source_id": "alpaca_bars",
-                        "timeframe": "1Day",
-                        "timestamp": "2021-01-05T16:00:00-05:00",
-                        "date": "2021-01-05",
-                        "bar_open": 200.5,
-                        "bar_high": 203.0,
-                        "bar_low": 200.0,
-                        "bar_close": 202.5,
-                        "bar_volume": 1100.0,
-                    },
-                ]
+                calls.append(dict(kwargs))
+                return {
+                    "MSFT": [
+                        {
+                            "symbol": "MSFT",
+                            "asset_class": "us_equity",
+                            "source_id": "alpaca_bars",
+                            "timeframe": "1Day",
+                            "timestamp": "2021-01-04T16:00:00-05:00",
+                            "date": "2021-01-04",
+                            "bar_open": 200.0,
+                            "bar_high": 201.0,
+                            "bar_low": 199.0,
+                            "bar_close": 200.5,
+                            "bar_volume": 1000.0,
+                        },
+                        {
+                            "symbol": "MSFT",
+                            "asset_class": "us_equity",
+                            "source_id": "alpaca_bars",
+                            "timeframe": "1Day",
+                            "timestamp": "2021-01-05T16:00:00-05:00",
+                            "date": "2021-01-05",
+                            "bar_open": 200.5,
+                            "bar_high": 203.0,
+                            "bar_low": 200.0,
+                            "bar_close": 202.5,
+                            "bar_volume": 1100.0,
+                        },
+                    ]
+                }
 
-            original_loader = replay_module._load_equity_bars_from_sql
+            original_loader = replay_module._load_equity_bars_from_sql_bulk
             try:
-                replay_module._load_equity_bars_from_sql = fake_sql_loader
+                replay_module._load_equity_bars_from_sql_bulk = fake_sql_loader
                 rows = replay_module._load_equity_bars(equity_source_root=root / "alpaca_bars", equity_symbols=["MSFT"])
             finally:
-                replay_module._load_equity_bars_from_sql = original_loader
+                replay_module._load_equity_bars_from_sql_bulk = original_loader
 
-            self.assertEqual(calls, [("MSFT", "2021-01-01", "2021-02-01")])
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0]["symbol_windows"], {"MSFT": [("2021-01-01", "2021-02-01")]})
             self.assertEqual(set(rows), {"MSFT"})
             self.assertEqual(len(rows["MSFT"]), 2)
             self.assertEqual(rows["MSFT"][0]["bar_close"], 200.5)
+
+    def test_target_market_universe_rows_selects_current_target(self):
+        universe = (
+            {"target_ref": "AAPL", "reference_price": 100.0},
+            {"target_ref": "MSFT", "reference_price": 200.0},
+        )
+        self.assertEqual(replay_module._target_market_universe_rows(market_universe=universe, target="msft"), (universe[1],))
+        self.assertEqual(replay_module._target_market_universe_rows(market_universe=universe, target="missing"), universe)
+
+    def test_entry_calibration_validation_months_use_only_decidable_rows(self):
+        bars_by_target = {
+            "AAPL": [
+                {"timestamp": "2021-01-04T16:00:00-05:00"},
+                {"timestamp": "2021-01-05T16:00:00-05:00"},
+                {"timestamp": "2021-02-01T16:00:00-05:00"},
+            ],
+            "MSFT": [
+                {"timestamp": "2021-02-01T16:00:00-05:00"},
+                {"timestamp": "2021-02-02T16:00:00-05:00"},
+                {"timestamp": "2021-03-01T16:00:00-05:00"},
+            ],
+            "TSLA": [
+                {"timestamp": "2021-04-01T16:00:00-04:00"},
+            ],
+        }
+
+        self.assertEqual(
+            replay_module._entry_calibration_validation_months(
+                bars_by_target=bars_by_target,
+                validation_month_count=2,
+            ),
+            ("2021-01", "2021-02"),
+        )
 
     def test_fixed_candidate_handoff_prunes_symbols_with_completed_empty_history(self):
         with tempfile.TemporaryDirectory() as tmp:

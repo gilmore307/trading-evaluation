@@ -11,12 +11,14 @@ mutate accounts.
 from __future__ import annotations
 
 import csv
+import inspect
 import json
 import math
 import os
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, time
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 from zoneinfo import ZoneInfo
@@ -70,6 +72,7 @@ REPLAY_COST_PER_FILLED_DECISION = 0.0015
 DEFAULT_REPLAY_INITIAL_CAPITAL_USD = 25_000.0
 NEW_YORK = ZoneInfo("America/New_York")
 REPLAY_INITIAL_CAPITAL_CURRENCY = "USD"
+_GENERATOR_PARAMETER_CACHE: dict[int, set[str]] = {}
 DISALLOWED_PLACEHOLDER_CANDIDATE_MODEL_REFS = (
     "trading-model://candidate_policy_replay/current_deterministic_crypto_policy",
 )
@@ -232,6 +235,7 @@ def build_candidate_policy_replay_execution_run(
     receipt_path = output_dir / "replay_execution_receipt.json"
     progress_path = progress_path or dataset_root / "replay_progress.jsonl"
     calibration_path = output_dir / "entry_threshold_calibration.json"
+    option_feature_requirements_path = output_dir / "option_feature_requirements.jsonl"
 
     bars_by_target = _load_candidate_policy_bars(
         plan_path=plan_path,
@@ -288,6 +292,7 @@ def build_candidate_policy_replay_execution_run(
         entry_calibration=entry_calibration,
         option_candidates_by_underlying_time=option_candidates_by_underlying_time,
         option_contract_paths_by_symbol=option_contract_paths_by_symbol,
+        option_feature_requirements_path=option_feature_requirements_path,
     )
     option_replay_coverage = _option_replay_coverage_summary(
         bars_by_target=bars_by_target,
@@ -511,23 +516,29 @@ def _build_entry_calibration(
     validation_month_count: int,
     max_decision_rows: int | None,
 ) -> EntryCalibration:
+    validation_months = _entry_calibration_validation_months(
+        bars_by_target=bars_by_target,
+        validation_month_count=validation_month_count,
+    )
     observations = _entry_calibration_observations(
         bars_by_target=bars_by_target,
         candidate_model_ref=candidate_model_ref,
         after_cost_alpha_model=after_cost_alpha_model,
         max_decision_rows=max_decision_rows,
+        replay_months=validation_months,
     )
-    validation_months = sorted({str(row["replay_month"]) for row in observations})[: max(validation_month_count, 1)]
-    validation_rows = [row for row in observations if row["replay_month"] in set(validation_months)]
-    selected = _select_entry_thresholds(validation_rows)
+    observed_validation_months = sorted({str(row["replay_month"]) for row in observations})
+    selected = _select_entry_thresholds(observations)
     artifact = {
         "contract_type": ENTRY_THRESHOLD_CALIBRATION_CONTRACT,
         "candidate_model_ref": candidate_model_ref,
         "replay_contract_ref": replay_contract_ref,
         "generated_at_utc": generated_at_utc,
         "calibration_method": "current_model_05_alpha_confidence_and_model_04_trade_intensity_validation_selection",
-        "validation_months": validation_months,
-        "validation_observation_count": len(validation_rows),
+        "observation_scope": "validation_months_only",
+        "validation_months": observed_validation_months,
+        "candidate_validation_months": list(validation_months),
+        "validation_observation_count": len(observations),
         "total_observation_count": len(observations),
         "selected_thresholds": selected["thresholds"],
         "selected_metrics": selected["metrics"],
@@ -546,14 +557,32 @@ def _build_entry_calibration(
     return EntryCalibration(artifact=artifact, path=output_path)
 
 
+def _entry_calibration_validation_months(
+    *,
+    bars_by_target: Mapping[str, Sequence[Mapping[str, Any]]],
+    validation_month_count: int,
+) -> tuple[str, ...]:
+    months = sorted(
+        {
+            str(row.get("timestamp") or row.get("date") or "")[:7]
+            for rows in bars_by_target.values()
+            for row in list(rows)[:-1]
+            if str(row.get("timestamp") or row.get("date") or "")[:7]
+        }
+    )
+    return tuple(months[: max(validation_month_count, 1)])
+
+
 def _entry_calibration_observations(
     *,
     bars_by_target: Mapping[str, Sequence[Mapping[str, Any]]],
     candidate_model_ref: str,
     after_cost_alpha_model: Mapping[str, Any],
     max_decision_rows: int | None,
+    replay_months: Sequence[str] | None = None,
 ) -> list[dict[str, Any]]:
     observations: list[dict[str, Any]] = []
+    replay_month_filter = set(replay_months or ())
     history_by_target = {target: list(bars) for target, bars in bars_by_target.items()}
     index_by_target_date = {
         target: {str(row["date"]): index for index, row in enumerate(target_rows)}
@@ -566,6 +595,9 @@ def _entry_calibration_observations(
     for target in sorted(history_by_target):
         target_rows = history_by_target[target]
         for index, bar in enumerate(target_rows[:-1]):
+            replay_month = str(bar["timestamp"])[:7]
+            if replay_month_filter and replay_month not in replay_month_filter:
+                continue
             if max_decision_rows is not None and len(observations) >= max_decision_rows:
                 return observations
             next_bar = target_rows[index + 1]
@@ -588,7 +620,7 @@ def _entry_calibration_observations(
                 {
                     "target_ref": target,
                     "timestamp": bar["timestamp"],
-                    "replay_month": str(bar["timestamp"])[:7],
+                    "replay_month": replay_month,
                     "alpha_confidence": float(layer_outputs["prediction_score"]),
                     "trade_intensity": float(dominant["trade_intensity_score"]),
                     "action_confidence": float(dominant["action_confidence_score"]),
@@ -751,6 +783,7 @@ def _build_candidate_policy_decision_rows(
     entry_calibration: EntryCalibration,
     option_candidates_by_underlying_time: Mapping[tuple[str, str], Sequence[Mapping[str, Any]]],
     option_contract_paths_by_symbol: Mapping[str, Sequence[Mapping[str, Any]]],
+    option_feature_requirements_path: Path | None = None,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     missing_option_feature_requirements: list[dict[str, str]] = []
@@ -809,6 +842,7 @@ def _build_candidate_policy_decision_rows(
                 account_sleeve_id=_account_sleeve_for_bar(bar),
                 target_ref=target,
                 market_universe=market_universe,
+                target_context_rows=_target_market_universe_rows(market_universe=market_universe, target=target),
                 target_context_state=layer_outputs["target_context_state"],
                 event_state_vector=layer_outputs["event_state_vector"],
                 unified_decision_vector=layer_outputs["unified_decision_vector"],
@@ -933,7 +967,14 @@ def _build_candidate_policy_decision_rows(
                 }
             )
     if missing_option_feature_requirements:
-        raise _replay_option_feature_acquisition_error(missing_option_feature_requirements)
+        artifact_ref = _write_replay_option_feature_requirements(
+            path=option_feature_requirements_path,
+            requirements=missing_option_feature_requirements,
+        )
+        raise _replay_option_feature_acquisition_error(
+            missing_option_feature_requirements,
+            artifact_ref=artifact_ref,
+        )
     return rows
 
 
@@ -978,6 +1019,16 @@ def _market_universe_for_date(
             }
         )
     return rows
+
+
+def _target_market_universe_rows(
+    *,
+    market_universe: Sequence[Mapping[str, Any]],
+    target: str,
+) -> tuple[Mapping[str, Any], ...]:
+    normalized = str(target).upper()
+    rows = tuple(row for row in market_universe if str(row.get("target_ref") or row.get("symbol") or "").upper() == normalized)
+    return rows or tuple(market_universe)
 
 
 def _market_universe_by_date(
@@ -1601,11 +1652,14 @@ def _load_equity_bars(*, equity_source_root: Path, equity_symbols: Sequence[str]
     if not equity_source_root.exists():
         return rows_by_target
     symbol_filter = {str(symbol).upper() for symbol in equity_symbols or []}
+    daily_by_symbol: dict[str, dict[str, dict[str, Any]]] = {}
+    sql_windows_by_symbol: dict[str, list[tuple[str, str]]] = defaultdict(list)
     for symbol_dir in sorted(path for path in equity_source_root.iterdir() if path.is_dir()):
         symbol = symbol_dir.name.upper()
         if symbol_filter and symbol not in symbol_filter:
             continue
         daily: dict[str, dict[str, Any]] = {}
+        daily_by_symbol[symbol] = daily
         for month_dir in sorted(path for path in symbol_dir.iterdir() if path.is_dir()):
             if month_dir.name < "2021-01" or month_dir.name > "2025-12":
                 continue
@@ -1624,14 +1678,16 @@ def _load_equity_bars(*, equity_source_root: Path, equity_symbols: Sequence[str]
             window = _month_window(month_dir.name)
             if window is None:
                 continue
-            sql_rows = _load_equity_bars_from_sql(
-                symbol=symbol,
-                start_date=window[0],
-                end_date_exclusive=window[1],
-                database_url=_default_option_feature_database_url(),
-            )
-            for row in sql_rows:
-                _merge_daily_equity_bar(daily=daily, symbol=symbol, row=row, date_text=str(row["date"]))
+            sql_windows_by_symbol[symbol].append(window)
+    sql_rows_by_symbol = _load_equity_bars_from_sql_bulk(
+        symbol_windows=sql_windows_by_symbol,
+        database_url=_default_option_feature_database_url(),
+    )
+    for symbol, sql_rows in sql_rows_by_symbol.items():
+        daily = daily_by_symbol.setdefault(symbol, {})
+        for row in sql_rows:
+            _merge_daily_equity_bar(daily=daily, symbol=symbol, row=row, date_text=str(row["date"]))
+    for symbol, daily in daily_by_symbol.items():
         rows = sorted(daily.values(), key=lambda row: str(row["timestamp"]))
         if len(rows) >= 2:
             rows_by_target[symbol] = rows
@@ -1693,6 +1749,71 @@ def _month_window(month: str) -> tuple[str, str] | None:
     return start, end
 
 
+def _load_equity_bars_from_sql_bulk(
+    *,
+    symbol_windows: Mapping[str, Sequence[tuple[str, str]]],
+    database_url: str | None,
+    schema: str = "trading_data",
+    table: str = "model_01_market_regime_data_acquisition",
+) -> dict[str, list[dict[str, Any]]]:
+    normalized_windows = {
+        str(symbol).upper(): tuple((str(start), str(end)) for start, end in windows)
+        for symbol, windows in symbol_windows.items()
+        if str(symbol).strip() and windows
+    }
+    if not database_url or not normalized_windows:
+        return {}
+    _validate_identifier(schema)
+    _validate_identifier(table)
+    starts = [start for windows in normalized_windows.values() for start, _ in windows]
+    ends = [end for windows in normalized_windows.values() for _, end in windows]
+    try:
+        import psycopg  # type: ignore
+        from psycopg.rows import dict_row  # type: ignore
+    except ModuleNotFoundError as exc:  # pragma: no cover
+        raise RuntimeError("psycopg is required to load SQL-retained replay equity bars") from exc
+    with psycopg.connect(database_url, row_factory=dict_row) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT to_regclass(%s) AS table_ref", (f"{schema}.{table}",))
+            exists = cursor.fetchone()
+            if not exists or exists.get("table_ref") is None:
+                return {}
+            cursor.execute(
+                f"""
+                SELECT
+                  b."symbol",
+                  b."timeframe",
+                  b."timestamp",
+                  b."bar_open",
+                  b."bar_high",
+                  b."bar_low",
+                  b."bar_close",
+                  b."bar_volume"
+                FROM "{schema}"."{table}" AS b
+                WHERE b."symbol" = ANY(%s)
+                  AND b."timestamp" >= %s::timestamptz
+                  AND b."timestamp" < %s::timestamptz
+                  AND b."bar_close" IS NOT NULL
+                ORDER BY b."symbol" ASC, b."timestamp" ASC
+                """,
+                (list(sorted(normalized_windows)), min(starts), max(ends)),
+            )
+            rows = [dict(row) for row in cursor.fetchall()]
+    rows_by_symbol: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        symbol = str(row.get("symbol") or "").upper()
+        windows = normalized_windows.get(symbol)
+        if not windows:
+            continue
+        date_text = _sql_bar_date(row.get("timestamp"))
+        if not date_text or not any(start <= date_text < end for start, end in windows):
+            continue
+        parsed = _sql_equity_bar_row(row=row, symbol=symbol)
+        if parsed is not None:
+            rows_by_symbol[symbol].append(parsed)
+    return {symbol: rows for symbol, rows in rows_by_symbol.items()}
+
+
 def _load_equity_bars_from_sql(
     *,
     symbol: str,
@@ -1740,26 +1861,29 @@ def _load_equity_bars_from_sql(
             rows = [dict(row) for row in cursor.fetchall()]
     parsed_rows: list[dict[str, Any]] = []
     for row in rows:
-        timestamp_value = row.get("timestamp")
-        date_text = _sql_bar_date(timestamp_value)
-        if not date_text:
-            continue
-        parsed_rows.append(
-            {
-                "symbol": str(row.get("symbol") or symbol).upper(),
-                "asset_class": "us_equity",
-                "source_id": "alpaca_bars",
-                "timeframe": str(row.get("timeframe") or "1Day"),
-                "timestamp": _equity_market_close_timestamp(date_text),
-                "date": date_text,
-                "bar_open": float(row["bar_open"]),
-                "bar_high": float(row["bar_high"]),
-                "bar_low": float(row["bar_low"]),
-                "bar_close": float(row["bar_close"]),
-                "bar_volume": float(row.get("bar_volume") or 0.0),
-            }
-        )
+        parsed = _sql_equity_bar_row(row=row, symbol=symbol)
+        if parsed is not None:
+            parsed_rows.append(parsed)
     return parsed_rows
+
+
+def _sql_equity_bar_row(*, row: Mapping[str, Any], symbol: str) -> dict[str, Any] | None:
+    date_text = _sql_bar_date(row.get("timestamp"))
+    if not date_text:
+        return None
+    return {
+        "symbol": str(row.get("symbol") or symbol).upper(),
+        "asset_class": "us_equity",
+        "source_id": "alpaca_bars",
+        "timeframe": str(row.get("timeframe") or "1Day"),
+        "timestamp": _equity_market_close_timestamp(date_text),
+        "date": date_text,
+        "bar_open": float(row["bar_open"]),
+        "bar_high": float(row["bar_high"]),
+        "bar_low": float(row["bar_low"]),
+        "bar_close": float(row["bar_close"]),
+        "bar_volume": float(row.get("bar_volume") or 0.0),
+    }
 
 
 def _sql_bar_date(value: Any) -> str:
@@ -1859,11 +1983,32 @@ def _replay_option_feature_requirement_sample(*, target: str, timestamp: str) ->
     }
 
 
-def _replay_option_feature_acquisition_error(requirements: Sequence[Mapping[str, str]]) -> ValueError:
-    return ValueError(_replay_option_feature_acquisition_message(requirements))
+def _replay_option_feature_acquisition_error(
+    requirements: Sequence[Mapping[str, str]],
+    *,
+    artifact_ref: Path | None = None,
+) -> ValueError:
+    return ValueError(_replay_option_feature_acquisition_message(requirements, artifact_ref=artifact_ref))
 
 
-def _replay_option_feature_acquisition_message(requirements: Sequence[Mapping[str, str]]) -> str:
+def _write_replay_option_feature_requirements(
+    *,
+    path: Path | None,
+    requirements: Sequence[Mapping[str, str]],
+) -> str | None:
+    if path is None:
+        return None
+    deduped = _deduped_replay_option_feature_requirements(requirements)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for item in deduped:
+            handle.write(json.dumps(item, sort_keys=True) + "\n")
+    return str(path)
+
+
+def _deduped_replay_option_feature_requirements(
+    requirements: Sequence[Mapping[str, str]],
+) -> list[dict[str, str]]:
     deduped: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for item in requirements:
@@ -1876,17 +2021,26 @@ def _replay_option_feature_acquisition_message(requirements: Sequence[Mapping[st
             continue
         seen.add(key)
         deduped.append(_replay_option_feature_requirement_sample(target=target, timestamp=timestamp))
+    return deduped
+
+
+def _replay_option_feature_acquisition_message(
+    requirements: Sequence[Mapping[str, str]],
+    *,
+    artifact_ref: Path | str | None = None,
+) -> str:
+    deduped = _deduped_replay_option_feature_requirements(requirements)
     sample = deduped[:REPLAY_OPTION_FEATURE_MISSING_SAMPLE_LIMIT]
-    return REPLAY_OPTION_FEATURE_ACQUISITION_REQUIRED + ": " + json.dumps(
-        {
-            "missing_count": len(deduped),
-            "sample": sample,
-            "sample_limit": REPLAY_OPTION_FEATURE_MISSING_SAMPLE_LIMIT,
-            "required_next_step": "run ThetaData option acquisition only for emitted replay signal timestamps, generate M05 option features, then retry replay execution from the same replay clock",
-            "point_in_time_policy": "option provider acquisition for replay must not request or consume data after each replay_time_pointer that emitted an option-expression signal",
-        },
-        sort_keys=True,
-    )
+    payload: dict[str, Any] = {
+        "missing_count": len(deduped),
+        "sample": sample,
+        "sample_limit": REPLAY_OPTION_FEATURE_MISSING_SAMPLE_LIMIT,
+        "required_next_step": "run ThetaData option acquisition only for emitted replay signal timestamps, generate M05 option features, then retry replay execution from the same replay clock",
+        "point_in_time_policy": "option provider acquisition for replay must not request or consume data after each replay_time_pointer that emitted an option-expression signal",
+    }
+    if artifact_ref:
+        payload["requirements_artifact_ref"] = str(artifact_ref)
+    return REPLAY_OPTION_FEATURE_ACQUISITION_REQUIRED + ": " + json.dumps(payload, sort_keys=True)
 
 
 def _option_expression_signal_required(layer_outputs: Mapping[str, Any]) -> bool:
@@ -2147,7 +2301,8 @@ def _candidate_layer_outputs(
     )
     event_state = _event_state_vector(candidate_model_ref=candidate_model_ref, available_time=available_time)
     quality_state = _quality_calibration_state()
-    event_failure_row = generators["model_04_event_failure_risk"](
+    event_failure_row = _generate_model_rows(
+        generators["model_04_event_failure_risk"],
         [
             {
                 "available_time": available_time,
@@ -2161,11 +2316,13 @@ def _candidate_layer_outputs(
                 "target_context_state": target_state,
                 "event_context_vector": event_state,
             }
-        ]
+        ],
+        validate_output=False,
     )[0]
     event_failure_vector = dict(_as_mapping(event_failure_row.get("event_failure_risk_vector")))
     event_failure_vector["model_ref"] = f"{candidate_model_ref}/model_04_event_failure_risk/{event_failure_row['event_failure_risk_vector_ref']}"
-    alpha_row = generators["model_05_alpha_confidence"](
+    alpha_row = _generate_model_rows(
+        generators["model_05_alpha_confidence"],
         [
             {
                 "available_time": available_time,
@@ -2183,12 +2340,14 @@ def _candidate_layer_outputs(
             }
         ],
         after_cost_alpha_model=after_cost_alpha_model,
+        validate_output=False,
     )[0]
     alpha_vector = dict(_as_mapping(alpha_row.get("alpha_confidence_vector")))
     alpha_score = _resolved_alpha_score(alpha_vector)
 
     policy_gate_state = _entry_policy_gate_state(entry_calibration, alpha_score=alpha_score)
-    unified_row = generators["model_04_unified_decision"](
+    unified_row = _generate_model_rows(
+        generators["model_04_unified_decision"],
         [
             {
                 "available_time": available_time,
@@ -2209,7 +2368,8 @@ def _candidate_layer_outputs(
                 "risk_budget_state": {"risk_budget_fit_score": 0.75},
                 "policy_gate_state": policy_gate_state,
             }
-        ]
+        ],
+        validate_output=False,
     )[0]
     unified_decision = _execution_unified_decision_vector(
         unified_row=unified_row,
@@ -2247,6 +2407,7 @@ def _candidate_layer_outputs(
     }
 
 
+@lru_cache(maxsize=1)
 def _trading_model_generators() -> dict[str, Callable[..., list[dict[str, Any]]]]:
     try:
         from models.model_04_event_failure_risk.generator import generate_rows as generate_event_failure_risk
@@ -2266,6 +2427,20 @@ def _trading_model_generators() -> dict[str, Callable[..., list[dict[str, Any]]]
         "model_05_option_expression": generate_option_expression,
         "model_06_residual_event_governance": generate_residual_event_governance,
     }
+
+
+def _generate_model_rows(
+    generator: Callable[..., list[dict[str, Any]]],
+    rows: Sequence[Mapping[str, Any]],
+    **kwargs: Any,
+) -> list[dict[str, Any]]:
+    cache_key = id(generator)
+    accepted = _GENERATOR_PARAMETER_CACHE.get(cache_key)
+    if accepted is None:
+        accepted = set(inspect.signature(generator).parameters)
+        _GENERATOR_PARAMETER_CACHE[cache_key] = accepted
+    filtered_kwargs = {key: value for key, value in kwargs.items() if key in accepted}
+    return generator(rows, **filtered_kwargs)
 
 
 def _selected_entry_thresholds(entry_calibration: Mapping[str, Any] | None) -> dict[str, float]:
