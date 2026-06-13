@@ -355,15 +355,15 @@ def build_candidate_policy_replay_execution_run(
             if (
                 not resolved_candidate_handoff_database_url
                 or candidate_handoff["source"]
-                in {"explicit_candidate_symbols_override", "fixed_current_snapshot_historical_candidate_universe"}
+                in {
+                    "explicit_candidate_symbols_override",
+                    "fixed_current_snapshot_historical_candidate_universe",
+                    "layer_02_target_candidate_handoff",
+                }
             )
             else f"{candidate_handoff_schema}.{candidate_handoff_table}"
         ),
-        "candidate_handoff_artifact_ref": (
-            candidate_handoff.get("artifact_ref")
-            if candidate_handoff["source"] == "fixed_current_snapshot_historical_candidate_universe"
-            else None
-        ),
+        "candidate_handoff_artifact_ref": candidate_handoff.get("artifact_ref"),
         "candidate_handoff_status": candidate_handoff["status"],
         "candidate_handoff_source": candidate_handoff["source"],
         "candidate_handoff_row_count": candidate_handoff["row_count"],
@@ -1116,6 +1116,25 @@ def _candidate_handoff_for_replay(
             "candidate_symbols": explicit_symbols,
             "row_count": len(explicit_symbols),
         }
+    target_candidate_rows = _load_target_candidate_handoff_rows(candidate_universe_path)
+    if target_candidate_rows:
+        symbols = tuple(
+            sorted(
+                {
+                    str(row.get("routing_symbol_ref") or row.get("audit_symbol_ref") or row.get("target_symbol") or "").upper()
+                    for row in target_candidate_rows
+                    if str(row.get("routing_symbol_ref") or row.get("audit_symbol_ref") or row.get("target_symbol") or "").strip()
+                }
+            )
+        )
+        if symbols:
+            return {
+                "status": "available",
+                "source": "layer_02_target_candidate_handoff",
+                "candidate_symbols": symbols,
+                "row_count": len(target_candidate_rows),
+                "artifact_ref": str(candidate_universe_path),
+            }
     fixed_rows = _load_fixed_historical_candidate_universe_rows(candidate_universe_path)
     if fixed_rows:
         symbols = tuple(
@@ -1158,6 +1177,24 @@ def _candidate_handoff_for_replay(
         "candidate_symbols": symbols,
         "row_count": len(rows),
     }
+
+
+def _load_target_candidate_handoff_rows(path: Path) -> list[dict[str, Any]]:
+    if path.suffix.lower() != ".jsonl" or not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            payload = json.loads(line)
+            if not isinstance(payload, Mapping):
+                continue
+            status = str(payload.get("candidate_eligibility_state") or "eligible").strip().lower()
+            if status not in {"eligible", "active", "accepted"}:
+                continue
+            rows.append(dict(payload))
+    return rows
 
 
 def _resolved_candidate_universe_path(*, dataset_root: Path, candidate_universe_path: Path | None) -> Path:
