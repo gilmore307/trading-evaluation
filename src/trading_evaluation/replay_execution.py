@@ -308,6 +308,8 @@ def build_candidate_policy_replay_execution_run(
         "contract_type": REPLAY_EXECUTION_RUN_CONTRACT,
         "replay_execution_run_id": run_id,
         "execution_scope": "candidate_policy_replay_materialized_market_data",
+        "replay_completion_scope": "bounded_diagnostic" if max_decision_rows is not None else "full_candidate_universe",
+        "max_decision_rows": max_decision_rows,
         "initial_capital_usd": initial_capital_usd,
         "initial_capital": {
             "amount": initial_capital_usd,

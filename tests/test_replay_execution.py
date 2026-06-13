@@ -282,6 +282,8 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(result.receipt["initial_capital"]["role"], "replay_equity_path_and_return_normalization")
             self.assertFalse(result.receipt["initial_capital"]["broker_or_account_state"])
             self.assertEqual(result.receipt["decision_row_count"], 2)
+            self.assertEqual(result.receipt["max_decision_rows"], 2)
+            self.assertEqual(result.receipt["replay_completion_scope"], "bounded_diagnostic")
             self.assertIn(
                 "missing selected-contract paths are data-coverage diagnostics",
                 " ".join(result.receipt["notes"]),
@@ -900,6 +902,8 @@ class ReplayExecutionTests(unittest.TestCase):
                     option_feature_database_url="",
                 )
                 self.assertEqual(result.receipt["decision_row_count"], 1)
+                self.assertEqual(result.receipt["max_decision_rows"], 1)
+                self.assertEqual(result.receipt["replay_completion_scope"], "bounded_diagnostic")
             finally:
                 replay_module._option_expression_plan_for_bar = original_plan_builder
 
