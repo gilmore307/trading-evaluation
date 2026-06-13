@@ -695,6 +695,88 @@ class ReplayExecutionTests(unittest.TestCase):
                     candidate_universe_path=candidate_universe_path,
                 )
 
+    def test_load_equity_bars_uses_sql_retained_month_when_receipt_has_no_csv(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            month_root = root / "alpaca_bars" / "MSFT" / "2021-01"
+            month_root.mkdir(parents=True)
+            (month_root / "completion_receipt.json").write_text(
+                json.dumps({"runs": [{"status": "succeeded", "outputs": []}]}) + "\n",
+                encoding="utf-8",
+            )
+            calls: list[tuple[str, str, str]] = []
+
+            def fake_sql_loader(**kwargs):
+                calls.append((kwargs["symbol"], kwargs["start_date"], kwargs["end_date_exclusive"]))
+                return [
+                    {
+                        "symbol": "MSFT",
+                        "asset_class": "us_equity",
+                        "source_id": "alpaca_bars",
+                        "timeframe": "1Day",
+                        "timestamp": "2021-01-04T16:00:00-05:00",
+                        "date": "2021-01-04",
+                        "bar_open": 200.0,
+                        "bar_high": 201.0,
+                        "bar_low": 199.0,
+                        "bar_close": 200.5,
+                        "bar_volume": 1000.0,
+                    },
+                    {
+                        "symbol": "MSFT",
+                        "asset_class": "us_equity",
+                        "source_id": "alpaca_bars",
+                        "timeframe": "1Day",
+                        "timestamp": "2021-01-05T16:00:00-05:00",
+                        "date": "2021-01-05",
+                        "bar_open": 200.5,
+                        "bar_high": 203.0,
+                        "bar_low": 200.0,
+                        "bar_close": 202.5,
+                        "bar_volume": 1100.0,
+                    },
+                ]
+
+            original_loader = replay_module._load_equity_bars_from_sql
+            try:
+                replay_module._load_equity_bars_from_sql = fake_sql_loader
+                rows = replay_module._load_equity_bars(equity_source_root=root / "alpaca_bars", equity_symbols=["MSFT"])
+            finally:
+                replay_module._load_equity_bars_from_sql = original_loader
+
+            self.assertEqual(calls, [("MSFT", "2021-01-01", "2021-02-01")])
+            self.assertEqual(set(rows), {"MSFT"})
+            self.assertEqual(len(rows["MSFT"]), 2)
+            self.assertEqual(rows["MSFT"][0]["bar_close"], 200.5)
+
+    def test_fixed_candidate_handoff_prunes_symbols_with_completed_empty_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for month in range(1, 13):
+                month_root = root / "alpaca_bars" / "MSFT" / f"2021-{month:02d}"
+                month_root.mkdir(parents=True)
+                (month_root / "completion_receipt.json").write_text(
+                    json.dumps({"runs": [{"status": "succeeded", "outputs": [], "row_counts": {"equity_bar": 0}}]}) + "\n",
+                    encoding="utf-8",
+                )
+            handoff = {
+                "status": "available",
+                "source": "fixed_current_snapshot_historical_candidate_universe",
+                "candidate_symbols": ("AAPL", "MSFT"),
+                "row_count": 2,
+            }
+
+            pruned = replay_module._prune_fixed_candidate_handoff_no_history_symbols(
+                candidate_handoff=handoff,
+                bars_by_target={"AAPL": [{"asset_class": "us_equity"}]},
+                equity_source_root=root / "alpaca_bars",
+                replay_month="2021-01",
+            )
+
+            self.assertEqual(pruned["candidate_symbols"], ("AAPL",))
+            self.assertEqual(pruned["excluded_no_historical_bar_symbols"], ("MSFT",))
+            self.assertEqual(pruned["row_count"], 2)
+
     def test_candidate_policy_replay_runs_one_month_from_feed_plan_cache(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

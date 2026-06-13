@@ -243,6 +243,12 @@ def build_candidate_policy_replay_execution_run(
     )
     if not bars_by_target:
         raise ValueError("candidate-policy replay found no materialized market bars")
+    candidate_handoff = _prune_fixed_candidate_handoff_no_history_symbols(
+        candidate_handoff=candidate_handoff,
+        bars_by_target=bars_by_target,
+        equity_source_root=equity_source_root,
+        replay_month=replay_month,
+    )
     _validate_equity_candidate_bar_coverage(
         include_equity=include_equity,
         explicit_equity_symbols=equity_symbols,
@@ -354,6 +360,9 @@ def build_candidate_policy_replay_execution_run(
         "candidate_handoff_row_count": candidate_handoff["row_count"],
         "candidate_handoff_symbol_count": len(candidate_handoff["candidate_symbols"]),
         "candidate_handoff_symbols": list(candidate_handoff["candidate_symbols"]),
+        "candidate_handoff_excluded_no_historical_bar_symbols": list(
+            candidate_handoff.get("excluded_no_historical_bar_symbols") or []
+        ),
         "option_feature_table_ref": None if not resolved_option_feature_database_url else f"{option_feature_schema}.{option_feature_table}",
         "option_feature_snapshot_count": len(option_candidates_by_underlying_time),
         "option_feature_candidate_count": sum(len(rows) for rows in option_candidates_by_underlying_time.values()),
@@ -548,6 +557,10 @@ def _entry_calibration_observations(
         target: {str(row["date"]): index for index, row in enumerate(target_rows)}
         for target, target_rows in history_by_target.items()
     }
+    market_universe_by_date = _market_universe_by_date(
+        history_by_target=history_by_target,
+        index_by_target_date=index_by_target_date,
+    )
     for target in sorted(history_by_target):
         target_rows = history_by_target[target]
         for index, bar in enumerate(target_rows[:-1]):
@@ -559,7 +572,7 @@ def _entry_calibration_observations(
                 target=target,
                 target_rows=target_rows,
                 index=index,
-                market_universe=_market_universe_for_date(history_by_target, index_by_target_date, str(bar["date"])),
+                market_universe=market_universe_by_date.get(str(bar["date"]), ()),
                 reference_price=reference_price,
                 candidate_model_ref=candidate_model_ref,
                 after_cost_alpha_model=after_cost_alpha_model,
@@ -744,6 +757,10 @@ def _build_candidate_policy_decision_rows(
         target: {str(row["date"]): index for index, row in enumerate(target_rows)}
         for target, target_rows in history_by_target.items()
     }
+    market_universe_by_date = _market_universe_by_date(
+        history_by_target=history_by_target,
+        index_by_target_date=index_by_target_date,
+    )
     for target in sorted(history_by_target):
         target_rows = history_by_target[target]
         for index, bar in enumerate(target_rows[:-1]):
@@ -752,7 +769,7 @@ def _build_candidate_policy_decision_rows(
             next_bar = target_rows[index + 1]
             replay_time_pointer = _replay_time_pointer_for_bar(bar)
             date_text = str(bar["date"])
-            market_universe = _market_universe_for_date(history_by_target, index_by_target_date, date_text)
+            market_universe = market_universe_by_date.get(date_text, ())
             reference_price = float(bar["bar_close"])
             layer_outputs = _candidate_layer_outputs(
                 target=target,
@@ -961,6 +978,18 @@ def _market_universe_for_date(
     return rows
 
 
+def _market_universe_by_date(
+    *,
+    history_by_target: Mapping[str, Sequence[Mapping[str, Any]]],
+    index_by_target_date: Mapping[str, Mapping[str, int]],
+) -> dict[str, tuple[dict[str, Any], ...]]:
+    market_dates = sorted({str(row["date"]) for rows in history_by_target.values() for row in rows})
+    return {
+        date_text: tuple(_market_universe_for_date(history_by_target, index_by_target_date, date_text))
+        for date_text in market_dates
+    }
+
+
 def _load_candidate_policy_bars(
     *,
     plan_path: Path,
@@ -1124,6 +1153,60 @@ def _validate_equity_candidate_bar_coverage(
         "Layer 2 target-candidate handoff produced equity/options candidates but replay found no materialized "
         "candidate bars; run the monthly on-demand Alpaca candidate acquisition before replay execution"
     )
+
+
+def _prune_fixed_candidate_handoff_no_history_symbols(
+    *,
+    candidate_handoff: Mapping[str, Any],
+    bars_by_target: Mapping[str, Sequence[Mapping[str, Any]]],
+    equity_source_root: Path,
+    replay_month: str | None,
+) -> dict[str, Any]:
+    pruned = dict(candidate_handoff)
+    if str(candidate_handoff.get("source") or "") != "fixed_current_snapshot_historical_candidate_universe":
+        return pruned
+    expected = set(_string_set(candidate_handoff.get("candidate_symbols")))
+    loaded = set(bars_by_target)
+    missing = sorted(expected - loaded)
+    if not missing:
+        pruned["excluded_no_historical_bar_symbols"] = ()
+        return pruned
+    no_history = _completed_empty_equity_source_symbols(
+        equity_source_root=equity_source_root,
+        symbols=missing,
+        replay_month=replay_month,
+    )
+    if not no_history:
+        pruned["excluded_no_historical_bar_symbols"] = ()
+        return pruned
+    pruned["candidate_symbols"] = tuple(sorted(expected - set(no_history)))
+    pruned["excluded_no_historical_bar_symbols"] = tuple(no_history)
+    return pruned
+
+
+def _completed_empty_equity_source_symbols(
+    *,
+    equity_source_root: Path,
+    symbols: Sequence[str],
+    replay_month: str | None,
+) -> tuple[str, ...]:
+    no_history: list[str] = []
+    for raw_symbol in symbols:
+        symbol = str(raw_symbol).upper()
+        symbol_dir = equity_source_root / symbol
+        if not symbol_dir.exists():
+            continue
+        if replay_month:
+            month_dirs = [symbol_dir / replay_month]
+        else:
+            month_dirs = [
+                symbol_dir / f"{year:04d}-{month:02d}"
+                for year in range(2021, 2026)
+                for month in range(1, 13)
+            ]
+        if month_dirs and all(_completion_receipt_succeeded(month_dir / "completion_receipt.json") for month_dir in month_dirs):
+            no_history.append(symbol)
+    return tuple(sorted(no_history))
 
 
 def _load_layer_two_candidate_handoff_rows(
@@ -1521,37 +1604,91 @@ def _load_equity_bars(*, equity_source_root: Path, equity_symbols: Sequence[str]
         if symbol_filter and symbol not in symbol_filter:
             continue
         daily: dict[str, dict[str, Any]] = {}
-        for csv_path in sorted(symbol_dir.glob("*/runs/*/saved/equity_bar.csv")):
-            for row in _read_bar_csv(csv_path):
-                timestamp = str(row["timestamp"])
-                year_month = timestamp[:7]
-                if year_month < "2021-01" or year_month > "2025-12":
-                    continue
-                date_text = str(row["date"])
-                current = daily.get(date_text)
-                if current is None:
-                    daily[date_text] = {
-                        "symbol": symbol,
-                        "asset_class": "us_equity",
-                        "source_id": "alpaca_bars",
-                        "timeframe": "1Day",
-                        "timestamp": _equity_market_close_timestamp(date_text),
-                        "date": date_text,
-                        "bar_open": float(row["bar_open"]),
-                        "bar_high": float(row["bar_high"]),
-                        "bar_low": float(row["bar_low"]),
-                        "bar_close": float(row["bar_close"]),
-                        "bar_volume": float(row["bar_volume"]),
-                    }
-                    continue
-                current["bar_high"] = max(float(current["bar_high"]), float(row["bar_high"]))
-                current["bar_low"] = min(float(current["bar_low"]), float(row["bar_low"]))
-                current["bar_close"] = float(row["bar_close"])
-                current["bar_volume"] = float(current["bar_volume"]) + float(row["bar_volume"])
+        for month_dir in sorted(path for path in symbol_dir.iterdir() if path.is_dir()):
+            if month_dir.name < "2021-01" or month_dir.name > "2025-12":
+                continue
+            csv_rows_loaded = False
+            for csv_path in sorted(month_dir.glob("runs/*/saved/equity_bar.csv")):
+                for row in _read_bar_csv(csv_path):
+                    timestamp = str(row["timestamp"])
+                    year_month = timestamp[:7]
+                    if year_month < "2021-01" or year_month > "2025-12":
+                        continue
+                    date_text = str(row["date"])
+                    _merge_daily_equity_bar(daily=daily, symbol=symbol, row=row, date_text=date_text)
+                    csv_rows_loaded = True
+            if csv_rows_loaded or not _completion_receipt_succeeded(month_dir / "completion_receipt.json"):
+                continue
+            window = _month_window(month_dir.name)
+            if window is None:
+                continue
+            sql_rows = _load_equity_bars_from_sql(
+                symbol=symbol,
+                start_date=window[0],
+                end_date_exclusive=window[1],
+                database_url=_default_option_feature_database_url(),
+            )
+            for row in sql_rows:
+                _merge_daily_equity_bar(daily=daily, symbol=symbol, row=row, date_text=str(row["date"]))
         rows = sorted(daily.values(), key=lambda row: str(row["timestamp"]))
         if len(rows) >= 2:
             rows_by_target[symbol] = rows
     return rows_by_target
+
+
+def _merge_daily_equity_bar(
+    *,
+    daily: dict[str, dict[str, Any]],
+    symbol: str,
+    row: Mapping[str, Any],
+    date_text: str,
+) -> None:
+    current = daily.get(date_text)
+    if current is None:
+        daily[date_text] = {
+            "symbol": symbol,
+            "asset_class": "us_equity",
+            "source_id": "alpaca_bars",
+            "timeframe": "1Day",
+            "timestamp": _equity_market_close_timestamp(date_text),
+            "date": date_text,
+            "bar_open": float(row["bar_open"]),
+            "bar_high": float(row["bar_high"]),
+            "bar_low": float(row["bar_low"]),
+            "bar_close": float(row["bar_close"]),
+            "bar_volume": float(row["bar_volume"]),
+        }
+        return
+    current["bar_high"] = max(float(current["bar_high"]), float(row["bar_high"]))
+    current["bar_low"] = min(float(current["bar_low"]), float(row["bar_low"]))
+    current["bar_close"] = float(row["bar_close"])
+    current["bar_volume"] = float(current["bar_volume"]) + float(row["bar_volume"])
+
+
+def _completion_receipt_succeeded(path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        receipt = _load_json(path)
+    except (json.JSONDecodeError, OSError, ValueError):
+        return False
+    runs = receipt.get("runs")
+    return isinstance(runs, list) and any(isinstance(run, Mapping) and run.get("status") == "succeeded" for run in runs)
+
+
+def _month_window(month: str) -> tuple[str, str] | None:
+    try:
+        year, month_number = (int(part) for part in month.split("-", 1))
+    except ValueError:
+        return None
+    if month_number < 1 or month_number > 12:
+        return None
+    start = f"{year:04d}-{month_number:02d}-01"
+    if month_number == 12:
+        end = f"{year + 1:04d}-01-01"
+    else:
+        end = f"{year:04d}-{month_number + 1:02d}-01"
+    return start, end
 
 
 def _load_equity_bars_from_sql(
