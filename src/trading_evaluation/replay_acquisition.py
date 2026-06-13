@@ -22,6 +22,8 @@ from typing import Any, Iterable, Mapping, Sequence
 
 DEFAULT_DATA_ROOT = Path("/root/projects/trading-data")
 DEFAULT_DATASET_ROOT = Path("/root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy")
+DEFAULT_STORAGE_SOURCE_ROOT = Path("/root/projects/trading-storage/storage/01_source_data")
+DEFAULT_CANDIDATE_UNIVERSE_PATH = Path("/root/projects/trading-storage/main/shared/historical_candidate_universe.csv")
 DEFAULT_RUN_ID = "replay_one_shot_acquisition"
 TRADING_MANAGER_SRC = Path("/root/projects/trading-manager/src")
 
@@ -146,6 +148,100 @@ def select_items(
     return selected
 
 
+def _receipt_succeeded(path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False
+    runs = payload.get("runs") if isinstance(payload, Mapping) else None
+    return isinstance(runs, list) and any(isinstance(run, Mapping) and run.get("status") == "succeeded" for run in runs)
+
+
+def _plan_month_windows(plan_items: Iterable[AcquisitionItem]) -> tuple[dict[str, str], ...]:
+    windows: dict[str, dict[str, str]] = {}
+    for item in plan_items:
+        if not item.month or item.month in windows:
+            continue
+        start = str(item.params.get("start") or item.params.get("start_date") or "").strip()
+        end = str(item.params.get("end") or item.params.get("end_date") or item.params.get("end_date_exclusive") or "").strip()
+        if not start or not end:
+            continue
+        windows[item.month] = {
+            "month": item.month,
+            "start_date": start[:10],
+            "end_date_exclusive": end[:10],
+        }
+    return tuple(windows[month] for month in sorted(windows))
+
+
+def _fixed_candidate_symbols(path: Path) -> tuple[str, ...]:
+    if not path.exists():
+        return ()
+    symbols: set[str] = set()
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        for row in csv.DictReader(handle):
+            symbol = str(row.get("symbol") or row.get("target_ref") or "").strip().upper()
+            status = str(row.get("replay_candidate_status") or row.get("pool_membership_status") or "active").strip().lower()
+            asset_class = str(row.get("asset_class") or "").strip().lower()
+            if symbol and status == "active" and asset_class == "us_equity":
+                symbols.add(symbol)
+    return tuple(sorted(symbols))
+
+
+def fixed_candidate_alpaca_bar_items(
+    *,
+    contract_id: str,
+    plan_items: Iterable[AcquisitionItem],
+    candidate_universe_path: Path = DEFAULT_CANDIDATE_UNIVERSE_PATH,
+    storage_source_root: Path = DEFAULT_STORAGE_SOURCE_ROOT,
+) -> list[AcquisitionItem]:
+    windows = _plan_month_windows(plan_items)
+    symbols = _fixed_candidate_symbols(candidate_universe_path)
+    items: list[AcquisitionItem] = []
+    for symbol in symbols:
+        symbol_token = symbol.lower()
+        for window in windows:
+            month = window["month"]
+            month_token = month.replace("-", "_")
+            acquisition_id = f"rplacq_{contract_id}_alpaca_bars_{symbol_token}_{month_token}"
+            output_root = storage_source_root / "monthly_backfill" / "alpaca_bars" / symbol / month
+            receipt_path = output_root / "completion_receipt.json"
+            params = {
+                "candidate_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/live_equivalent",
+                "contract_id": contract_id,
+                "end": window["end_date_exclusive"],
+                "instrument_route": "live_equivalent_underlying_then_option_expression",
+                "limit": 1000,
+                "max_pages": 10,
+                "post_replay_retention_policy": "retain_canonical_source_data_after_replay",
+                "replay_acquisition_policy": "candidate_policy_replay_fixed_candidate_monthly_surface",
+                "replay_cache_policy": "canonical_historical_source_data",
+                "replay_route_ref": "trading-execution://execution_runtime_component_graph/replay",
+                "source_id": "alpaca_bars",
+                "start": window["start_date"],
+                "symbol": symbol,
+                "symbols": [symbol],
+                "target_ref": symbol,
+                "target_refs": [symbol],
+                "timeframe": "1Day",
+                "underlying_symbol": symbol,
+            }
+            items.append(
+                AcquisitionItem(
+                    acquisition_id=acquisition_id,
+                    feed="01_feed_alpaca_bars",
+                    source_id="alpaca_bars",
+                    month=month,
+                    coverage_status="available" if _receipt_succeeded(receipt_path) else "missing",
+                    output_root=str(output_root),
+                    params=params,
+                )
+            )
+    return items
+
+
 def _request_budget(params: Mapping[str, Any], feed: str) -> tuple[int, int | None, int]:
     max_pages = int(params.get("max_pages", 1) or 1)
     limit = int(params.get("limit", params.get("max_rows", 1000)) or 1000)
@@ -200,6 +296,9 @@ def run_acquisition(
     run_id: str = DEFAULT_RUN_ID,
     source_ids: set[str] | None = None,
     months: set[str] | None = None,
+    include_fixed_candidate_alpaca_bars: bool = False,
+    candidate_universe_path: Path = DEFAULT_CANDIDATE_UNIVERSE_PATH,
+    storage_source_root: Path = DEFAULT_STORAGE_SOURCE_ROOT,
     include_available: bool = False,
     include_deferred: bool = False,
     limit: int | None = None,
@@ -209,8 +308,19 @@ def run_acquisition(
     te_retry_delay_seconds: int = 60,
 ) -> RunnerSummary:
     plan_path = dataset_root / "feed_acquisition_plan.csv"
+    plan_items = load_plan(plan_path)
+    if include_fixed_candidate_alpaca_bars:
+        plan_items = [
+            *plan_items,
+            *fixed_candidate_alpaca_bar_items(
+                contract_id=dataset_root.name,
+                plan_items=plan_items,
+                candidate_universe_path=candidate_universe_path,
+                storage_source_root=storage_source_root,
+            ),
+        ]
     items = select_items(
-        load_plan(plan_path),
+        plan_items,
         source_ids=set(source_ids or []),
         months=set(months or []),
         include_available=include_available,
@@ -299,6 +409,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--run-id", default=DEFAULT_RUN_ID)
     parser.add_argument("--source-id", action="append", default=[])
     parser.add_argument("--month", action="append", default=[])
+    parser.add_argument("--include-fixed-candidate-alpaca-bars", action="store_true")
+    parser.add_argument("--candidate-universe-path", type=Path, default=DEFAULT_CANDIDATE_UNIVERSE_PATH)
+    parser.add_argument("--storage-source-root", type=Path, default=DEFAULT_STORAGE_SOURCE_ROOT)
     parser.add_argument("--include-available", action="store_true")
     parser.add_argument("--include-deferred", action="store_true")
     parser.add_argument("--limit", type=int)
@@ -313,6 +426,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         run_id=args.run_id,
         source_ids=set(args.source_id),
         months=set(args.month),
+        include_fixed_candidate_alpaca_bars=args.include_fixed_candidate_alpaca_bars,
+        candidate_universe_path=args.candidate_universe_path,
+        storage_source_root=args.storage_source_root,
         include_available=args.include_available,
         include_deferred=args.include_deferred,
         limit=args.limit,
@@ -325,4 +441,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 1 if summary.failed_count and args.execute else 0
 
 
-__all__ = ["RunnerSummary", "build_task_payload", "load_plan", "run_acquisition", "select_items"]
+__all__ = [
+    "RunnerSummary",
+    "build_task_payload",
+    "fixed_candidate_alpaca_bar_items",
+    "load_plan",
+    "run_acquisition",
+    "select_items",
+]

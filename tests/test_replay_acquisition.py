@@ -5,10 +5,133 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from trading_evaluation.replay_acquisition import build_task_payload, run_acquisition
+from trading_evaluation.replay_acquisition import build_task_payload, fixed_candidate_alpaca_bar_items, run_acquisition
 
 
 class ReplayAcquisitionRunnerTests(unittest.TestCase):
+    def _write_minimal_plan(self, dataset_root: Path, root: Path) -> Path:
+        dataset_root.mkdir(parents=True, exist_ok=True)
+        plan_path = dataset_root / "feed_acquisition_plan.csv"
+        fields = [
+            "acquisition_id",
+            "contract_id",
+            "source_id",
+            "feed",
+            "month",
+            "start_date",
+            "end_date_exclusive",
+            "timeframe",
+            "acquisition_mode",
+            "output_root",
+            "expected_output_ref",
+            "coverage_status",
+            "coverage_receipt_path",
+            "params_json",
+            "notes",
+        ]
+        with plan_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "acquisition_id": "rplacq_contract_alpaca_bars_aapl_2021_01",
+                    "contract_id": "contract",
+                    "source_id": "alpaca_bars",
+                    "feed": "01_feed_alpaca_bars",
+                    "month": "2021-01",
+                    "start_date": "2021-01-01",
+                    "end_date_exclusive": "2021-02-01",
+                    "timeframe": "1Day",
+                    "acquisition_mode": "one_shot_candidate_policy_replay_acquisition",
+                    "output_root": str(root / "storage" / "monthly_backfill" / "alpaca_bars" / "AAPL" / "2021-01"),
+                    "expected_output_ref": "storage://test",
+                    "coverage_status": "available",
+                    "coverage_receipt_path": str(root / "receipt.json"),
+                    "params_json": json.dumps({"start": "2021-01-01", "end": "2021-02-01"}),
+                    "notes": "test",
+                }
+            )
+        return plan_path
+
+    def _write_candidate_universe(self, root: Path, symbols: list[str]) -> Path:
+        path = root / "historical_candidate_universe.csv"
+        with path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=["symbol", "target_ref", "asset_class", "replay_candidate_status"])
+            writer.writeheader()
+            for symbol in symbols:
+                writer.writerow(
+                    {
+                        "symbol": symbol,
+                        "target_ref": symbol,
+                        "asset_class": "us_equity",
+                        "replay_candidate_status": "active",
+                    }
+                )
+        return path
+
+    def test_fixed_candidate_alpaca_items_expand_universe_months(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dataset_root = root / "replay" / "contract"
+            self._write_minimal_plan(dataset_root, root)
+            universe = self._write_candidate_universe(root, ["AAPL", "MSFT"])
+            items = fixed_candidate_alpaca_bar_items(
+                contract_id="contract",
+                plan_items=[],
+                candidate_universe_path=universe,
+                storage_source_root=root / "storage",
+            )
+            self.assertEqual(items, [])
+
+            plan_items = []
+            with (dataset_root / "feed_acquisition_plan.csv").open(newline="", encoding="utf-8") as handle:
+                for row in csv.DictReader(handle):
+                    plan_items.append(
+                        type(
+                            "Item",
+                            (),
+                            {
+                                "month": row["month"],
+                                "params": json.loads(row["params_json"]),
+                            },
+                        )()
+                    )
+            items = fixed_candidate_alpaca_bar_items(
+                contract_id="contract",
+                plan_items=plan_items,
+                candidate_universe_path=universe,
+                storage_source_root=root / "storage",
+            )
+            self.assertEqual(len(items), 2)
+            self.assertEqual({item.params["symbol"] for item in items}, {"AAPL", "MSFT"})
+            self.assertTrue(all(item.coverage_status == "missing" for item in items))
+
+    def test_runner_includes_fixed_candidate_bars_without_provider_calls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dataset_root = root / "replay" / "contract"
+            self._write_minimal_plan(dataset_root, root)
+            universe = self._write_candidate_universe(root, ["AAPL", "MSFT"])
+
+            summary = run_acquisition(
+                dataset_root=dataset_root,
+                data_root=root / "data",
+                run_id="candidate_bars",
+                source_ids={"alpaca_bars"},
+                include_fixed_candidate_alpaca_bars=True,
+                candidate_universe_path=universe,
+                storage_source_root=root / "storage",
+            )
+
+            self.assertEqual(summary.selected_count, 2)
+            self.assertEqual(summary.executed_count, 0)
+            self.assertFalse(summary.provider_calls_allowed)
+            symbols = {
+                json.loads(Path(item.task_key_path).read_text(encoding="utf-8"))["params"]["symbol"]
+                for item in summary.items
+            }
+            self.assertEqual(symbols, {"AAPL", "MSFT"})
+
     def test_runner_plans_missing_items_without_provider_calls(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
