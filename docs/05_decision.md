@@ -32,7 +32,7 @@ must not call execution's shadow-cycle roster selector.
 Date: 2026-05-20
 Status: Accepted
 
-For Layer 3 and later target-selection models, promotion replay gives the execution runtime component graph a fixed historical clock over `2021-01-01` through `2026-01-01` end-exclusive. This covers the full 2021-2025 calendar years and 1255 expected NYSE trading days. The replay fixes the replay window, base source snapshot, cost model, baseline ladder, guardrails, Layer 2 sector-selection inputs, sector constituent/proxy rules, hot/liquid-name admission rules, quality filters, controls, and scoring metrics.
+For target-selection models, promotion replay gives the execution runtime component graph a fixed historical clock over `2021-01-01` through `2026-01-01` end-exclusive. This covers the full 2021-2025 calendar years and 1255 expected NYSE trading days. The replay fixes the replay window, base source snapshot, cost model, baseline ladder, guardrails, M01 background-context opportunity inputs, target-context/proxy rules, hot/liquid-name admission rules, quality filters, controls, and scoring metrics.
 
 It must not preselect final tickers or run a model-owned trading path. Replay calls `trading-execution`'s `execution_runtime_component_graph` under the historical clock and Replay adapters. Models provide point-in-time evidence consumed by the components; C01-C07 own intake, target admission, entry, lifecycle, option review, order intent, execution gating, and failure review. Fixed target/window panels are not applicable to promotion replay judgment.
 

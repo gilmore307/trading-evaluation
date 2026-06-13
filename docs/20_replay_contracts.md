@@ -10,11 +10,11 @@ Required properties:
 - the canonical five-year replay window `2021-01-01` through `2026-01-01` end-exclusive, candidate fold id, and base-context artifact for the Layer 1/2 replay substrate.
 - a frozen base source snapshot, candidate policy, cost model, baseline ladder, selection metrics, and guardrails.
 - a fixed replay initial capital of `25000.0` `USD` for replay equity-path diagnostics, dollar PnL normalization, and charting; this is not broker/account state and replay still performs no account mutation.
-- candidate policy inputs covering point-in-time Layer 2 selected/watch sectors, reviewed sector constituents or proxies, market-wide hot/liquid-name admission rules, quality filters, and control candidates when contrast is required.
+- candidate policy inputs covering point-in-time M01 background-context sector or industry opportunity evidence, reviewed target-context mappings or proxies, market-wide hot/liquid-name admission rules, quality filters, and control candidates when contrast is required.
 - replay must execute through `trading-execution`'s `execution_runtime_component_graph` under Replay adapters. Models are point-in-time evidence consumed by the components, not the replay execution unit.
 - no `target_symbol` or contract-level `target_refs`; use `candidate_fold_id` for fold binding and `base_context_ref` for the Layer 1/2 base-context scope.
 - metrics must evaluate realized replay performance after cost, risk, drawdown, turnover, selection quality, and guardrails.
-- metadata for candidate source, market state, Layer 2 sector source, event state, data availability, and model decision provenance.
+- metadata for candidate source, M01 background-context state, target-context source, event state, data availability, and model decision provenance.
 - explicit sector coverage metadata, including consumer and entertainment/media coverage.
 - enough length to reduce accident and one-off event bias; the canonical five-calendar-year replay window is the ordinary promotion replay horizon.
 - diverse market conditions: trend, drawdown, volatility regime changes, event shocks, and transition periods.
@@ -36,9 +36,9 @@ Required replay behavior:
 
 - the execution runtime component graph gets the full replay period and must operate according to the same component route intended for live use.
 - each decision advances an explicit `replay_time_pointer`; C01-C07 decision inputs may consume only evidence available at or before that pointer. Data after the pointer is unavailable until settlement, where it may be used only for labels, simulated fills, option contract paths, and realized-return evaluation.
-- Layer 2 produces sector context point-in-time; C01 reads that evidence, account state, positions, market universe, and watch/admission policy to create candidate-entry and open-position pools.
+- M01 produces point-in-time background context over broad market, sector, and industry state; C01 reads that evidence, account state, positions, market universe, and watch/admission policy to create candidate-entry and open-position pools.
 - C02-C07 decide entry, lifecycle, option review, order intent, execution gate, and failure review. Downstream model outputs are consumed inside those component contracts rather than used as an evaluation-owned execution route.
-- Layer 10 EventRiskGovernor remains an independent model and is invoked only through the execution-owned Failure Explanation Component after observed model or trade failure.
+- M06 ResidualEventGovernance remains an independent model surface and is invoked only through execution-owned failure review or other accepted residual-governance component inputs after observed model or trade failure.
 - the replay judges final realized replay performance and guardrail behavior, not isolated hand-picked episodes.
 - replay output must preserve enough per-decision evidence to audit why targets were selected, watched, blocked, traded, or skipped.
 
