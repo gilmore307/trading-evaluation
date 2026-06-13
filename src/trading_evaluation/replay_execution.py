@@ -93,6 +93,7 @@ OPTION_EXPRESSION_SIGNAL_ACTION_TYPES = frozenset(
         "bearish_underlying_path_but_no_short_allowed",
     }
 )
+OPTION_EXPRESSION_CURRENT_ENTRY_STYLES = frozenset({"limit_near_mid"})
 OPTION_CANDIDATE_POINT_IN_TIME_FIELDS = (
     "snapshot_time",
     "available_time",
@@ -293,6 +294,7 @@ def build_candidate_policy_replay_execution_run(
         option_candidates_by_underlying_time=option_candidates_by_underlying_time,
         option_contract_paths_by_symbol=option_contract_paths_by_symbol,
         option_feature_requirements_path=option_feature_requirements_path,
+        allow_option_feature_requirements=_candidate_handoff_allows_option_feature_requirements(candidate_handoff),
     )
     option_replay_coverage = _option_replay_coverage_summary(
         bars_by_target=bars_by_target,
@@ -371,6 +373,7 @@ def build_candidate_policy_replay_execution_run(
             candidate_handoff.get("excluded_no_historical_bar_symbols") or []
         ),
         "option_feature_table_ref": None if not resolved_option_feature_database_url else f"{option_feature_schema}.{option_feature_table}",
+        "option_feature_requirement_policy": _option_feature_requirement_policy(candidate_handoff),
         "option_feature_snapshot_count": len(option_candidates_by_underlying_time),
         "option_feature_candidate_count": sum(len(rows) for rows in option_candidates_by_underlying_time.values()),
         "option_contract_path_table_ref": None if not resolved_option_feature_database_url else f"{option_feature_schema}.{option_contract_path_table}",
@@ -784,6 +787,7 @@ def _build_candidate_policy_decision_rows(
     option_candidates_by_underlying_time: Mapping[tuple[str, str], Sequence[Mapping[str, Any]]],
     option_contract_paths_by_symbol: Mapping[str, Sequence[Mapping[str, Any]]],
     option_feature_requirements_path: Path | None = None,
+    allow_option_feature_requirements: bool = True,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     missing_option_feature_requirements: list[dict[str, str]] = []
@@ -817,20 +821,31 @@ def _build_candidate_policy_decision_rows(
                 entry_calibration=entry_calibration.artifact,
             )
             option_candidates: Sequence[Mapping[str, Any]] = ()
+            option_expression_plan: Mapping[str, Any] | None = None
             if str(bar.get("asset_class") or "") == "us_equity" and _option_expression_signal_required(layer_outputs):
                 option_candidates = option_candidates_by_underlying_time.get((target.upper(), replay_time_pointer), ())
                 if not option_candidates:
-                    missing_option_feature_requirements.append(
-                        _replay_option_feature_requirement_sample(target=target, timestamp=replay_time_pointer)
+                    if allow_option_feature_requirements:
+                        missing_option_feature_requirements.append(
+                            _replay_option_feature_requirement_sample(target=target, timestamp=replay_time_pointer)
+                        )
+                        continue
+                else:
+                    option_expression_plan = _option_expression_plan_for_bar(
+                        bar=bar,
+                        candidate_model_ref=candidate_model_ref,
+                        timestamp=replay_time_pointer,
+                        layer_outputs=layer_outputs,
+                        option_candidates=option_candidates,
                     )
-                    continue
-            option_expression_plan = _option_expression_plan_for_bar(
-                bar=bar,
-                candidate_model_ref=candidate_model_ref,
-                timestamp=replay_time_pointer,
-                layer_outputs=layer_outputs,
-                option_candidates=option_candidates,
-            )
+            else:
+                option_expression_plan = _option_expression_plan_for_bar(
+                    bar=bar,
+                    candidate_model_ref=candidate_model_ref,
+                    timestamp=replay_time_pointer,
+                    layer_outputs=layer_outputs,
+                    option_candidates=option_candidates,
+                )
             replay_market_snapshot = _replay_market_snapshot(
                 bar=bar,
                 target=target,
@@ -1311,6 +1326,16 @@ def _candidate_handoff_row_visible_in_month(row: Mapping[str, Any], replay_month
     available_time = str(row.get("available_time") or row.get("as_of_date") or "")
     as_of_date = str(row.get("as_of_date") or "")
     return available_time[:7] <= replay_month and (not as_of_date or as_of_date[:7] <= replay_month)
+
+
+def _candidate_handoff_allows_option_feature_requirements(candidate_handoff: Mapping[str, Any]) -> bool:
+    return str(candidate_handoff.get("source") or "") == "layer_02_target_candidate_handoff"
+
+
+def _option_feature_requirement_policy(candidate_handoff: Mapping[str, Any]) -> str:
+    if _candidate_handoff_allows_option_feature_requirements(candidate_handoff):
+        return "point_in_time_candidate_handoff_allows_on_demand_option_feature_requirements"
+    return "static_candidate_universe_does_not_authorize_provider_acquisition"
 
 
 def _manifest_equity_target_refs(manifest: Mapping[str, Any]) -> tuple[str, ...]:
@@ -2053,6 +2078,9 @@ def _option_expression_signal_required(layer_outputs: Mapping[str, Any]) -> bool
     if not handoff or direction not in {"bullish", "long"}:
         return False
     if str(plan.get("action_side") or "").lower() != "long":
+        return False
+    entry_style = str(plan.get("entry_style") or handoff.get("entry_price_assumption") or "").lower()
+    if entry_style not in OPTION_EXPRESSION_CURRENT_ENTRY_STYLES:
         return False
 
     diagnostics = _as_mapping(layer_outputs.get("model_layer_diagnostics"))

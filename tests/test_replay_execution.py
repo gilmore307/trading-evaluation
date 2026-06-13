@@ -420,6 +420,11 @@ class ReplayExecutionTests(unittest.TestCase):
         self.assertTrue(replay_module._option_expression_signal_required(_current_layer_outputs()))
         self.assertFalse(replay_module._option_expression_signal_required(_current_layer_outputs(alpha_score=0.25)))
         self.assertFalse(replay_module._option_expression_signal_required(_current_layer_outputs(trade_intensity=0.01)))
+        self.assertFalse(replay_module._option_expression_signal_required(_current_layer_outputs(entry_style="limit_or_pullback")))
+        self.assertFalse(replay_module._option_expression_signal_required(_current_layer_outputs(entry_style="wait_for_pullback")))
+        self.assertFalse(
+            replay_module._option_expression_signal_required(_current_layer_outputs(entry_style="wait_for_breakout_confirmation"))
+        )
         self.assertFalse(
             replay_module._option_expression_signal_required(
                 _current_layer_outputs(action_type="open_short", action_side="short", direction="bearish", action_direction=-0.2, expected_return=-0.03)
@@ -430,6 +435,18 @@ class ReplayExecutionTests(unittest.TestCase):
                 _current_layer_outputs(action_type="no_trade", action_side="none", direction="neutral", action_direction=0.0, expected_return=0.0)
             )
         )
+
+    def test_static_candidate_universe_does_not_emit_option_feature_requirements(self):
+        rows = _decision_rows_for_option_requirement_policy(allow_option_feature_requirements=False)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["asset_class"], "us_equity")
+        self.assertEqual(rows[0]["decision_expression_type"], "underlying_equity")
+        self.assertEqual(rows[0]["asset_expression_route"], "")
+
+    def test_point_in_time_handoff_can_emit_option_feature_requirements(self):
+        with self.assertRaisesRegex(ValueError, "replay_option_feature_acquisition_required"):
+            _decision_rows_for_option_requirement_policy(allow_option_feature_requirements=True)
 
     def test_replay_option_feature_acquisition_payload_can_report_multiple_missing_points(self):
         message = replay_module._replay_option_feature_acquisition_message(
@@ -1481,6 +1498,7 @@ def _current_layer_outputs(
     action_type: str = "open_long",
     action_side: str = "long",
     direction: str = "bullish",
+    entry_style: str = "limit_near_mid",
     alpha_score: float = 0.82,
     trade_intensity: float = 0.12,
     action_direction: float = 0.18,
@@ -1493,6 +1511,11 @@ def _current_layer_outputs(
         "market_context_state": {"1_market_liquidity_support_score": 0.85},
         "event_state_vector": {"model_ref": "event-state-ref"},
         "prediction_score": alpha_score,
+        "model_layer_refs": {
+            "model_04_event_failure_risk": "event-risk-ref",
+            "model_05_alpha_confidence": "alpha-ref",
+            "model_04_unified_decision": "unified-ref",
+        },
         "unified_decision_vector": {
             "model_ref": "unified-decision-ref",
             "unified_decision_vector_ref": "udv_test",
@@ -1504,6 +1527,7 @@ def _current_layer_outputs(
             "underlying_action_type": action_type,
             "action_side": action_side,
             "trade_intensity_score": trade_intensity,
+            "entry_style": entry_style,
             "handoff_to_model_05": {
                 "underlying_path_direction": direction,
                 "expected_holding_time_minutes": 1440,
@@ -1513,6 +1537,7 @@ def _current_layer_outputs(
                 "expected_favorable_move_pct": 0.06,
                 "expected_adverse_move_pct": 0.02,
                 "path_quality_score": 0.80,
+                "entry_price_assumption": entry_style,
             },
         },
         "model_layer_diagnostics": {
@@ -1536,6 +1561,76 @@ def _current_layer_outputs(
             },
         },
     }
+
+
+def _decision_rows_for_option_requirement_policy(*, allow_option_feature_requirements: bool) -> list[dict[str, object]]:
+    original_layer_outputs = replay_module._candidate_layer_outputs
+    original_runtime = replay_module.build_replay_runtime_dry_run
+    try:
+        replay_module._candidate_layer_outputs = lambda **_: _current_layer_outputs()
+        replay_module.build_replay_runtime_dry_run = lambda **_: {
+            "decision_records": {
+                "entry_decision": {
+                    "entry_decision_id": "entry-test",
+                    "instrument_ref": "AAPL",
+                    "asset_class": "us_equity",
+                    "decision_status": "suitable",
+                    "decision_action": "continue_to_expression_review",
+                },
+                "execution_order_intent": {"execution_order_intent_id": "intent-test"},
+                "simulated_fill_event": {"simulated_fill_event_id": "fill-test", "fill_status": "simulated_rejected"},
+            },
+            "validation_status": "passed",
+            "side_effects": {},
+        }
+        return replay_module._build_candidate_policy_decision_rows(
+            bars_by_target={
+                "AAPL": [
+                    {
+                        "symbol": "AAPL",
+                        "asset_class": "us_equity",
+                        "source_id": "alpaca_bars",
+                        "timestamp": "2021-01-04T16:00:00-05:00",
+                        "date": "2021-01-04",
+                        "bar_close": 100.0,
+                        "bar_volume": 1000.0,
+                    },
+                    {
+                        "symbol": "AAPL",
+                        "asset_class": "us_equity",
+                        "source_id": "alpaca_bars",
+                        "timestamp": "2021-01-05T16:00:00-05:00",
+                        "date": "2021-01-05",
+                        "bar_close": 101.0,
+                        "bar_volume": 1000.0,
+                    },
+                ]
+            },
+            market_dates=["2021-01-04", "2021-01-05"],
+            run_id="test-option-requirement-policy",
+            candidate_model_ref="storage://trading-manager/model_group/test_fold",
+            after_cost_alpha_model=_after_cost_alpha_model(),
+            replay_contract_ref="test-contract",
+            max_decision_rows=None,
+            entry_calibration=replay_module.EntryCalibration(
+                artifact={
+                    "calibration_status": "selected_positive_validation_threshold",
+                    "selected_thresholds": {
+                        "minimum_entry_alpha_confidence": 0.5,
+                        "minimum_trade_intensity": 0.05,
+                    },
+                    "validation_months": [],
+                },
+                path=Path("/tmp/test-entry-calibration.json"),
+            ),
+            option_candidates_by_underlying_time={},
+            option_contract_paths_by_symbol={},
+            option_feature_requirements_path=None,
+            allow_option_feature_requirements=allow_option_feature_requirements,
+        )
+    finally:
+        replay_module._candidate_layer_outputs = original_layer_outputs
+        replay_module.build_replay_runtime_dry_run = original_runtime
 
 
 if __name__ == "__main__":
