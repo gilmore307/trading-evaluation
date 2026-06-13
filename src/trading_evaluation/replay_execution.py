@@ -2050,7 +2050,46 @@ def _option_expression_signal_required(layer_outputs: Mapping[str, Any]) -> bool
         return False
     handoff = _as_mapping(plan.get("handoff_to_model_05"))
     direction = str(handoff.get("underlying_path_direction") or plan.get("action_side") or "").lower()
-    return bool(handoff) and direction in {"bullish", "bearish", "long", "short", "bearish_no_direct_short"}
+    if not handoff or direction not in {"bullish", "long"}:
+        return False
+    if str(plan.get("action_side") or "").lower() != "long":
+        return False
+
+    diagnostics = _as_mapping(layer_outputs.get("model_layer_diagnostics"))
+    thresholds = _as_mapping(diagnostics.get("entry_thresholds"))
+    unified_decision = _as_mapping(layer_outputs.get("unified_decision_vector"))
+    alpha_score = (
+        _safe_float(layer_outputs.get("prediction_score"))
+        or _safe_float(unified_decision.get("unified_decision_confidence_score"))
+        or 0.0
+    )
+    minimum_alpha = (
+        _safe_float(thresholds.get("minimum_entry_alpha_confidence"))
+        or _safe_float(unified_decision.get("minimum_entry_confidence"))
+        or DEFAULT_ENTRY_ALPHA_THRESHOLD
+    )
+    if alpha_score < minimum_alpha:
+        return False
+
+    alpha_diagnostics = _as_mapping(diagnostics.get("model_05_alpha_confidence"))
+    if str(alpha_diagnostics.get("alpha_gate_status") or "passed") != "passed":
+        return False
+
+    layer4 = _as_mapping(diagnostics.get("model_04_unified_decision"))
+    dominant = _as_mapping(layer4.get("dominant_horizon_scores"))
+    trade_intensity = _safe_float(dominant.get("trade_intensity_score")) or _safe_float(plan.get("trade_intensity_score")) or 0.0
+    minimum_trade_intensity = (
+        _safe_float(dominant.get("minimum_trade_intensity"))
+        or _safe_float(thresholds.get("minimum_trade_intensity"))
+        or DEFAULT_MINIMUM_TRADE_INTENSITY
+    )
+    if trade_intensity < minimum_trade_intensity:
+        return False
+    if (_safe_float(dominant.get("action_direction_score")) or 0.0) <= 0.0:
+        return False
+    if (_safe_float(dominant.get("expected_return_score")) or 0.0) <= 0.0:
+        return False
+    return True
 
 
 def _option_source_unavailable(option_candidates: Sequence[Mapping[str, Any]]) -> bool:

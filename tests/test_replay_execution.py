@@ -406,6 +406,31 @@ class ReplayExecutionTests(unittest.TestCase):
                 option_candidates=[],
             )
 
+        self.assertIsNone(
+            replay_module._option_expression_plan_for_bar(
+                bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
+                candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                timestamp="2021-01-04T16:00:00-05:00",
+                layer_outputs=_current_layer_outputs(alpha_score=0.25),
+                option_candidates=[],
+            )
+        )
+
+    def test_option_expression_signal_requires_entry_ready_long_trade(self):
+        self.assertTrue(replay_module._option_expression_signal_required(_current_layer_outputs()))
+        self.assertFalse(replay_module._option_expression_signal_required(_current_layer_outputs(alpha_score=0.25)))
+        self.assertFalse(replay_module._option_expression_signal_required(_current_layer_outputs(trade_intensity=0.01)))
+        self.assertFalse(
+            replay_module._option_expression_signal_required(
+                _current_layer_outputs(action_type="open_short", action_side="short", direction="bearish", action_direction=-0.2, expected_return=-0.03)
+            )
+        )
+        self.assertFalse(
+            replay_module._option_expression_signal_required(
+                _current_layer_outputs(action_type="no_trade", action_side="none", direction="neutral", action_direction=0.0, expected_return=0.0)
+            )
+        )
+
     def test_replay_option_feature_acquisition_payload_can_report_multiple_missing_points(self):
         message = replay_module._replay_option_feature_acquisition_message(
             [
@@ -1456,22 +1481,29 @@ def _current_layer_outputs(
     action_type: str = "open_long",
     action_side: str = "long",
     direction: str = "bullish",
+    alpha_score: float = 0.82,
+    trade_intensity: float = 0.12,
+    action_direction: float = 0.18,
+    expected_return: float = 0.04,
 ) -> dict[str, object]:
+    alpha_gate_status = "passed" if alpha_score >= 0.50 else "below_entry_threshold"
     return {
         "target_candidate_id": "replay_aapl_test",
         "target_context_state": {"model_ref": "target-context-ref"},
         "market_context_state": {"1_market_liquidity_support_score": 0.85},
         "event_state_vector": {"model_ref": "event-state-ref"},
+        "prediction_score": alpha_score,
         "unified_decision_vector": {
             "model_ref": "unified-decision-ref",
             "unified_decision_vector_ref": "udv_test",
-            "unified_decision_confidence_score": 0.82,
+            "unified_decision_confidence_score": alpha_score,
             "minimum_entry_confidence": 0.50,
         },
         "direct_underlying_intent": {
             "model_ref": "unified-decision-ref",
             "underlying_action_type": action_type,
             "action_side": action_side,
+            "trade_intensity_score": trade_intensity,
             "handoff_to_model_05": {
                 "underlying_path_direction": direction,
                 "expected_holding_time_minutes": 1440,
@@ -1481,6 +1513,26 @@ def _current_layer_outputs(
                 "expected_favorable_move_pct": 0.06,
                 "expected_adverse_move_pct": 0.02,
                 "path_quality_score": 0.80,
+            },
+        },
+        "model_layer_diagnostics": {
+            "entry_thresholds": {
+                "minimum_entry_alpha_confidence": 0.50,
+                "minimum_trade_intensity": 0.05,
+            },
+            "model_05_alpha_confidence": {
+                "resolved_alpha_score": alpha_score,
+                "alpha_gate_status": alpha_gate_status,
+            },
+            "model_04_unified_decision": {
+                "resolved_underlying_action_type": action_type,
+                "resolved_action_side": action_side,
+                "dominant_horizon_scores": {
+                    "trade_intensity_score": trade_intensity,
+                    "action_direction_score": action_direction,
+                    "expected_return_score": expected_return,
+                    "minimum_trade_intensity": 0.05,
+                },
             },
         },
     }
