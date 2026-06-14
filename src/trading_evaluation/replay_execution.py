@@ -2612,10 +2612,11 @@ def _model_layer_diagnostics(
     diagnostics = _as_mapping(unified_row.get("unified_decision_diagnostics"))
     dominant_horizon = str(vector.get("4_resolved_decision_horizon") or direct_intent.get("dominant_horizon") or "1D")
     dominant_suffix = dominant_horizon if dominant_horizon in {"1D", "1W"} else {"10min": "10min", "1h": "1h"}.get(dominant_horizon, "1D")
-    horizon_scores = _as_mapping(diagnostics.get("horizon_scores"))
+    horizon_scores = _as_mapping(diagnostics.get("horizon_decisions") or diagnostics.get("horizon_scores"))
     dominant_scores = _as_mapping(horizon_scores.get(dominant_horizon))
+    selected_thresholds = _selected_entry_thresholds(entry_calibration)
     return {
-        "entry_thresholds": _selected_entry_thresholds(entry_calibration),
+        "entry_thresholds": selected_thresholds,
         "model_04_event_failure_risk": {
             "event_failure_risk_vector_ref": event_failure_row.get("event_failure_risk_vector_ref"),
             "resolved_event_failure_risk_status": event_failure_row.get("4_resolved_event_failure_risk_status"),
@@ -2637,24 +2638,50 @@ def _model_layer_diagnostics(
             "reason_codes": direct_intent.get("reason_codes") or vector.get("4_resolved_reason_codes") or [],
             "hard_gate_reason_codes": diagnostics.get("hard_gate_reason_codes") or [],
             "dominant_horizon_scores": {
-                "trade_intensity_score": _safe_float(dominant_scores.get("trade_intensity_score"))
-                or _safe_float(vector.get(f"4_trade_intensity_score_{dominant_suffix}"))
-                or 0.0,
-                "entry_quality_score": _safe_float(dominant_scores.get("entry_quality_score")) or 0.0,
-                "action_confidence_score": _safe_float(dominant_scores.get("action_confidence_score"))
-                or _safe_float(unified_decision.get("unified_decision_confidence_score"))
-                or 0.0,
-                "action_direction_score": _safe_float(dominant_scores.get("action_direction_score"))
-                or _safe_float(vector.get(f"4_action_direction_score_{dominant_suffix}"))
-                or 0.0,
-                "expected_return_score": _safe_float(dominant_scores.get("expected_return_score"))
-                or _safe_float(vector.get(f"4_expected_return_score_{dominant_suffix}"))
-                or 0.0,
-                "downside_risk_score": _safe_float(dominant_scores.get("downside_risk_score"))
-                or _safe_float(vector.get(f"4_downside_risk_score_{dominant_suffix}"))
-                or 0.0,
-                "minimum_entry_alpha_confidence": _safe_float(dominant_scores.get("minimum_entry_alpha_confidence")),
-                "minimum_trade_intensity": _safe_float(dominant_scores.get("minimum_trade_intensity")),
+                "trade_intensity_score": _first_float(
+                    dominant_scores.get("trade_intensity_score"),
+                    vector.get(f"4_trade_intensity_score_{dominant_suffix}"),
+                    default=0.0,
+                ),
+                "minimum_trade_intensity": _first_float(
+                    dominant_scores.get("minimum_trade_intensity"),
+                    selected_thresholds["minimum_trade_intensity"],
+                ),
+                "materiality_adjusted_action_score": _first_float(
+                    dominant_scores.get("materiality_adjusted_action_score"),
+                    vector.get(f"4_materiality_adjusted_action_score_{dominant_suffix}"),
+                    default=0.0,
+                ),
+                "no_trade_probability_score": _first_float(
+                    dominant_scores.get("no_trade_probability_score"),
+                    vector.get(f"4_no_trade_probability_score_{dominant_suffix}"),
+                    default=0.0,
+                ),
+                "entry_quality_score": _first_float(dominant_scores.get("entry_quality_score"), default=0.0),
+                "action_confidence_score": _first_float(
+                    dominant_scores.get("action_confidence_score"),
+                    unified_decision.get("unified_decision_confidence_score"),
+                    default=0.0,
+                ),
+                "action_direction_score": _first_float(
+                    dominant_scores.get("action_direction_score"),
+                    vector.get(f"4_action_direction_score_{dominant_suffix}"),
+                    default=0.0,
+                ),
+                "expected_return_score": _first_float(
+                    dominant_scores.get("expected_return_score"),
+                    vector.get(f"4_expected_return_score_{dominant_suffix}"),
+                    default=0.0,
+                ),
+                "downside_risk_score": _first_float(
+                    dominant_scores.get("downside_risk_score"),
+                    vector.get(f"4_downside_risk_score_{dominant_suffix}"),
+                    default=0.0,
+                ),
+                "minimum_entry_alpha_confidence": _first_float(
+                    dominant_scores.get("minimum_entry_alpha_confidence"),
+                    selected_thresholds["minimum_entry_alpha_confidence"],
+                ),
             },
         },
     }
@@ -2955,6 +2982,14 @@ def _safe_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _first_float(*values: Any, default: float | None = None) -> float | None:
+    for value in values:
+        parsed = _safe_float(value)
+        if parsed is not None:
+            return parsed
+    return default
 
 
 def _clip01(value: float) -> float:

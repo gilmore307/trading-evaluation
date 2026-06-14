@@ -322,6 +322,10 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertIn("model_04_event_failure_risk", rows[0]["model_layer_diagnostics"])
             self.assertIn("model_05_alpha_confidence", rows[0]["model_layer_diagnostics"])
             self.assertIn("model_04_unified_decision", rows[0]["model_layer_diagnostics"])
+            m04_scores = rows[0]["model_layer_diagnostics"]["model_04_unified_decision"]["dominant_horizon_scores"]
+            self.assertIn("materiality_adjusted_action_score", m04_scores)
+            self.assertIn("no_trade_probability_score", m04_scores)
+            self.assertIn("minimum_trade_intensity", m04_scores)
             self.assertIn("model_05_alpha_confidence", rows[0]["model_evidence_chain"])
             self.assertIn("model_05_option_expression", rows[0]["model_evidence_chain"])
             self.assertIn("model_06_residual_event_governance", rows[0]["model_evidence_chain"])
@@ -526,6 +530,8 @@ class ReplayExecutionTests(unittest.TestCase):
                         "4_resolved_action_confidence_score": 0.9,
                         "4_action_confidence_score_1D": 0.9,
                         "4_trade_intensity_score_1D": 0.2,
+                        "4_materiality_adjusted_action_score_1D": 0.42,
+                        "4_no_trade_probability_score_1D": 0.1,
                         "4_action_direction_score_1D": 0.5,
                         "4_expected_return_score_1D": 0.04,
                     },
@@ -546,9 +552,12 @@ class ReplayExecutionTests(unittest.TestCase):
                     },
                     "unified_decision_diagnostics": {
                         "hard_gate_reason_codes": [],
-                        "horizon_scores": {
+                        "horizon_decisions": {
                             "1D": {
                                 "trade_intensity_score": 0.2,
+                                "minimum_trade_intensity": 0.0,
+                                "materiality_adjusted_action_score": 0.42,
+                                "no_trade_probability_score": 0.1,
                                 "entry_quality_score": 0.7,
                                 "action_confidence_score": 0.9,
                                 "action_direction_score": 0.5,
@@ -601,6 +610,10 @@ class ReplayExecutionTests(unittest.TestCase):
                 "below_entry_threshold",
             )
             self.assertEqual(high["model_layer_diagnostics"]["model_05_alpha_confidence"]["alpha_gate_status"], "passed")
+            high_scores = high["model_layer_diagnostics"]["model_04_unified_decision"]["dominant_horizon_scores"]
+            self.assertEqual(high_scores["materiality_adjusted_action_score"], 0.42)
+            self.assertEqual(high_scores["no_trade_probability_score"], 0.1)
+            self.assertEqual(high_scores["minimum_trade_intensity"], 0.0)
             self.assertEqual(seen_policy_states[0]["allow_new_exposure"], "false")
             self.assertNotIn("new_exposure_permission_score", seen_policy_states[1])
         finally:
