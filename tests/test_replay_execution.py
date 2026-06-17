@@ -440,13 +440,9 @@ class ReplayExecutionTests(unittest.TestCase):
             )
         )
 
-    def test_static_candidate_universe_does_not_emit_option_feature_requirements(self):
-        rows = _decision_rows_for_option_requirement_policy(allow_option_feature_requirements=False)
-
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["asset_class"], "us_equity")
-        self.assertEqual(rows[0]["decision_expression_type"], "underlying_equity")
-        self.assertEqual(rows[0]["asset_expression_route"], "")
+    def test_fixed_candidate_universe_can_emit_option_feature_requirements(self):
+        with self.assertRaisesRegex(ValueError, "replay_option_feature_acquisition_required"):
+            _decision_rows_for_option_requirement_policy(allow_option_feature_requirements=True)
 
     def test_point_in_time_handoff_can_emit_option_feature_requirements(self):
         with self.assertRaisesRegex(ValueError, "replay_option_feature_acquisition_required"):
@@ -743,6 +739,10 @@ class ReplayExecutionTests(unittest.TestCase):
                 self.assertEqual(result.receipt["candidate_handoff_symbols"], ["AAPL"])
                 self.assertEqual(result.receipt["candidate_handoff_artifact_ref"], str(candidate_universe_path))
                 self.assertIsNone(result.receipt["candidate_handoff_table_ref"])
+                self.assertEqual(
+                    result.receipt["option_feature_requirement_policy"],
+                    "fixed_historical_candidate_universe_allows_replay_option_feature_requirements",
+                )
         finally:
             replay_module._option_expression_plan_for_bar = original_plan_builder
 

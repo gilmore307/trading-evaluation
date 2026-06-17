@@ -1366,11 +1366,16 @@ def _candidate_handoff_row_visible_in_month(row: Mapping[str, Any], replay_month
 
 
 def _candidate_handoff_allows_option_feature_requirements(candidate_handoff: Mapping[str, Any]) -> bool:
-    return str(candidate_handoff.get("source") or "") == "layer_02_target_candidate_handoff"
+    return str(candidate_handoff.get("source") or "") in {
+        "fixed_current_snapshot_historical_candidate_universe",
+        "layer_02_target_candidate_handoff",
+    }
 
 
 def _option_feature_requirement_policy(candidate_handoff: Mapping[str, Any]) -> str:
-    if _candidate_handoff_allows_option_feature_requirements(candidate_handoff):
+    if str(candidate_handoff.get("source") or "") == "fixed_current_snapshot_historical_candidate_universe":
+        return "fixed_historical_candidate_universe_allows_replay_option_feature_requirements"
+    if str(candidate_handoff.get("source") or "") == "layer_02_target_candidate_handoff":
         return "point_in_time_candidate_handoff_allows_on_demand_option_feature_requirements"
     return "static_candidate_universe_does_not_authorize_provider_acquisition"
 
