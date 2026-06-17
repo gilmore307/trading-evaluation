@@ -921,6 +921,12 @@ def _build_candidate_policy_decision_rows(
                 asset_class=str(asset_class or ""),
                 selected_option_contract_ref=selected_option_contract_ref,
             )
+            path_context = _path_conditioning_context(
+                target=target,
+                decision_instrument_scope=decision_instrument_scope,
+                selected_option_contract_ref=selected_option_contract_ref,
+                option_expression_plan=option_expression_plan,
+            )
             rows.append(
                 {
                     "contract_type": REPLAY_DECISION_ROW_CONTRACT,
@@ -936,6 +942,10 @@ def _build_candidate_policy_decision_rows(
                     "asset_class": asset_class,
                     "decision_expression_type": decision_expression_type,
                     "decision_instrument_scope": decision_instrument_scope,
+                    "path_conditioning_policy": path_context["path_conditioning_policy"],
+                    "path_scope": path_context["path_scope"],
+                    "candidate_set_scope": path_context["candidate_set_scope"],
+                    "miss_attribution_layer": path_context["miss_attribution_layer"],
                     "asset_expression_route": str(_as_mapping(option_expression_plan).get("asset_expression_route") or ""),
                     "option_surface_status": str(_as_mapping(option_expression_plan).get("option_surface_status") or ""),
                     "selected_option_expression_type": _as_mapping(option_expression_plan).get("selected_expression_type"),
@@ -1012,6 +1022,37 @@ def _decision_instrument_scope(*, asset_class: str, selected_option_contract_ref
     if asset_class == "us_equity":
         return "underlying_equity"
     return asset_class or "unknown"
+
+
+def _path_conditioning_context(
+    *,
+    target: str,
+    decision_instrument_scope: str,
+    selected_option_contract_ref: str,
+    option_expression_plan: Mapping[str, Any] | None,
+) -> dict[str, str]:
+    """Describe the replay branch whose non-taken opportunities are reviewable."""
+
+    selected_target = str(target or "").upper() or "unknown"
+    option_plan = _as_mapping(option_expression_plan)
+    if selected_option_contract_ref:
+        candidate_set_scope = "selected_target_selected_option_contract_path"
+        miss_layer = "model_05_option_expression"
+    elif option_plan:
+        candidate_set_scope = "selected_target_option_expression_candidates"
+        miss_layer = "model_05_option_expression"
+    elif decision_instrument_scope == "underlying_equity":
+        candidate_set_scope = "selected_target_underlying_decision"
+        miss_layer = "model_04_unified_decision"
+    else:
+        candidate_set_scope = f"selected_target_{decision_instrument_scope or 'unknown'}"
+        miss_layer = "current_decision_layer"
+    return {
+        "path_conditioning_policy": "upstream_selected_path_only",
+        "path_scope": f"selected_target:{selected_target}",
+        "candidate_set_scope": candidate_set_scope,
+        "miss_attribution_layer": miss_layer,
+    }
 
 
 def _market_universe_for_date(
