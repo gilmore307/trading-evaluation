@@ -28,6 +28,8 @@ from .execution_runtime import EXECUTION_REPLAY_ROUTE_REF, build_replay_runtime_
 REPLAY_EXECUTION_RUN_CONTRACT = "evaluation_replay_execution_run"
 REPLAY_DECISION_ROW_CONTRACT = "evaluation_replay_decision_row"
 REPLAY_PROGRESS_CONTRACT = "evaluation_replay_progress"
+PORTFOLIO_TRACE_AUDIT_CONTRACT = "candidate_policy_portfolio_trace_audit"
+PORTFOLIO_TRACE_AUDIT_ROW_CONTRACT = "candidate_policy_portfolio_trace_audit_row"
 ENTRY_THRESHOLD_CALIBRATION_CONTRACT = "validation_entry_threshold_calibration"
 RUNTIME_COMPONENT_OUTPUT_CONTRACTS = (
     "execution_intake_snapshot",
@@ -113,6 +115,16 @@ class ReplayExecutionResult:
     decision_rows_path: Path
     progress_path: Path
     receipt: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class PortfolioTraceAuditResult:
+    """Portfolio-constrained trace audit paths and summary payload."""
+
+    summary_path: Path
+    trace_rows_path: Path
+    entry_calibration_path: Path
+    summary: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -410,6 +422,448 @@ def build_candidate_policy_replay_execution_run(
         progress_path=progress_path,
         receipt=receipt,
     )
+
+
+def build_candidate_policy_portfolio_trace_audit(
+    *,
+    dataset_root: Path = DEFAULT_DATASET_ROOT,
+    output_dir: Path | None = None,
+    run_id: str | None = None,
+    candidate_model_ref: str,
+    after_cost_alpha_model: Mapping[str, Any] | None,
+    after_cost_alpha_model_ref: str | None = None,
+    replay_contract_ref: str = "trading-evaluation/replays/promotion_replay_candidate_policy.json",
+    generated_at_utc: str | None = None,
+    calibration_window_month_count: int = DEFAULT_CALIBRATION_WINDOW_MONTH_COUNT,
+    calibration_max_decision_rows: int | None = None,
+    include_crypto: bool = True,
+    include_equity: bool = True,
+    equity_source_root: Path = EQUITY_SOURCE_ROOT,
+    equity_symbols: Sequence[str] | None = None,
+    replay_month: str | None = None,
+    candidate_handoff_database_url: str | None = None,
+    candidate_handoff_schema: str = "trading_data",
+    candidate_handoff_table: str = "model_02_sector_context_data_acquisition",
+    candidate_universe_path: Path | None = None,
+    initial_capital_usd: float = DEFAULT_REPLAY_INITIAL_CAPITAL_USD,
+    max_trace_timestamps: int | None = 20,
+    max_positions: int = 5,
+    position_notional_fraction: float = 0.20,
+    switch_minimum_rank_score_delta: float = 0.05,
+) -> PortfolioTraceAuditResult:
+    """Trace how many M04 option-intent signals survive a finite-capital portfolio screen.
+
+    This is a diagnostic audit. It reads the same frozen bars and model layers as
+    candidate replay, but it does not load M05 option candidates, call providers,
+    produce replay decision rows, activate models, or mutate account state.
+    """
+
+    candidate_model_ref = _require_candidate_model_ref(candidate_model_ref)
+    if after_cost_alpha_model is None:
+        raise ValueError("after_cost_alpha_model is required for portfolio trace audit Layer 5 inference")
+    _validate_after_cost_alpha_model_for_replay(after_cost_alpha_model)
+    initial_capital_usd = _validated_initial_capital_usd(initial_capital_usd)
+    if max_positions <= 0:
+        raise ValueError("max_positions must be a positive integer")
+    if position_notional_fraction <= 0.0 or position_notional_fraction > 1.0:
+        raise ValueError("position_notional_fraction must be in (0, 1]")
+    if switch_minimum_rank_score_delta < 0.0:
+        raise ValueError("switch_minimum_rank_score_delta must be non-negative")
+    if max_trace_timestamps is not None and max_trace_timestamps <= 0:
+        raise ValueError("max_trace_timestamps must be a positive integer when provided")
+
+    manifest = _load_json(dataset_root / "dataset_manifest.json")
+    freeze_receipt_path = dataset_root / "replay_freeze_receipt.json"
+    freeze_receipt: dict[str, Any] | None = None
+    plan_path = Path(str(manifest["feed_acquisition_plan_ref"]))
+    if replay_month:
+        _validate_replay_month_coverage(plan_path=plan_path, replay_month=replay_month)
+    else:
+        freeze_receipt = _load_json(freeze_receipt_path)
+        _validate_frozen_dataset(manifest, freeze_receipt)
+
+    candidate_handoff = _candidate_handoff_for_replay(
+        database_url=candidate_handoff_database_url,
+        schema=candidate_handoff_schema,
+        table=candidate_handoff_table,
+        candidate_universe_path=_resolved_candidate_universe_path(
+            dataset_root=dataset_root,
+            candidate_universe_path=candidate_universe_path,
+        ),
+        explicit_equity_symbols=equity_symbols,
+        include_equity=include_equity,
+        replay_month=replay_month,
+    )
+    generated_at = generated_at_utc or _now_utc()
+    run_id = run_id or f"candidate_policy_portfolio_trace_audit_{generated_at.replace(':', '').replace('-', '').replace('Z', 'Z')}"
+    output_dir = output_dir or dataset_root / "portfolio_trace_audits" / run_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = output_dir / "portfolio_trace_audit_summary.json"
+    trace_rows_path = output_dir / "portfolio_trace_rows.jsonl"
+    calibration_path = output_dir / "entry_threshold_calibration.json"
+
+    bars_by_target = _load_candidate_policy_bars(
+        plan_path=plan_path,
+        include_crypto=include_crypto,
+        include_equity=include_equity,
+        equity_source_root=equity_source_root,
+        equity_symbols=candidate_handoff["candidate_symbols"],
+        replay_month=replay_month,
+    )
+    if not bars_by_target:
+        raise ValueError("candidate-policy portfolio trace audit found no materialized market bars")
+    candidate_handoff = _prune_fixed_candidate_handoff_no_history_symbols(
+        candidate_handoff=candidate_handoff,
+        bars_by_target=bars_by_target,
+        equity_source_root=equity_source_root,
+        replay_month=replay_month,
+    )
+    _validate_equity_candidate_bar_coverage(
+        include_equity=include_equity,
+        explicit_equity_symbols=equity_symbols,
+        candidate_handoff=candidate_handoff,
+        bars_by_target=bars_by_target,
+    )
+    entry_calibration = _build_entry_calibration(
+        bars_by_target=bars_by_target,
+        candidate_model_ref=candidate_model_ref,
+        after_cost_alpha_model=after_cost_alpha_model,
+        replay_contract_ref=replay_contract_ref,
+        generated_at_utc=generated_at,
+        output_path=calibration_path,
+        validation_month_count=calibration_window_month_count,
+        max_decision_rows=calibration_max_decision_rows,
+    )
+    trace_rows, trace_summary = _build_candidate_policy_portfolio_trace_rows(
+        bars_by_target=bars_by_target,
+        run_id=run_id,
+        candidate_model_ref=candidate_model_ref,
+        after_cost_alpha_model=after_cost_alpha_model,
+        replay_contract_ref=replay_contract_ref,
+        entry_calibration=entry_calibration,
+        initial_capital_usd=initial_capital_usd,
+        max_trace_timestamps=max_trace_timestamps,
+        max_positions=max_positions,
+        position_notional_fraction=position_notional_fraction,
+        switch_minimum_rank_score_delta=switch_minimum_rank_score_delta,
+    )
+    _write_jsonl(trace_rows_path, trace_rows)
+
+    independent_count = int(trace_summary["independent_m05_signal_count"])
+    avoided_count = int(trace_summary["avoided_m05_request_count"])
+    summary = {
+        "contract_type": PORTFOLIO_TRACE_AUDIT_CONTRACT,
+        "replay_execution_run_id": run_id,
+        "audit_scope": "finite_capital_m04_to_m05_trigger_trace",
+        "candidate_model_ref": candidate_model_ref,
+        "after_cost_alpha_model_ref": after_cost_alpha_model_ref,
+        "replay_contract_ref": replay_contract_ref,
+        "dataset_root": str(dataset_root),
+        "dataset_manifest_ref": str(dataset_root / "dataset_manifest.json"),
+        "replay_freeze_receipt_ref": None if replay_month else str(freeze_receipt_path),
+        "replay_month": replay_month,
+        "trace_rows_ref": str(trace_rows_path),
+        "entry_threshold_calibration_ref": str(entry_calibration.path),
+        "entry_threshold_calibration_status": entry_calibration.artifact["calibration_status"],
+        "entry_thresholds": entry_calibration.artifact["selected_thresholds"],
+        "initial_capital_usd": initial_capital_usd,
+        "initial_capital": {
+            "amount": initial_capital_usd,
+            "currency": REPLAY_INITIAL_CAPITAL_CURRENCY,
+            "role": "portfolio_trace_audit_cash_budget",
+            "broker_or_account_state": False,
+        },
+        "max_positions": max_positions,
+        "position_notional_fraction": position_notional_fraction,
+        "switch_minimum_rank_score_delta": switch_minimum_rank_score_delta,
+        "max_trace_timestamps": max_trace_timestamps,
+        "timestamp_count": trace_summary["timestamp_count"],
+        "candidate_count": trace_summary["candidate_count"],
+        "m04_trade_intent_count": trace_summary["m04_trade_intent_count"],
+        "independent_m05_signal_count": independent_count,
+        "capital_selected_m05_count": trace_summary["capital_selected_m05_count"],
+        "avoided_m05_request_count": avoided_count,
+        "m05_request_avoidance_ratio": avoided_count / independent_count if independent_count else 0.0,
+        "candidate_handoff_status": candidate_handoff["status"],
+        "candidate_handoff_source": candidate_handoff["source"],
+        "candidate_handoff_row_count": candidate_handoff["row_count"],
+        "candidate_handoff_symbol_count": len(candidate_handoff["candidate_symbols"]),
+        "candidate_handoff_symbols": list(candidate_handoff["candidate_symbols"]),
+        "candidate_handoff_artifact_ref": candidate_handoff.get("artifact_ref"),
+        "target_refs": sorted(bars_by_target),
+        "asset_class_counts": _asset_class_counts(bars_by_target),
+        "ranking_policy": {
+            "rank_field": "diagnostic_rank_score",
+            "role": "audit_only_cross_target_ordering_for_capital_feasibility",
+            "formula": "positive(alpha_score-min_alpha) * positive(trade_intensity-min_trade_intensity) * positive(expected_return_score) * positive(action_direction_score)",
+            "promotion_or_execution_contract": False,
+        },
+        "side_effects": {
+            "provider_calls_performed": 0,
+            "option_feature_database_reads_performed": 0,
+            "broker_calls_performed": 0,
+            "broker_mutation_performed": False,
+            "account_mutation_performed": False,
+            "model_training_performed": False,
+            "active_model_config_written": False,
+        },
+        "generated_at_utc": generated_at,
+        "validation_status": "passed",
+        "notes": [
+            "diagnostic-only time-major portfolio trace over frozen replay bars",
+            "independent_m05_signal_count approximates current target-major replay option-expression demand",
+            "capital_selected_m05_count approximates option-expression demand after a simple finite-capital portfolio screen",
+            "this audit does not load M05 option candidates, call option providers, emit replay decision rows, or mutate broker/account state",
+            "the allocator is intentionally simple and must not be treated as the final replay account simulator",
+        ],
+    }
+    summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return PortfolioTraceAuditResult(
+        summary_path=summary_path,
+        trace_rows_path=trace_rows_path,
+        entry_calibration_path=entry_calibration.path,
+        summary=summary,
+    )
+
+
+def _build_candidate_policy_portfolio_trace_rows(
+    *,
+    bars_by_target: Mapping[str, Sequence[Mapping[str, Any]]],
+    run_id: str,
+    candidate_model_ref: str,
+    after_cost_alpha_model: Mapping[str, Any],
+    replay_contract_ref: str,
+    entry_calibration: EntryCalibration,
+    initial_capital_usd: float,
+    max_trace_timestamps: int | None,
+    max_positions: int,
+    position_notional_fraction: float,
+    switch_minimum_rank_score_delta: float,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    history_by_target = {target: list(bars) for target, bars in bars_by_target.items()}
+    index_by_target_date = {
+        target: {str(row["date"]): index for index, row in enumerate(target_rows)}
+        for target, target_rows in history_by_target.items()
+    }
+    market_universe_by_date = _market_universe_by_date(
+        history_by_target=history_by_target,
+        index_by_target_date=index_by_target_date,
+    )
+    candidates_by_time: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for target in sorted(history_by_target):
+        target_rows = history_by_target[target]
+        for index, bar in enumerate(target_rows[:-1]):
+            candidates_by_time[_replay_time_pointer_for_bar(bar)].append(
+                {
+                    "target": target,
+                    "index": index,
+                    "bar": bar,
+                }
+            )
+    timestamps = sorted(candidates_by_time, key=_timestamp_sort_key)
+    if max_trace_timestamps is not None:
+        timestamps = timestamps[:max_trace_timestamps]
+
+    cash = initial_capital_usd
+    position_budget = initial_capital_usd * position_notional_fraction
+    positions: dict[str, dict[str, Any]] = {}
+    rows: list[dict[str, Any]] = []
+    summary = {
+        "timestamp_count": 0,
+        "candidate_count": 0,
+        "m04_trade_intent_count": 0,
+        "independent_m05_signal_count": 0,
+        "capital_selected_m05_count": 0,
+        "avoided_m05_request_count": 0,
+    }
+
+    for timestamp in timestamps:
+        items = candidates_by_time[timestamp]
+        cash_before = cash
+        positions_before = sorted(positions)
+        scored_candidates: list[dict[str, Any]] = []
+        for item in items:
+            target = str(item["target"])
+            index = int(item["index"])
+            bar = _as_mapping(item["bar"])
+            date_text = str(bar["date"])
+            target_rows = history_by_target[target]
+            market_universe = market_universe_by_date.get(date_text, ())
+            reference_price = float(bar["bar_close"])
+            layer_outputs = _candidate_layer_outputs(
+                target=target,
+                target_rows=target_rows,
+                index=index,
+                market_universe=market_universe,
+                reference_price=reference_price,
+                candidate_model_ref=candidate_model_ref,
+                after_cost_alpha_model=after_cost_alpha_model,
+                entry_calibration=entry_calibration.artifact,
+            )
+            diagnostics = _portfolio_trace_candidate_diagnostics(
+                target=target,
+                timestamp=timestamp,
+                reference_price=reference_price,
+                layer_outputs=layer_outputs,
+            )
+            independent_m05_signal = str(bar.get("asset_class") or "") == "us_equity" and _option_expression_signal_required(
+                layer_outputs
+            )
+            diagnostics["independent_m05_signal"] = independent_m05_signal
+            if independent_m05_signal:
+                scored_candidates.append(diagnostics)
+
+        scored_candidates.sort(key=lambda row: (-float(row["diagnostic_rank_score"]), str(row["target_ref"])))
+        selected_targets: list[str] = []
+        closed_targets: list[str] = []
+        for candidate in scored_candidates:
+            target = str(candidate["target_ref"])
+            if target in positions:
+                positions[target]["last_rank_score"] = candidate["diagnostic_rank_score"]
+                positions[target]["last_price"] = candidate["reference_price"]
+                continue
+            if len(positions) < max_positions and cash > 0.0:
+                notional = min(position_budget, cash)
+                if notional <= 0.0:
+                    continue
+                positions[target] = _portfolio_trace_position(
+                    candidate=candidate,
+                    notional=notional,
+                    opened_at=timestamp,
+                )
+                cash -= notional
+                selected_targets.append(target)
+                continue
+            if not positions:
+                continue
+            worst_target, worst_position = min(
+                positions.items(),
+                key=lambda item: (float(item[1].get("last_rank_score") or item[1].get("entry_rank_score") or 0.0), item[0]),
+            )
+            candidate_score = float(candidate["diagnostic_rank_score"])
+            worst_score = float(worst_position.get("last_rank_score") or worst_position.get("entry_rank_score") or 0.0)
+            if candidate_score - worst_score < switch_minimum_rank_score_delta:
+                continue
+            cash += _portfolio_trace_position_value(worst_position)
+            closed_targets.append(worst_target)
+            del positions[worst_target]
+            notional = min(position_budget, cash)
+            if notional <= 0.0:
+                continue
+            positions[target] = _portfolio_trace_position(candidate=candidate, notional=notional, opened_at=timestamp)
+            cash -= notional
+            selected_targets.append(target)
+
+        independent_count = len(scored_candidates)
+        selected_count = len(selected_targets)
+        m04_trade_intent_count = sum(1 for candidate in scored_candidates if candidate["m04_trade_intent"])
+        avoided_count = max(0, independent_count - selected_count)
+        row = {
+            "contract_type": PORTFOLIO_TRACE_AUDIT_ROW_CONTRACT,
+            "replay_execution_run_id": run_id,
+            "replay_contract_ref": replay_contract_ref,
+            "timestamp": timestamp,
+            "cash_before": cash_before,
+            "cash_after": cash,
+            "open_position_count_before": len(positions_before),
+            "open_position_count_after": len(positions),
+            "position_targets_before": positions_before,
+            "position_targets_after": sorted(positions),
+            "candidate_count": len(items),
+            "m04_trade_intent_count": m04_trade_intent_count,
+            "independent_m05_signal_count": independent_count,
+            "capital_selected_m05_count": selected_count,
+            "avoided_m05_request_count": avoided_count,
+            "selected_targets": selected_targets,
+            "closed_targets": closed_targets,
+            "top_independent_m05_candidates": scored_candidates[:10],
+            "top_capital_rejected_targets": [candidate["target_ref"] for candidate in scored_candidates if candidate["target_ref"] not in selected_targets][:10],
+        }
+        rows.append(row)
+        summary["timestamp_count"] += 1
+        summary["candidate_count"] += len(items)
+        summary["m04_trade_intent_count"] += m04_trade_intent_count
+        summary["independent_m05_signal_count"] += independent_count
+        summary["capital_selected_m05_count"] += selected_count
+        summary["avoided_m05_request_count"] += avoided_count
+    return rows, summary
+
+
+def _portfolio_trace_candidate_diagnostics(
+    *,
+    target: str,
+    timestamp: str,
+    reference_price: float,
+    layer_outputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    diagnostics = _as_mapping(layer_outputs.get("model_layer_diagnostics"))
+    thresholds = _as_mapping(diagnostics.get("entry_thresholds"))
+    alpha_diagnostics = _as_mapping(diagnostics.get("model_05_alpha_confidence"))
+    layer4 = _as_mapping(diagnostics.get("model_04_unified_decision"))
+    dominant = _as_mapping(layer4.get("dominant_horizon_scores"))
+    plan = _as_mapping(layer_outputs.get("direct_underlying_intent"))
+    alpha_score = _safe_float(layer_outputs.get("prediction_score")) or 0.0
+    trade_intensity = _safe_float(dominant.get("trade_intensity_score")) or _safe_float(plan.get("trade_intensity_score")) or 0.0
+    action_direction = _safe_float(dominant.get("action_direction_score")) or 0.0
+    expected_return = _safe_float(dominant.get("expected_return_score")) or 0.0
+    minimum_alpha = _safe_float(thresholds.get("minimum_entry_alpha_confidence")) or DEFAULT_ENTRY_ALPHA_THRESHOLD
+    minimum_trade_intensity = _safe_float(dominant.get("minimum_trade_intensity")) or _safe_float(
+        thresholds.get("minimum_trade_intensity")
+    ) or DEFAULT_MINIMUM_TRADE_INTENSITY
+    action_type = str(plan.get("underlying_action_type") or plan.get("planned_underlying_action_type") or "").lower()
+    action_side = str(plan.get("action_side") or "").lower()
+    rank_score = (
+        max(0.0, alpha_score - minimum_alpha)
+        * max(0.0, trade_intensity - minimum_trade_intensity)
+        * max(0.0, expected_return)
+        * max(0.0, action_direction)
+    )
+    return {
+        "target_ref": target,
+        "timestamp": timestamp,
+        "reference_price": reference_price,
+        "m04_trade_intent": action_type not in {"", "no_trade"} and action_side != "none",
+        "underlying_action_type": action_type,
+        "action_side": action_side,
+        "entry_style": str(plan.get("entry_style") or _as_mapping(plan.get("handoff_to_model_05")).get("entry_price_assumption") or ""),
+        "alpha_score": alpha_score,
+        "alpha_gate_status": str(alpha_diagnostics.get("alpha_gate_status") or ""),
+        "minimum_entry_alpha_confidence": minimum_alpha,
+        "trade_intensity_score": trade_intensity,
+        "minimum_trade_intensity": minimum_trade_intensity,
+        "action_direction_score": action_direction,
+        "expected_return_score": expected_return,
+        "diagnostic_rank_score": rank_score,
+    }
+
+
+def _portfolio_trace_position(
+    *,
+    candidate: Mapping[str, Any],
+    notional: float,
+    opened_at: str,
+) -> dict[str, Any]:
+    price = float(candidate["reference_price"])
+    quantity = notional / price if price > 0.0 else 0.0
+    return {
+        "target_ref": str(candidate["target_ref"]),
+        "opened_at": opened_at,
+        "entry_price": price,
+        "last_price": price,
+        "quantity": quantity,
+        "notional": notional,
+        "entry_rank_score": float(candidate["diagnostic_rank_score"]),
+        "last_rank_score": float(candidate["diagnostic_rank_score"]),
+    }
+
+
+def _portfolio_trace_position_value(position: Mapping[str, Any]) -> float:
+    quantity = _safe_float(position.get("quantity")) or 0.0
+    last_price = _safe_float(position.get("last_price")) or _safe_float(position.get("entry_price")) or 0.0
+    value = quantity * last_price
+    if value > 0.0:
+        return value
+    return _safe_float(position.get("notional")) or 0.0
 
 
 def _require_candidate_model_ref(candidate_model_ref: str) -> str:
@@ -3172,9 +3626,13 @@ def _now_utc() -> str:
 
 __all__ = [
     "CRYPTO_SPOT_ACCOUNT_SLEEVE",
+    "PORTFOLIO_TRACE_AUDIT_CONTRACT",
+    "PORTFOLIO_TRACE_AUDIT_ROW_CONTRACT",
     "REPLAY_DECISION_ROW_CONTRACT",
     "REPLAY_EXECUTION_RUN_CONTRACT",
+    "PortfolioTraceAuditResult",
     "ReplayExecutionResult",
+    "build_candidate_policy_portfolio_trace_audit",
     "build_candidate_policy_replay_execution_run",
     "build_crypto_replay_execution_run",
 ]

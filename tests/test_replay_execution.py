@@ -10,7 +10,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path("/root/projects/trading-execution/src")))
 sys.path.insert(0, str(Path("/root/projects/trading-model/src")))
 
-from trading_evaluation import build_candidate_policy_replay_execution_run, build_crypto_replay_execution_run
+from trading_evaluation import (
+    build_candidate_policy_portfolio_trace_audit,
+    build_candidate_policy_replay_execution_run,
+    build_crypto_replay_execution_run,
+)
 from trading_evaluation import replay_execution as replay_module
 
 
@@ -745,6 +749,114 @@ class ReplayExecutionTests(unittest.TestCase):
                 )
         finally:
             replay_module._option_expression_plan_for_bar = original_plan_builder
+
+    def test_portfolio_trace_audit_caps_m05_triggers_by_finite_capital(self):
+        original_bars_loader = replay_module._load_candidate_policy_bars
+        original_handoff = replay_module._candidate_handoff_for_replay
+        original_calibration = replay_module._build_entry_calibration
+        original_layer_outputs = replay_module._candidate_layer_outputs
+        original_feature_loader = replay_module._load_option_candidate_features
+        original_point_feature_loader = replay_module._load_option_candidate_features_for_timestamp
+        symbols = ("AAPL", "MSFT", "NVDA")
+
+        def fake_bars(**_):
+            rows = {}
+            for offset, symbol in enumerate(symbols):
+                price = 100.0 + offset
+                rows[symbol] = [
+                    {
+                        "symbol": symbol,
+                        "asset_class": "us_equity",
+                        "source_id": "alpaca_bars",
+                        "timestamp": "2021-01-04T16:00:00-05:00",
+                        "date": "2021-01-04",
+                        "bar_open": price,
+                        "bar_high": price + 1.0,
+                        "bar_low": price - 1.0,
+                        "bar_close": price,
+                        "bar_volume": 1000.0,
+                    },
+                    {
+                        "symbol": symbol,
+                        "asset_class": "us_equity",
+                        "source_id": "alpaca_bars",
+                        "timestamp": "2021-01-05T16:00:00-05:00",
+                        "date": "2021-01-05",
+                        "bar_open": price,
+                        "bar_high": price + 2.0,
+                        "bar_low": price - 1.0,
+                        "bar_close": price + 1.0,
+                        "bar_volume": 1200.0,
+                    },
+                ]
+            return rows
+
+        def fake_calibration(*, output_path, **_):
+            artifact = {
+                "contract_type": "validation_entry_threshold_calibration",
+                "calibration_status": "test_fixed_thresholds",
+                "selected_thresholds": {
+                    "minimum_entry_alpha_confidence": 0.50,
+                    "minimum_trade_intensity": 0.05,
+                },
+            }
+            output_path.write_text(json.dumps(artifact, sort_keys=True) + "\n", encoding="utf-8")
+            return replay_module.EntryCalibration(artifact=artifact, path=output_path)
+
+        def fake_layer_outputs(*, target, **_):
+            alpha_by_target = {"AAPL": 0.90, "MSFT": 0.84, "NVDA": 0.80}
+            return _current_layer_outputs(alpha_score=alpha_by_target[target])
+
+        try:
+            replay_module._load_candidate_policy_bars = fake_bars
+            replay_module._candidate_handoff_for_replay = lambda **_: {
+                "status": "available",
+                "source": "fixed_current_snapshot_historical_candidate_universe",
+                "candidate_symbols": symbols,
+                "row_count": len(symbols),
+                "artifact_ref": "memory://test",
+            }
+            replay_module._build_entry_calibration = fake_calibration
+            replay_module._candidate_layer_outputs = fake_layer_outputs
+            replay_module._load_option_candidate_features = lambda **_: self.fail("portfolio trace audit must not load bulk M05 features")
+            replay_module._load_option_candidate_features_for_timestamp = (
+                lambda **_: self.fail("portfolio trace audit must not load point M05 features")
+            )
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                dataset_root = self._dataset(root)
+                result = build_candidate_policy_portfolio_trace_audit(
+                    dataset_root=dataset_root,
+                    run_id="test_portfolio_trace_audit",
+                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    after_cost_alpha_model=_after_cost_alpha_model(),
+                    include_crypto=False,
+                    max_trace_timestamps=1,
+                    max_positions=1,
+                    position_notional_fraction=1.0,
+                    switch_minimum_rank_score_delta=999.0,
+                )
+
+                self.assertEqual(result.summary["contract_type"], "candidate_policy_portfolio_trace_audit")
+                self.assertEqual(result.summary["timestamp_count"], 1)
+                self.assertEqual(result.summary["candidate_count"], 3)
+                self.assertEqual(result.summary["independent_m05_signal_count"], 3)
+                self.assertEqual(result.summary["capital_selected_m05_count"], 1)
+                self.assertEqual(result.summary["avoided_m05_request_count"], 2)
+                self.assertEqual(result.summary["m05_request_avoidance_ratio"], 2 / 3)
+                self.assertEqual(result.summary["side_effects"]["provider_calls_performed"], 0)
+                self.assertFalse(result.summary["side_effects"]["account_mutation_performed"])
+                rows = [json.loads(line) for line in result.trace_rows_path.read_text(encoding="utf-8").splitlines()]
+                self.assertEqual(rows[0]["selected_targets"], ["AAPL"])
+                self.assertEqual(rows[0]["top_capital_rejected_targets"][:2], ["MSFT", "NVDA"])
+                self.assertEqual(rows[0]["open_position_count_after"], 1)
+        finally:
+            replay_module._load_candidate_policy_bars = original_bars_loader
+            replay_module._candidate_handoff_for_replay = original_handoff
+            replay_module._build_entry_calibration = original_calibration
+            replay_module._candidate_layer_outputs = original_layer_outputs
+            replay_module._load_option_candidate_features = original_feature_loader
+            replay_module._load_option_candidate_features_for_timestamp = original_point_feature_loader
 
     def test_candidate_policy_replay_rejects_partial_candidate_bar_coverage(self):
         with tempfile.TemporaryDirectory() as tmp:
