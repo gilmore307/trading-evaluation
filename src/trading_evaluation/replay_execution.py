@@ -203,6 +203,9 @@ def build_candidate_policy_replay_execution_run(
     candidate_handoff_table: str = "model_02_sector_context_data_acquisition",
     candidate_universe_path: Path | None = None,
     initial_capital_usd: float = DEFAULT_REPLAY_INITIAL_CAPITAL_USD,
+    portfolio_max_positions: int = 5,
+    portfolio_position_notional_fraction: float = 0.20,
+    portfolio_switch_minimum_rank_score_delta: float = 0.05,
 ) -> ReplayExecutionResult:
     """Run candidate-policy replay over frozen crypto plus materialized equity bars."""
 
@@ -211,6 +214,11 @@ def build_candidate_policy_replay_execution_run(
         raise ValueError("after_cost_alpha_model is required for replay Layer 5 inference")
     _validate_after_cost_alpha_model_for_replay(after_cost_alpha_model)
     initial_capital_usd = _validated_initial_capital_usd(initial_capital_usd)
+    _validate_portfolio_replay_policy(
+        max_positions=portfolio_max_positions,
+        position_notional_fraction=portfolio_position_notional_fraction,
+        switch_minimum_rank_score_delta=portfolio_switch_minimum_rank_score_delta,
+    )
     manifest = _load_json(dataset_root / "dataset_manifest.json")
     freeze_receipt_path = dataset_root / "replay_freeze_receipt.json"
     freeze_receipt: dict[str, Any] | None = None
@@ -294,6 +302,18 @@ def build_candidate_policy_replay_execution_run(
         validation_month_count=calibration_window_month_count,
         max_decision_rows=max_decision_rows,
     )
+    selected_equity_replay_keys, precomputed_layer_outputs, portfolio_selection_summary = (
+        _select_candidate_policy_portfolio_replay_keys(
+            bars_by_target=bars_by_target,
+            candidate_model_ref=candidate_model_ref,
+            after_cost_alpha_model=after_cost_alpha_model,
+            entry_calibration=entry_calibration,
+            initial_capital_usd=initial_capital_usd,
+            max_positions=portfolio_max_positions,
+            position_notional_fraction=portfolio_position_notional_fraction,
+            switch_minimum_rank_score_delta=portfolio_switch_minimum_rank_score_delta,
+        )
+    )
     decision_rows = _build_candidate_policy_decision_rows(
         bars_by_target=bars_by_target,
         market_dates=market_dates,
@@ -307,6 +327,8 @@ def build_candidate_policy_replay_execution_run(
         option_contract_paths_by_symbol=option_contract_paths_by_symbol,
         option_feature_requirements_path=option_feature_requirements_path,
         allow_option_feature_requirements=_candidate_handoff_allows_option_feature_requirements(candidate_handoff),
+        selected_equity_replay_keys=selected_equity_replay_keys,
+        precomputed_layer_outputs=precomputed_layer_outputs,
     )
     option_replay_coverage = _option_replay_coverage_summary(
         bars_by_target=bars_by_target,
@@ -333,9 +355,27 @@ def build_candidate_policy_replay_execution_run(
         "initial_capital": {
             "amount": initial_capital_usd,
             "currency": REPLAY_INITIAL_CAPITAL_CURRENCY,
-            "role": "replay_equity_path_and_return_normalization",
+            "role": (
+                "finite_capital_portfolio_replay_budget"
+                if include_equity
+                else "replay_equity_path_and_return_normalization"
+            ),
             "broker_or_account_state": False,
         },
+        "portfolio_replay_policy": {
+            "enabled_for_equity_options_sleeve": bool(include_equity),
+            "time_major_candidate_selection": bool(include_equity),
+            "max_positions": portfolio_max_positions,
+            "position_notional_fraction": portfolio_position_notional_fraction,
+            "switch_minimum_rank_score_delta": portfolio_switch_minimum_rank_score_delta,
+            "m05_trigger_policy": "only_capital_selected_m04_equity_intents_request_option_expression",
+            "ranking_policy": {
+                "rank_field": "diagnostic_rank_score",
+                "role": "cross_target_ordering_for_replay_capital_feasibility",
+                "formula": "positive(alpha_score-min_alpha) * positive(trade_intensity-min_trade_intensity) * positive(expected_return_score) * positive(action_direction_score)",
+            },
+        },
+        "portfolio_selection_summary": portfolio_selection_summary,
         "candidate_model_ref": candidate_model_ref,
         "after_cost_alpha_model_ref": after_cost_alpha_model_ref,
         "replay_contract_ref": replay_contract_ref,
@@ -409,8 +449,9 @@ def build_candidate_policy_replay_execution_run(
             "C01-C07 component artifacts share live execution output contracts; evaluation_replay_decision_row is a settlement view",
             "each replay decision has an explicit replay_time_pointer; decision inputs after that pointer are invalid",
             "equity/options account requires point-in-time M05 option features at each replay decision timestamp",
+            "equity/options replay is time-major and finite-capital: only portfolio-selected M04 intents may request M05 option expression",
             "listed option decisions use M05 selected-contract paths when available; missing selected-contract paths are data-coverage diagnostics and not executable fills",
-            "initial capital is a replay-normalization input for equity-path diagnostics and never broker/account state",
+            "initial capital is replay-local simulated budget and never broker/account state",
             "this run emits settlement-ready decision rows but is not a promotion eligibility decision",
         ],
     }
@@ -866,6 +907,153 @@ def _portfolio_trace_position_value(position: Mapping[str, Any]) -> float:
     return _safe_float(position.get("notional")) or 0.0
 
 
+def _validate_portfolio_replay_policy(
+    *,
+    max_positions: int,
+    position_notional_fraction: float,
+    switch_minimum_rank_score_delta: float,
+) -> None:
+    if max_positions <= 0:
+        raise ValueError("portfolio max_positions must be a positive integer")
+    if position_notional_fraction <= 0.0 or position_notional_fraction > 1.0:
+        raise ValueError("portfolio position_notional_fraction must be in (0, 1]")
+    if switch_minimum_rank_score_delta < 0.0:
+        raise ValueError("portfolio switch_minimum_rank_score_delta must be non-negative")
+
+
+def _select_candidate_policy_portfolio_replay_keys(
+    *,
+    bars_by_target: Mapping[str, Sequence[Mapping[str, Any]]],
+    candidate_model_ref: str,
+    after_cost_alpha_model: Mapping[str, Any],
+    entry_calibration: EntryCalibration,
+    initial_capital_usd: float,
+    max_positions: int,
+    position_notional_fraction: float,
+    switch_minimum_rank_score_delta: float,
+) -> tuple[set[tuple[str, int]], dict[tuple[str, int], dict[str, Any]], dict[str, Any]]:
+    _validate_portfolio_replay_policy(
+        max_positions=max_positions,
+        position_notional_fraction=position_notional_fraction,
+        switch_minimum_rank_score_delta=switch_minimum_rank_score_delta,
+    )
+    history_by_target = {target: list(bars) for target, bars in bars_by_target.items()}
+    index_by_target_date = {
+        target: {str(row["date"]): index for index, row in enumerate(target_rows)}
+        for target, target_rows in history_by_target.items()
+    }
+    market_universe_by_date = _market_universe_by_date(
+        history_by_target=history_by_target,
+        index_by_target_date=index_by_target_date,
+    )
+    candidates_by_time: dict[str, list[tuple[str, int, Mapping[str, Any]]]] = defaultdict(list)
+    for target in sorted(history_by_target):
+        target_rows = history_by_target[target]
+        for index, bar in enumerate(target_rows[:-1]):
+            if str(bar.get("asset_class") or "") != "us_equity":
+                continue
+            candidates_by_time[_replay_time_pointer_for_bar(bar)].append((target, index, bar))
+
+    cash = initial_capital_usd
+    position_budget = initial_capital_usd * position_notional_fraction
+    positions: dict[str, dict[str, Any]] = {}
+    selected_keys: set[tuple[str, int]] = set()
+    layer_outputs_by_key: dict[tuple[str, int], dict[str, Any]] = {}
+    summary = {
+        "timestamp_count": 0,
+        "candidate_count": 0,
+        "m04_trade_intent_count": 0,
+        "independent_m05_signal_count": 0,
+        "capital_selected_m05_count": 0,
+        "avoided_m05_request_count": 0,
+        "final_cash": initial_capital_usd,
+        "final_position_count": 0,
+        "final_position_targets": [],
+    }
+
+    for timestamp in sorted(candidates_by_time, key=_timestamp_sort_key):
+        timestamp_candidates: list[dict[str, Any]] = []
+        for target, index, bar in candidates_by_time[timestamp]:
+            target_rows = history_by_target[target]
+            date_text = str(bar["date"])
+            reference_price = float(bar["bar_close"])
+            key = (target, index)
+            layer_outputs = _candidate_layer_outputs(
+                target=target,
+                target_rows=target_rows,
+                index=index,
+                market_universe=market_universe_by_date.get(date_text, ()),
+                reference_price=reference_price,
+                candidate_model_ref=candidate_model_ref,
+                after_cost_alpha_model=after_cost_alpha_model,
+                entry_calibration=entry_calibration.artifact,
+            )
+            layer_outputs_by_key[key] = layer_outputs
+            diagnostics = _portfolio_trace_candidate_diagnostics(
+                target=target,
+                timestamp=timestamp,
+                reference_price=reference_price,
+                layer_outputs=layer_outputs,
+            )
+            summary["candidate_count"] += 1
+            if diagnostics["m04_trade_intent"]:
+                summary["m04_trade_intent_count"] += 1
+            if _option_expression_signal_required(layer_outputs):
+                diagnostics["key"] = key
+                timestamp_candidates.append(diagnostics)
+                summary["independent_m05_signal_count"] += 1
+
+        timestamp_candidates.sort(key=lambda row: (-float(row["diagnostic_rank_score"]), str(row["target_ref"])))
+        selected_this_timestamp = 0
+        for candidate in timestamp_candidates:
+            target = str(candidate["target_ref"])
+            if target in positions:
+                positions[target]["last_rank_score"] = candidate["diagnostic_rank_score"]
+                positions[target]["last_price"] = candidate["reference_price"]
+                continue
+            if len(positions) < max_positions and cash > 0.0:
+                notional = min(position_budget, cash)
+                if notional <= 0.0:
+                    continue
+                positions[target] = _portfolio_trace_position(
+                    candidate=candidate,
+                    notional=notional,
+                    opened_at=timestamp,
+                )
+                cash -= notional
+                selected_keys.add(candidate["key"])
+                selected_this_timestamp += 1
+                continue
+            if not positions:
+                continue
+            worst_target, worst_position = min(
+                positions.items(),
+                key=lambda item: (float(item[1].get("last_rank_score") or item[1].get("entry_rank_score") or 0.0), item[0]),
+            )
+            candidate_score = float(candidate["diagnostic_rank_score"])
+            worst_score = float(worst_position.get("last_rank_score") or worst_position.get("entry_rank_score") or 0.0)
+            if candidate_score - worst_score < switch_minimum_rank_score_delta:
+                continue
+            cash += _portfolio_trace_position_value(worst_position)
+            del positions[worst_target]
+            notional = min(position_budget, cash)
+            if notional <= 0.0:
+                continue
+            positions[target] = _portfolio_trace_position(candidate=candidate, notional=notional, opened_at=timestamp)
+            cash -= notional
+            selected_keys.add(candidate["key"])
+            selected_this_timestamp += 1
+
+        summary["timestamp_count"] += 1
+        summary["capital_selected_m05_count"] += selected_this_timestamp
+        summary["avoided_m05_request_count"] += max(0, len(timestamp_candidates) - selected_this_timestamp)
+
+    summary["final_cash"] = round(cash, 6)
+    summary["final_position_count"] = len(positions)
+    summary["final_position_targets"] = sorted(positions)
+    return selected_keys, layer_outputs_by_key, summary
+
+
 def _require_candidate_model_ref(candidate_model_ref: str) -> str:
     text = str(candidate_model_ref or "").strip()
     if not text:
@@ -1242,6 +1430,8 @@ def _build_candidate_policy_decision_rows(
     option_contract_paths_by_symbol: Mapping[str, Sequence[Mapping[str, Any]]],
     option_feature_requirements_path: Path | None = None,
     allow_option_feature_requirements: bool = True,
+    selected_equity_replay_keys: set[tuple[str, int]] | None = None,
+    precomputed_layer_outputs: Mapping[tuple[str, int], Mapping[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     missing_option_feature_requirements: list[dict[str, str]] = []
@@ -1254,9 +1444,28 @@ def _build_candidate_policy_decision_rows(
         history_by_target=history_by_target,
         index_by_target_date=index_by_target_date,
     )
+    if selected_equity_replay_keys is None:
+        selected_equity_replay_keys, precomputed_layer_outputs, _ = _select_candidate_policy_portfolio_replay_keys(
+            bars_by_target=bars_by_target,
+            candidate_model_ref=candidate_model_ref,
+            after_cost_alpha_model=after_cost_alpha_model,
+            entry_calibration=entry_calibration,
+            initial_capital_usd=DEFAULT_REPLAY_INITIAL_CAPITAL_USD,
+            max_positions=5,
+            position_notional_fraction=0.20,
+            switch_minimum_rank_score_delta=0.05,
+        )
+    precomputed_layer_outputs = precomputed_layer_outputs or {}
+    replay_items: list[tuple[float, str, int]] = []
     for target in sorted(history_by_target):
-        target_rows = history_by_target[target]
-        for index, bar in enumerate(target_rows[:-1]):
+        for index, bar in enumerate(history_by_target[target][:-1]):
+            key = (target, index)
+            if str(bar.get("asset_class") or "") == "us_equity" and key not in selected_equity_replay_keys:
+                continue
+            replay_items.append((_timestamp_sort_key(_replay_time_pointer_for_bar(bar)), target, index))
+    for _, target, index in sorted(replay_items, key=lambda item: (item[0], item[1], item[2])):
+            target_rows = history_by_target[target]
+            bar = target_rows[index]
             if max_decision_rows is not None and len(rows) >= max_decision_rows:
                 return rows
             next_bar = target_rows[index + 1]
@@ -1264,16 +1473,18 @@ def _build_candidate_policy_decision_rows(
             date_text = str(bar["date"])
             market_universe = market_universe_by_date.get(date_text, ())
             reference_price = float(bar["bar_close"])
-            layer_outputs = _candidate_layer_outputs(
-                target=target,
-                target_rows=target_rows,
-                index=index,
-                market_universe=market_universe,
-                reference_price=reference_price,
-                candidate_model_ref=candidate_model_ref,
-                after_cost_alpha_model=after_cost_alpha_model,
-                entry_calibration=entry_calibration.artifact,
-            )
+            layer_outputs = dict(precomputed_layer_outputs.get((target, index)) or {})
+            if not layer_outputs:
+                layer_outputs = _candidate_layer_outputs(
+                    target=target,
+                    target_rows=target_rows,
+                    index=index,
+                    market_universe=market_universe,
+                    reference_price=reference_price,
+                    candidate_model_ref=candidate_model_ref,
+                    after_cost_alpha_model=after_cost_alpha_model,
+                    entry_calibration=entry_calibration.artifact,
+                )
             option_candidates: Sequence[Mapping[str, Any]] = ()
             option_expression_plan: Mapping[str, Any] | None = None
             if str(bar.get("asset_class") or "") == "us_equity" and _option_expression_signal_required(layer_outputs):

@@ -63,6 +63,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=Path,
         help="Load the fixed historical replay candidate universe CSV. Defaults to the storage repo shared artifact.",
     )
+    parser.add_argument("--portfolio-max-positions", type=int, default=5)
+    parser.add_argument("--portfolio-position-notional-fraction", type=float, default=0.20)
+    parser.add_argument("--portfolio-switch-minimum-rank-score-delta", type=float, default=0.05)
     args = parser.parse_args(argv)
     after_cost_alpha_model = json.loads(args.after_cost_alpha_model_json.read_text(encoding="utf-8"))
 
@@ -91,6 +94,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         candidate_handoff_schema=args.candidate_handoff_schema,
         candidate_handoff_table=args.candidate_handoff_table,
         candidate_universe_path=args.candidate_universe_path,
+        portfolio_max_positions=args.portfolio_max_positions,
+        portfolio_position_notional_fraction=args.portfolio_position_notional_fraction,
+        portfolio_switch_minimum_rank_score_delta=args.portfolio_switch_minimum_rank_score_delta,
     )
     print(json.dumps(result.receipt, indent=2, sort_keys=True))
     return 0

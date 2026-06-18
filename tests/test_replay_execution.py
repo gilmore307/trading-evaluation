@@ -668,7 +668,10 @@ class ReplayExecutionTests(unittest.TestCase):
     def test_candidate_policy_replay_uses_layer_two_candidate_handoff_symbols(self):
         original_loader = replay_module._load_layer_two_candidate_handoff_rows
         original_feature_loader = replay_module._load_option_candidate_features
+        original_point_feature_loader = replay_module._load_option_candidate_features_for_timestamp
         original_plan_builder = replay_module._option_expression_plan_for_bar
+        original_layer_outputs = replay_module._candidate_layer_outputs
+        original_path_loader = replay_module._load_option_contract_path_bars
         try:
             replay_module._load_layer_two_candidate_handoff_rows = lambda **_: [
                 {
@@ -682,12 +685,17 @@ class ReplayExecutionTests(unittest.TestCase):
             replay_module._load_option_candidate_features = lambda **_: {
                 ("AAPL", "2021-01-04T16:00:00-05:00"): [{"contract_ref": "AAPL_2021-01-15_C_100"}]
             }
+            replay_module._load_option_candidate_features_for_timestamp = lambda **_: [
+                {"contract_ref": "AAPL_2021-01-15_C_100"}
+            ]
             replay_module._option_expression_plan_for_bar = lambda **_: {
                 "model_ref": "storage://trading-manager/model_group/test_fold/model_05_option_expression/test",
                 "target_ref": "AAPL",
                 "asset_expression_route": "option_expression_unfilled",
-                "option_surface_status": "optionable_chain_available",
-            }
+                    "option_surface_status": "optionable_chain_available",
+                }
+            replay_module._candidate_layer_outputs = lambda **_: _current_layer_outputs()
+            replay_module._load_option_contract_path_bars = lambda **_: {}
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 dataset_root = self._dataset(root)
@@ -700,7 +708,7 @@ class ReplayExecutionTests(unittest.TestCase):
                     equity_source_root=equity_source_root,
                     include_crypto=False,
                     max_decision_rows=1,
-                    option_feature_database_url="",
+                    option_feature_database_url="postgresql://example/unused",
                 )
 
                 self.assertEqual(result.receipt["candidate_handoff_status"], "available")
@@ -711,7 +719,10 @@ class ReplayExecutionTests(unittest.TestCase):
         finally:
             replay_module._load_layer_two_candidate_handoff_rows = original_loader
             replay_module._load_option_candidate_features = original_feature_loader
+            replay_module._load_option_candidate_features_for_timestamp = original_point_feature_loader
             replay_module._option_expression_plan_for_bar = original_plan_builder
+            replay_module._candidate_layer_outputs = original_layer_outputs
+            replay_module._load_option_contract_path_bars = original_path_loader
 
     def test_candidate_policy_replay_uses_fixed_historical_candidate_universe(self):
         original_plan_builder = replay_module._option_expression_plan_for_bar
@@ -857,6 +868,101 @@ class ReplayExecutionTests(unittest.TestCase):
             replay_module._candidate_layer_outputs = original_layer_outputs
             replay_module._load_option_candidate_features = original_feature_loader
             replay_module._load_option_candidate_features_for_timestamp = original_point_feature_loader
+
+    def test_candidate_policy_replay_requests_m05_only_for_portfolio_selected_equity_intents(self):
+        original_bars_loader = replay_module._load_candidate_policy_bars
+        original_handoff = replay_module._candidate_handoff_for_replay
+        original_calibration = replay_module._build_entry_calibration
+        original_layer_outputs = replay_module._candidate_layer_outputs
+        original_path_loader = replay_module._load_option_contract_path_bars
+        symbols = ("AAPL", "MSFT")
+
+        def fake_bars(**_):
+            rows = {}
+            for offset, symbol in enumerate(symbols):
+                price = 100.0 + offset
+                rows[symbol] = [
+                    {
+                        "symbol": symbol,
+                        "asset_class": "us_equity",
+                        "source_id": "alpaca_bars",
+                        "timestamp": "2021-01-04T16:00:00-05:00",
+                        "date": "2021-01-04",
+                        "bar_open": price,
+                        "bar_high": price + 1.0,
+                        "bar_low": price - 1.0,
+                        "bar_close": price,
+                        "bar_volume": 1000.0,
+                    },
+                    {
+                        "symbol": symbol,
+                        "asset_class": "us_equity",
+                        "source_id": "alpaca_bars",
+                        "timestamp": "2021-01-05T16:00:00-05:00",
+                        "date": "2021-01-05",
+                        "bar_open": price,
+                        "bar_high": price + 2.0,
+                        "bar_low": price - 1.0,
+                        "bar_close": price + 1.0,
+                        "bar_volume": 1200.0,
+                    },
+                ]
+            return rows
+
+        def fake_calibration(*, output_path, **_):
+            artifact = {
+                "contract_type": "validation_entry_threshold_calibration",
+                "calibration_status": "test_fixed_thresholds",
+                "selected_thresholds": {
+                    "minimum_entry_alpha_confidence": 0.50,
+                    "minimum_trade_intensity": 0.05,
+                },
+            }
+            output_path.write_text(json.dumps(artifact, sort_keys=True) + "\n", encoding="utf-8")
+            return replay_module.EntryCalibration(artifact=artifact, path=output_path)
+
+        def fake_layer_outputs(*, target, **_):
+            alpha_by_target = {"AAPL": 0.90, "MSFT": 0.80}
+            return _current_layer_outputs(alpha_score=alpha_by_target[target])
+
+        try:
+            replay_module._load_candidate_policy_bars = fake_bars
+            replay_module._candidate_handoff_for_replay = lambda **_: {
+                "status": "available",
+                "source": "fixed_current_snapshot_historical_candidate_universe",
+                "candidate_symbols": symbols,
+                "row_count": len(symbols),
+                "artifact_ref": "memory://test",
+            }
+            replay_module._build_entry_calibration = fake_calibration
+            replay_module._candidate_layer_outputs = fake_layer_outputs
+            replay_module._load_option_contract_path_bars = lambda **_: {}
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                dataset_root = self._dataset(root)
+                with self.assertRaisesRegex(ValueError, "replay_option_feature_acquisition_required") as raised:
+                    build_candidate_policy_replay_execution_run(
+                        dataset_root=dataset_root,
+                        run_id="test_portfolio_selected_requirements",
+                        candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                        after_cost_alpha_model=_after_cost_alpha_model(),
+                        include_crypto=False,
+                        option_feature_database_url="",
+                        portfolio_max_positions=1,
+                        portfolio_position_notional_fraction=1.0,
+                        portfolio_switch_minimum_rank_score_delta=999.0,
+                    )
+
+                payload = json.loads(str(raised.exception).split(": ", 1)[1])
+                self.assertEqual(payload["missing_count"], 1)
+                self.assertEqual(payload["sample"][0]["target_ref"], "AAPL")
+                self.assertNotIn("MSFT", json.dumps(payload))
+        finally:
+            replay_module._load_candidate_policy_bars = original_bars_loader
+            replay_module._candidate_handoff_for_replay = original_handoff
+            replay_module._build_entry_calibration = original_calibration
+            replay_module._candidate_layer_outputs = original_layer_outputs
+            replay_module._load_option_contract_path_bars = original_path_loader
 
     def test_candidate_policy_replay_rejects_partial_candidate_bar_coverage(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1118,7 +1224,7 @@ class ReplayExecutionTests(unittest.TestCase):
                     max_decision_rows=1,
                     option_feature_database_url="",
                 )
-                self.assertEqual(result.receipt["decision_row_count"], 1)
+                self.assertEqual(result.receipt["decision_row_count"], 0)
                 self.assertEqual(result.receipt["max_decision_rows"], 1)
                 self.assertEqual(result.receipt["replay_completion_scope"], "bounded_diagnostic")
             finally:
@@ -1195,6 +1301,7 @@ class ReplayExecutionTests(unittest.TestCase):
         original_point_feature_loader = replay_module._load_option_candidate_features_for_timestamp
         original_path_loader = replay_module._load_option_contract_path_bars
         original_plan_builder = replay_module._option_expression_plan_for_bar
+        original_layer_outputs = replay_module._candidate_layer_outputs
         try:
             replay_module._load_option_candidate_features = lambda **_: {
                 ("AAPL", "2021-01-04T16:00:00-05:00"): [
@@ -1240,6 +1347,7 @@ class ReplayExecutionTests(unittest.TestCase):
                     "mid_price": 2.15,
                 },
             }
+            replay_module._candidate_layer_outputs = lambda **_: _current_layer_outputs()
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 dataset_root = self._dataset(root)
@@ -1251,6 +1359,7 @@ class ReplayExecutionTests(unittest.TestCase):
                     after_cost_alpha_model=_after_cost_alpha_model(),
                     equity_source_root=equity_source_root,
                     equity_symbols=["AAPL"],
+                    include_crypto=False,
                     max_decision_rows=1,
                     option_feature_database_url="postgresql://example/unused",
                 )
@@ -1276,12 +1385,15 @@ class ReplayExecutionTests(unittest.TestCase):
             replay_module._load_option_candidate_features_for_timestamp = original_point_feature_loader
             replay_module._load_option_contract_path_bars = original_path_loader
             replay_module._option_expression_plan_for_bar = original_plan_builder
+            replay_module._candidate_layer_outputs = original_layer_outputs
+            replay_module._load_option_contract_path_bars = original_path_loader
 
     def test_candidate_policy_replay_rejects_selected_option_when_contract_path_missing(self):
         original_feature_loader = replay_module._load_option_candidate_features
         original_point_feature_loader = replay_module._load_option_candidate_features_for_timestamp
         original_path_loader = replay_module._load_option_contract_path_bars
         original_plan_builder = replay_module._option_expression_plan_for_bar
+        original_layer_outputs = replay_module._candidate_layer_outputs
         try:
             replay_module._load_option_candidate_features = lambda **_: {
                 ("AAPL", "2021-01-04T16:00:00-05:00"): [
@@ -1322,6 +1434,7 @@ class ReplayExecutionTests(unittest.TestCase):
                     "mid_price": 2.15,
                 },
             }
+            replay_module._candidate_layer_outputs = lambda **_: _current_layer_outputs()
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 result = build_candidate_policy_replay_execution_run(
@@ -1331,6 +1444,7 @@ class ReplayExecutionTests(unittest.TestCase):
                     after_cost_alpha_model=_after_cost_alpha_model(),
                     equity_source_root=self._equity_source_root(root),
                     equity_symbols=["AAPL"],
+                    include_crypto=False,
                     max_decision_rows=1,
                     option_feature_database_url="postgresql://example/unused",
                 )
@@ -1353,6 +1467,7 @@ class ReplayExecutionTests(unittest.TestCase):
             replay_module._load_option_candidate_features_for_timestamp = original_point_feature_loader
             replay_module._load_option_contract_path_bars = original_path_loader
             replay_module._option_expression_plan_for_bar = original_plan_builder
+            replay_module._candidate_layer_outputs = original_layer_outputs
 
     def test_option_expression_plan_selects_loaded_contract_candidate(self):
         plan = replay_module._option_expression_plan_for_bar(
@@ -1630,6 +1745,7 @@ def _current_layer_outputs(
     entry_style: str = "limit_near_mid",
     alpha_score: float = 0.82,
     trade_intensity: float = 0.12,
+    action_confidence: float = 0.82,
     action_direction: float = 0.18,
     expected_return: float = 0.04,
 ) -> dict[str, object]:
@@ -1683,6 +1799,7 @@ def _current_layer_outputs(
                 "resolved_action_side": action_side,
                 "dominant_horizon_scores": {
                     "trade_intensity_score": trade_intensity,
+                    "action_confidence_score": action_confidence,
                     "action_direction_score": action_direction,
                     "expected_return_score": expected_return,
                     "minimum_trade_intensity": 0.05,
