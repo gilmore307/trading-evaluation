@@ -52,12 +52,9 @@ DEFAULT_DATASET_ROOT = Path("/root/projects/trading-storage/storage/05_replay_da
 DEFAULT_DB_URL_FILE = Path("/root/secrets/openclaw/database-url")
 DEFAULT_CANDIDATE_UNIVERSE_FILENAME = "historical_candidate_universe.csv"
 MODEL_EVIDENCE_CHAIN = (
-    "model_01_market_regime_state",
-    "model_02_sector_context_state",
-    "model_03_target_state_vector_state",
     "model_03_event_state",
-    "model_04_event_failure_risk",
-    "model_05_alpha_confidence",
+    "model_01_background_context",
+    "model_02_target_state",
     "model_04_unified_decision",
     "model_05_option_expression",
     "model_06_residual_event_governance",
@@ -201,7 +198,7 @@ def build_candidate_policy_replay_execution_run(
     option_contract_path_table: str = "model_05_option_expression_data_acquisition_contract_path",
     candidate_handoff_database_url: str | None = None,
     candidate_handoff_schema: str = "trading_data",
-    candidate_handoff_table: str = "model_02_sector_context_data_acquisition",
+    candidate_handoff_table: str = "model_02_target_state_data_acquisition",
     candidate_universe_path: Path | None = None,
     initial_capital_usd: float = DEFAULT_REPLAY_INITIAL_CAPITAL_USD,
     portfolio_max_positions: int = DEFAULT_PORTFOLIO_MAX_POSITIONS,
@@ -378,6 +375,8 @@ def build_candidate_policy_replay_execution_run(
             "target_allocation_fraction_role": "model_output_target_allocation_fraction_times_total_budget_not_single_position_cap",
             "default_fraction_role": "fallback_only_when_model_output_target_allocation_fraction_is_missing",
             "switch_minimum_rank_score_delta": portfolio_switch_minimum_rank_score_delta,
+            "switch_policy": "no_continuous_rebalance; replace_worst_held_only_when_new_rank_exceeds_threshold",
+            "position_invalidation_policy": "existing_position_exit_reduce_stop_take_profit_belongs_to_execution_c03_lifecycle_before_released_capital_reenters_ranked_candidate_path",
             "m05_trigger_policy": "ranked_m04_equity_intents_use_point_in_time_m05_selected_contract_cost_for_affordability",
             "position_sizing_policy": "rank_ordered_best_first_no_fixed_top_n_minimum_notional_floor_option_contract_round_up",
             "ranking_policy": {
@@ -495,7 +494,7 @@ def build_candidate_policy_portfolio_trace_audit(
     replay_month: str | None = None,
     candidate_handoff_database_url: str | None = None,
     candidate_handoff_schema: str = "trading_data",
-    candidate_handoff_table: str = "model_02_sector_context_data_acquisition",
+    candidate_handoff_table: str = "model_02_target_state_data_acquisition",
     candidate_universe_path: Path | None = None,
     initial_capital_usd: float = DEFAULT_REPLAY_INITIAL_CAPITAL_USD,
     max_trace_timestamps: int | None = 20,
@@ -628,6 +627,8 @@ def build_candidate_policy_portfolio_trace_audit(
         "max_positions": max_positions,
         "default_target_allocation_fraction": default_target_allocation_fraction,
         "switch_minimum_rank_score_delta": switch_minimum_rank_score_delta,
+        "switch_policy": "no_continuous_rebalance; replace_worst_held_only_when_new_rank_exceeds_threshold",
+        "position_invalidation_policy": "existing_position_exit_reduce_stop_take_profit_belongs_to_execution_c03_lifecycle_before_released_capital_reenters_ranked_candidate_path",
         "max_trace_timestamps": max_trace_timestamps,
         "timestamp_count": trace_summary["timestamp_count"],
         "candidate_count": trace_summary["candidate_count"],
@@ -853,7 +854,7 @@ def _portfolio_trace_candidate_diagnostics(
 ) -> dict[str, Any]:
     diagnostics = _as_mapping(layer_outputs.get("model_layer_diagnostics"))
     thresholds = _as_mapping(diagnostics.get("entry_thresholds"))
-    alpha_diagnostics = _as_mapping(diagnostics.get("model_05_alpha_confidence"))
+    utility_diagnostics = _as_mapping(diagnostics.get("entry_utility"))
     layer4 = _as_mapping(diagnostics.get("model_04_unified_decision"))
     dominant = _as_mapping(layer4.get("dominant_horizon_scores"))
     plan = _as_mapping(layer_outputs.get("direct_underlying_intent"))
@@ -882,7 +883,7 @@ def _portfolio_trace_candidate_diagnostics(
         "action_side": action_side,
         "entry_style": str(plan.get("entry_style") or _as_mapping(plan.get("handoff_to_model_05")).get("entry_price_assumption") or ""),
         "alpha_score": alpha_score,
-        "alpha_gate_status": str(alpha_diagnostics.get("alpha_gate_status") or ""),
+        "alpha_gate_status": str(utility_diagnostics.get("utility_gate_status") or ""),
         "minimum_entry_alpha_confidence": minimum_alpha,
         "trade_intensity_score": trade_intensity,
         "minimum_trade_intensity": minimum_trade_intensity,
@@ -1118,6 +1119,9 @@ def _select_candidate_policy_portfolio_replay_keys(
         "target_allocation_fraction_role": "model_output_target_allocation_fraction_times_total_budget_not_single_position_cap",
         "max_positions": max_positions,
         "max_positions_role": "unbounded_when_zero" if max_positions == 0 else "optional_position_count_limit",
+        "switch_minimum_rank_score_delta": switch_minimum_rank_score_delta,
+        "switch_policy": "no_continuous_rebalance; replace_worst_held_only_when_new_rank_exceeds_threshold",
+        "position_invalidation_policy": "existing_position_exit_reduce_stop_take_profit_belongs_to_execution_c03_lifecycle",
         "final_cash": initial_capital_usd,
         "final_position_count": 0,
         "final_position_targets": [],
@@ -1270,6 +1274,10 @@ def _validated_initial_capital_usd(value: float) -> float:
 
 
 def _validate_after_cost_alpha_model_for_replay(after_cost_alpha_model: Mapping[str, Any]) -> None:
+    if _safe_float(after_cost_alpha_model.get("score")) is not None:
+        return
+    if after_cost_alpha_model.get("contract_type") == "current_replay_entry_utility_model_bundle":
+        return
     artifacts = after_cost_alpha_model.get("artifacts_by_horizon")
     if isinstance(artifacts, Mapping):
         artifact_items = [(str(horizon), artifact) for horizon, artifact in artifacts.items()]
@@ -1277,15 +1285,15 @@ def _validate_after_cost_alpha_model_for_replay(after_cost_alpha_model: Mapping[
         horizon = str(after_cost_alpha_model.get("horizon") or "unknown")
         artifact_items = [(horizon, after_cost_alpha_model)]
     if not artifact_items:
-        raise ValueError("degenerate_after_cost_alpha_artifact: artifact bundle contains no horizons")
+        raise ValueError("degenerate_entry_utility_artifact: artifact bundle contains no horizons")
     degenerate: list[str] = []
     for horizon, artifact in artifact_items:
         if not isinstance(artifact, Mapping) or _after_cost_artifact_is_degenerate(artifact):
             degenerate.append(horizon)
     if degenerate:
         raise ValueError(
-            "degenerate_after_cost_alpha_artifact: "
-            "Layer 5 after-cost alpha artifact has no usable LightGBM split structure for "
+            "degenerate_entry_utility_artifact: "
+            "entry utility artifact has no usable split structure for "
             + ", ".join(sorted(degenerate))
         )
 
@@ -1378,7 +1386,7 @@ def _build_entry_calibration(
         "candidate_model_ref": candidate_model_ref,
         "replay_contract_ref": replay_contract_ref,
         "generated_at_utc": generated_at_utc,
-        "calibration_method": "current_model_05_alpha_confidence_and_model_04_trade_intensity_validation_selection",
+        "calibration_method": "current_m04_entry_utility_and_trade_intensity_validation_selection",
         "observation_scope": "validation_months_only",
         "validation_months": observed_validation_months,
         "candidate_validation_months": list(validation_months),
@@ -1390,9 +1398,9 @@ def _build_entry_calibration(
         "calibration_status": selected["status"],
         "candidate_threshold_count": selected["candidate_threshold_count"],
         "notes": [
-            "M05 after-cost alpha confidence uses the normalized entry boundary: 0.5 is neutral, above 0.5 is positive edge",
-            "validation selects M05 alpha confidence and M04 trade intensity thresholds from frozen replay observations",
-            "selection uses M05 alpha confidence, M04 trade intensity, positive expected-return direction, and next-bar validation utility after replay costs",
+            "entry utility uses the normalized entry boundary: 0.5 is neutral, above 0.5 is positive edge",
+            "validation selects entry utility and M04 trade intensity thresholds from frozen replay observations",
+            "selection uses entry utility, M04 trade intensity, positive expected-return direction, and next-bar validation utility after replay costs",
             "post-replay attribution is not used for same-run entry decisions",
         ],
     }
@@ -2753,7 +2761,7 @@ def _load_equity_bars_from_sql_bulk(
     symbol_windows: Mapping[str, Sequence[tuple[str, str]]],
     database_url: str | None,
     schema: str = "trading_data",
-    table: str = "model_01_market_regime_data_acquisition",
+    table: str = "model_02_target_state_data_acquisition",
 ) -> dict[str, list[dict[str, Any]]]:
     normalized_windows = {
         str(symbol).upper(): tuple((str(start), str(end)) for start, end in windows)
@@ -2770,7 +2778,7 @@ def _load_equity_bars_from_sql_bulk(
         import psycopg  # type: ignore
         from psycopg.rows import dict_row  # type: ignore
     except ModuleNotFoundError as exc:  # pragma: no cover
-        raise RuntimeError("psycopg is required to load SQL-retained replay equity bars") from exc
+        raise RuntimeError("psycopg is required to load SQL-backed replay equity bars") from exc
     with psycopg.connect(database_url, row_factory=dict_row) as conn:
         with conn.cursor() as cursor:
             cursor.execute("SELECT to_regclass(%s) AS table_ref", (f"{schema}.{table}",))
@@ -2820,7 +2828,7 @@ def _load_equity_bars_from_sql(
     end_date_exclusive: str,
     database_url: str | None,
     schema: str = "trading_data",
-    table: str = "model_01_market_regime_data_acquisition",
+    table: str = "model_02_target_state_data_acquisition",
 ) -> list[dict[str, Any]]:
     if not database_url or not symbol or not start_date or not end_date_exclusive:
         return []
@@ -2830,7 +2838,7 @@ def _load_equity_bars_from_sql(
         import psycopg  # type: ignore
         from psycopg.rows import dict_row  # type: ignore
     except ModuleNotFoundError as exc:  # pragma: no cover
-        raise RuntimeError("psycopg is required to load SQL-retained replay equity bars") from exc
+        raise RuntimeError("psycopg is required to load SQL-backed replay equity bars") from exc
     with psycopg.connect(database_url, row_factory=dict_row) as conn:
         with conn.cursor() as cursor:
             cursor.execute("SELECT to_regclass(%s) AS table_ref", (f"{schema}.{table}",))
@@ -3073,8 +3081,8 @@ def _option_expression_signal_required(layer_outputs: Mapping[str, Any]) -> bool
     if alpha_score < minimum_alpha:
         return False
 
-    alpha_diagnostics = _as_mapping(diagnostics.get("model_05_alpha_confidence"))
-    if str(alpha_diagnostics.get("alpha_gate_status") or "passed") != "passed":
+    utility_diagnostics = _as_mapping(diagnostics.get("entry_utility"))
+    if str(utility_diagnostics.get("utility_gate_status") or "passed") != "passed":
         return False
 
     layer4 = _as_mapping(diagnostics.get("model_04_unified_decision"))
@@ -3330,8 +3338,7 @@ def _candidate_layer_outputs(
     generators = _trading_model_generators()
     available_time = str(target_rows[index]["timestamp"])
     target_candidate_id = _target_candidate_id(target=target, available_time=available_time, candidate_model_ref=candidate_model_ref)
-    market_state = _market_context_state(market_universe=market_universe, candidate_model_ref=candidate_model_ref, available_time=available_time)
-    sector_state = _sector_context_state(candidate_model_ref=candidate_model_ref, available_time=available_time)
+    background_state = _background_context_state(market_universe=market_universe, candidate_model_ref=candidate_model_ref, available_time=available_time)
     target_state = _target_context_state(
         target=target,
         rows=target_rows,
@@ -3342,51 +3349,13 @@ def _candidate_layer_outputs(
     )
     event_state = _event_state_vector(candidate_model_ref=candidate_model_ref, available_time=available_time)
     quality_state = _quality_calibration_state()
-    event_failure_row = _generate_model_rows(
-        generators["model_04_event_failure_risk"],
-        [
-            {
-                "available_time": available_time,
-                "tradeable_time": available_time,
-                "target_candidate_id": target_candidate_id,
-                "market_context_state_ref": market_state.get("model_ref"),
-                "sector_context_state_ref": sector_state.get("model_ref"),
-                "target_context_state_ref": target_state.get("model_ref"),
-                "market_context_state": market_state,
-                "sector_context_state": sector_state,
-                "target_context_state": target_state,
-                "event_context_vector": event_state,
-            }
-        ],
-        validate_output=False,
-    )[0]
-    event_failure_vector = dict(_as_mapping(event_failure_row.get("event_failure_risk_vector")))
-    event_failure_vector["model_ref"] = f"{candidate_model_ref}/model_04_event_failure_risk/{event_failure_row['event_failure_risk_vector_ref']}"
-    alpha_row = _generate_model_rows(
-        generators["model_05_alpha_confidence"],
-        [
-            {
-                "available_time": available_time,
-                "tradeable_time": available_time,
-                "target_candidate_id": target_candidate_id,
-                "market_context_state_ref": market_state.get("model_ref"),
-                "sector_context_state_ref": sector_state.get("model_ref"),
-                "target_context_state_ref": target_state.get("model_ref"),
-                "event_failure_risk_vector_ref": event_failure_row["event_failure_risk_vector_ref"],
-                "market_context_state": market_state,
-                "sector_context_state": sector_state,
-                "target_context_state": target_state,
-                "event_failure_risk_vector": event_failure_vector,
-                "quality_calibration_state": quality_state,
-            }
-        ],
+    utility_score = _resolved_entry_utility_score(
         after_cost_alpha_model=after_cost_alpha_model,
-        validate_output=False,
-    )[0]
-    alpha_vector = dict(_as_mapping(alpha_row.get("alpha_confidence_vector")))
-    alpha_score = _resolved_alpha_score(alpha_vector)
+        target_state=target_state,
+        event_state=event_state,
+    )
 
-    policy_gate_state = _entry_policy_gate_state(entry_calibration, alpha_score=alpha_score)
+    policy_gate_state = _entry_policy_gate_state(entry_calibration, alpha_score=utility_score)
     unified_row = _generate_model_rows(
         generators["model_04_unified_decision"],
         [
@@ -3394,10 +3363,9 @@ def _candidate_layer_outputs(
                 "available_time": available_time,
                 "tradeable_time": available_time,
                 "target_candidate_id": target_candidate_id,
-                "background_context_state": market_state,
-                "sector_context_state": sector_state,
+                "background_context_state": background_state,
                 "target_context_state": target_state,
-                "event_state_vector": event_failure_vector,
+                "event_state_vector": event_state,
                 "quality_calibration_state": quality_state,
                 "portfolio_exposure_state": _flat_portfolio_state(),
                 "account_capacity_state": _account_capacity_state(),
@@ -3417,7 +3385,7 @@ def _candidate_layer_outputs(
         candidate_model_ref=candidate_model_ref,
         reference_price=reference_price,
         entry_calibration=entry_calibration,
-        alpha_score=alpha_score,
+        alpha_score=utility_score,
     )
     direct_intent = dict(unified_row["direct_underlying_intent"])
     direct_intent["model_ref"] = unified_decision["model_ref"]
@@ -3426,23 +3394,22 @@ def _candidate_layer_outputs(
     return {
         "target_candidate_id": target_candidate_id,
         "available_time": available_time,
-        "market_context_state": market_state,
+        "market_context_state": background_state,
         "target_context_state": target_state_for_execution,
-        "event_state_vector": event_failure_vector,
+        "event_state_vector": event_state,
         "unified_decision_vector": unified_decision,
         "direct_underlying_intent": direct_intent,
-        "prediction_score": alpha_score,
+        "prediction_score": utility_score,
         "model_layer_refs": {
-            "model_04_event_failure_risk": event_failure_row["event_failure_risk_vector_ref"],
-            "model_05_alpha_confidence": alpha_row["alpha_confidence_vector_ref"],
+            "model_01_background_context": background_state["model_ref"],
+            "model_02_target_state": target_state["model_ref"],
+            "model_03_event_state": event_state["model_ref"],
             "model_04_unified_decision": unified_row["unified_decision_vector_ref"],
         },
         "model_layer_diagnostics": _model_layer_diagnostics(
             unified_row=unified_row,
             unified_decision=unified_decision,
-            event_failure_row=event_failure_row,
-            alpha_row=alpha_row,
-            alpha_score=alpha_score,
+            utility_score=utility_score,
             entry_calibration=entry_calibration,
         ),
     }
@@ -3451,9 +3418,7 @@ def _candidate_layer_outputs(
 @lru_cache(maxsize=1)
 def _trading_model_generators() -> dict[str, Callable[..., list[dict[str, Any]]]]:
     try:
-        from models.model_04_event_failure_risk.generator import generate_rows as generate_event_failure_risk
         from models.model_04_unified_decision.generator import generate_rows as generate_unified_decision
-        from models.model_05_alpha_confidence.generator import generate_rows as generate_alpha_confidence
         from models.model_05_option_expression.generator import generate_rows as generate_option_expression
         from models.model_06_residual_event_governance.generator import generate_rows as generate_residual_event_governance
     except ModuleNotFoundError as exc:
@@ -3462,9 +3427,7 @@ def _trading_model_generators() -> dict[str, Callable[..., list[dict[str, Any]]]
             "include /root/projects/trading-model/src on PYTHONPATH"
         ) from exc
     return {
-        "model_04_event_failure_risk": generate_event_failure_risk,
         "model_04_unified_decision": generate_unified_decision,
-        "model_05_alpha_confidence": generate_alpha_confidence,
         "model_05_option_expression": generate_option_expression,
         "model_06_residual_event_governance": generate_residual_event_governance,
     }
@@ -3539,9 +3502,7 @@ def _model_layer_diagnostics(
     *,
     unified_row: Mapping[str, Any],
     unified_decision: Mapping[str, Any],
-    event_failure_row: Mapping[str, Any],
-    alpha_row: Mapping[str, Any],
-    alpha_score: float,
+    utility_score: float,
     entry_calibration: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     vector = _as_mapping(unified_row.get("unified_decision_vector"))
@@ -3554,18 +3515,11 @@ def _model_layer_diagnostics(
     selected_thresholds = _selected_entry_thresholds(entry_calibration)
     return {
         "entry_thresholds": selected_thresholds,
-        "model_04_event_failure_risk": {
-            "event_failure_risk_vector_ref": event_failure_row.get("event_failure_risk_vector_ref"),
-            "resolved_event_failure_risk_status": event_failure_row.get("4_resolved_event_failure_risk_status"),
-            "reason_codes": _as_mapping(event_failure_row.get("event_failure_risk_diagnostics")).get("horizon_reason_codes") or {},
-        },
-        "model_05_alpha_confidence": {
-            "alpha_confidence_vector_ref": alpha_row.get("alpha_confidence_vector_ref"),
-            "resolved_alpha_score": alpha_score,
-            "alpha_gate_status": "passed"
-            if alpha_score >= _selected_entry_thresholds(entry_calibration)["minimum_entry_alpha_confidence"]
+        "entry_utility": {
+            "resolved_utility_score": utility_score,
+            "utility_gate_status": "passed"
+            if utility_score >= _selected_entry_thresholds(entry_calibration)["minimum_entry_alpha_confidence"]
             else "below_entry_threshold",
-            "horizon_scores": _as_mapping(_as_mapping(alpha_row.get("alpha_confidence_diagnostics")).get("after_cost_alpha_score")),
         },
         "model_04_unified_decision": {
             "resolved_underlying_action_type": direct_intent.get("underlying_action_type")
@@ -3631,26 +3585,18 @@ def _target_candidate_id(*, target: str, available_time: str, candidate_model_re
     return f"replay_{target.lower()}_{hashlib.sha256(token).hexdigest()[:16]}"
 
 
-def _market_context_state(*, market_universe: Sequence[Mapping[str, Any]], candidate_model_ref: str, available_time: str) -> dict[str, Any]:
+def _background_context_state(*, market_universe: Sequence[Mapping[str, Any]], candidate_model_ref: str, available_time: str) -> dict[str, Any]:
     prices = [float(row["reference_price"]) for row in market_universe if row.get("reference_price") is not None]
     dispersion = 0.0
     if prices:
         mean_price = sum(prices) / len(prices)
         dispersion = 0.0 if mean_price <= 0 else min(max((max(prices) - min(prices)) / mean_price, 0.0), 1.0)
     return {
-        "model_ref": f"{candidate_model_ref}/model_01_market_regime_state/{available_time}",
+        "model_ref": f"{candidate_model_ref}/model_01_background_context/{available_time}",
         "1_market_risk_stress_score": min(0.25 + dispersion * 0.2, 0.75),
         "1_market_liquidity_support_score": 0.75,
         "1_transition_risk_score": min(0.20 + dispersion * 0.15, 0.70),
         "1_state_quality_score": 0.70,
-    }
-
-
-def _sector_context_state(*, candidate_model_ref: str, available_time: str) -> dict[str, Any]:
-    return {
-        "model_ref": f"{candidate_model_ref}/model_02_sector_context_state/{available_time}",
-        "2_sector_context_support_quality_score": 0.60,
-        "2_state_quality_score": 0.70,
     }
 
 
@@ -3671,43 +3617,39 @@ def _target_context_state(
     trend_quality = _clip01(0.5 + abs(momentum_7d) * 8.0 + abs(momentum_30d) * 2.0)
     liquidity = _volume_rank(rows, index, 30)
     return {
-        "model_ref": f"{candidate_model_ref}/model_03_target_state_vector/{target_candidate_id}",
+        "model_ref": f"{candidate_model_ref}/model_02_target_state/{target_candidate_id}",
         "target_ref": target,
         "target_candidate_id": target_candidate_id,
-        "3_target_direction_score_10min": direction_1d,
-        "3_target_direction_score_1h": direction_1d,
-        "3_target_direction_score_1D": direction_1d,
-        "3_target_direction_score_1W": direction_1w,
-        "3_target_trend_quality_score_10min": trend_quality,
-        "3_target_trend_quality_score_1h": trend_quality,
-        "3_target_trend_quality_score_1D": trend_quality,
-        "3_target_trend_quality_score_1W": trend_quality,
-        "3_target_path_stability_score_10min": _clip01(0.65 - abs(daily) * 4.0),
-        "3_target_path_stability_score_1h": _clip01(0.65 - abs(daily) * 4.0),
-        "3_target_path_stability_score_1D": _clip01(0.65 - abs(daily) * 4.0),
-        "3_target_path_stability_score_1W": _clip01(0.65 - abs(momentum_7d) * 2.0),
-        "3_target_noise_score_10min": _clip01(abs(daily) * 4.0),
-        "3_target_noise_score_1h": _clip01(abs(daily) * 4.0),
-        "3_target_noise_score_1D": _clip01(abs(daily) * 4.0),
-        "3_target_noise_score_1W": _clip01(abs(momentum_7d) * 2.0),
-        "3_target_transition_risk_score_10min": _clip01(abs(daily - momentum_7d) * 2.0),
-        "3_target_transition_risk_score_1h": _clip01(abs(daily - momentum_7d) * 2.0),
-        "3_target_transition_risk_score_1D": _clip01(abs(daily - momentum_7d) * 2.0),
-        "3_target_transition_risk_score_1W": _clip01(abs(momentum_7d - momentum_30d) * 2.0),
-        "3_context_direction_alignment_score_10min": direction_1d,
-        "3_context_direction_alignment_score_1h": direction_1d,
-        "3_context_direction_alignment_score_1D": direction_1d,
-        "3_context_direction_alignment_score_1W": direction_1w,
-        "3_context_support_quality_score_10min": 0.60,
-        "3_context_support_quality_score_1h": 0.60,
-        "3_context_support_quality_score_1D": 0.60,
-        "3_context_support_quality_score_1W": 0.60,
-        "3_tradability_score_10min": liquidity,
-        "3_tradability_score_1h": liquidity,
-        "3_tradability_score_1D": liquidity,
-        "3_tradability_score_1W": liquidity,
-        "3_target_liquidity_tradability_score": liquidity,
-        "3_state_quality_score": 0.70,
+        "2_target_direction_score_10min": direction_1d,
+        "2_target_direction_score_1h": direction_1d,
+        "2_target_direction_score_1D": direction_1d,
+        "2_target_direction_score_1W": direction_1w,
+        "2_target_trend_quality_score_10min": trend_quality,
+        "2_target_trend_quality_score_1h": trend_quality,
+        "2_target_trend_quality_score_1D": trend_quality,
+        "2_target_trend_quality_score_1W": trend_quality,
+        "2_target_path_stability_score_10min": _clip01(0.65 - abs(daily) * 4.0),
+        "2_target_path_stability_score_1h": _clip01(0.65 - abs(daily) * 4.0),
+        "2_target_path_stability_score_1D": _clip01(0.65 - abs(daily) * 4.0),
+        "2_target_path_stability_score_1W": _clip01(0.65 - abs(momentum_7d) * 2.0),
+        "2_target_noise_score_10min": _clip01(abs(daily) * 4.0),
+        "2_target_noise_score_1h": _clip01(abs(daily) * 4.0),
+        "2_target_noise_score_1D": _clip01(abs(daily) * 4.0),
+        "2_target_noise_score_1W": _clip01(abs(momentum_7d) * 2.0),
+        "2_target_transition_risk_score_10min": _clip01(abs(daily - momentum_7d) * 2.0),
+        "2_target_transition_risk_score_1h": _clip01(abs(daily - momentum_7d) * 2.0),
+        "2_target_transition_risk_score_1D": _clip01(abs(daily - momentum_7d) * 2.0),
+        "2_target_transition_risk_score_1W": _clip01(abs(momentum_7d - momentum_30d) * 2.0),
+        "2_context_support_quality_score_10min": 0.60,
+        "2_context_support_quality_score_1h": 0.60,
+        "2_context_support_quality_score_1D": 0.60,
+        "2_context_support_quality_score_1W": 0.60,
+        "2_tradability_score_10min": liquidity,
+        "2_tradability_score_1h": liquidity,
+        "2_tradability_score_1D": liquidity,
+        "2_tradability_score_1W": liquidity,
+        "2_target_liquidity_tradability_score": liquidity,
+        "2_state_quality_score": 0.70,
         "current_price": reference_price,
         "last_price": reference_price,
         "mark_price": reference_price,
@@ -3806,6 +3748,22 @@ def _execution_unified_decision_vector(
     return output
 
 
+def _resolved_entry_utility_score(
+    *,
+    after_cost_alpha_model: Mapping[str, Any],
+    target_state: Mapping[str, Any],
+    event_state: Mapping[str, Any],
+) -> float:
+    fixed_score = _safe_float(after_cost_alpha_model.get("score"))
+    if fixed_score is not None:
+        return _clip01(fixed_score)
+    direction = _safe_float(target_state.get("2_target_direction_score_1D")) or _safe_float(target_state.get("2_target_direction_score_1W")) or 0.0
+    trend = _safe_float(target_state.get("2_target_trend_quality_score_1D")) or 0.5
+    tradability = _safe_float(target_state.get("2_tradability_score_1D")) or 0.5
+    event_risk = _safe_float(event_state.get("3_event_path_risk_score_1D")) or 0.0
+    return _clip01(0.50 + direction * 0.25 + (trend - 0.50) * 0.15 + (tradability - 0.50) * 0.10 - event_risk * 0.10)
+
+
 def _residual_event_governance_for_bar(
     *,
     candidate_model_ref: str,
@@ -3844,18 +3802,6 @@ def _residual_event_governance_for_bar(
         }
     )
     return governance
-
-
-def _resolved_alpha_score(alpha_vector: Mapping[str, Any]) -> float:
-    for key in ("5_after_cost_alpha_score_1D", "5_after_cost_alpha_score_1W", "5_after_cost_alpha_score_1h", "5_after_cost_alpha_score_10min"):
-        value = _safe_float(alpha_vector.get(key))
-        if value is not None:
-            return _clip01(value)
-    for key in ("5_alpha_confidence_score_1D", "5_alpha_confidence_score_1W", "5_alpha_confidence_score_1h", "5_alpha_confidence_score_10min"):
-        value = _safe_float(alpha_vector.get(key))
-        if value is not None:
-            return _clip01(value)
-    return 0.0
 
 
 def _as_mapping(value: Any) -> Mapping[str, Any]:

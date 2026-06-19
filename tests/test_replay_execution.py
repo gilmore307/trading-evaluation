@@ -365,17 +365,17 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertIn(rows[0]["validation_status"], {"passed", "failed"})
             self.assertIn("feature_momentum_7d", rows[0])
             self.assertEqual(rows[0]["model_evidence_mode"], "component_input_model_evidence_generators")
-            self.assertIn("model_04_event_failure_risk", rows[0]["model_layer_refs"])
-            self.assertIn("model_05_alpha_confidence", rows[0]["model_layer_refs"])
+            self.assertIn("model_01_background_context", rows[0]["model_layer_refs"])
+            self.assertIn("model_02_target_state", rows[0]["model_layer_refs"])
+            self.assertIn("model_03_event_state", rows[0]["model_layer_refs"])
             self.assertIn("model_04_unified_decision", rows[0]["model_layer_refs"])
-            self.assertIn("model_04_event_failure_risk", rows[0]["model_layer_diagnostics"])
-            self.assertIn("model_05_alpha_confidence", rows[0]["model_layer_diagnostics"])
+            self.assertIn("entry_utility", rows[0]["model_layer_diagnostics"])
             self.assertIn("model_04_unified_decision", rows[0]["model_layer_diagnostics"])
             m04_scores = rows[0]["model_layer_diagnostics"]["model_04_unified_decision"]["dominant_horizon_scores"]
             self.assertIn("materiality_adjusted_action_score", m04_scores)
             self.assertIn("no_trade_probability_score", m04_scores)
             self.assertIn("minimum_trade_intensity", m04_scores)
-            self.assertIn("model_05_alpha_confidence", rows[0]["model_evidence_chain"])
+            self.assertIn("model_01_background_context", rows[0]["model_evidence_chain"])
             self.assertIn("model_05_option_expression", rows[0]["model_evidence_chain"])
             self.assertIn("model_06_residual_event_governance", rows[0]["model_evidence_chain"])
             self.assertIn(rows[0]["entry_threshold_calibration_role"], {"validation", "test"})
@@ -411,11 +411,16 @@ class ReplayExecutionTests(unittest.TestCase):
         self.assertGreaterEqual(selected["thresholds"]["minimum_entry_alpha_confidence"], 0.5)
 
     def test_replay_rejects_degenerate_after_cost_alpha_artifact(self):
-        artifact = _after_cost_alpha_model()
+        artifact = {
+            "contract_type": "current_replay_split_entry_utility_model_bundle",
+            "artifacts_by_horizon": {
+                "1D": {"booster_model": "tree\nTree=0\nnum_leaves=2\nsplit_feature=0\n"},
+            },
+        }
         for horizon_artifact in artifact["artifacts_by_horizon"].values():
             horizon_artifact["booster_model"] = "tree\nTree=0\nnum_leaves=1\nleaf_value=0.5\n"
 
-        with self.assertRaisesRegex(ValueError, "degenerate_after_cost_alpha_artifact"):
+        with self.assertRaisesRegex(ValueError, "degenerate_entry_utility_artifact"):
             replay_module._validate_after_cost_alpha_model_for_replay(artifact)
 
     def test_candidate_policy_replay_does_not_prefetch_option_features_for_materialized_equity_rows(self):
@@ -535,33 +540,6 @@ class ReplayExecutionTests(unittest.TestCase):
         original_generators = replay_module._trading_model_generators
         seen_policy_states: list[dict[str, object]] = []
 
-        def event_failure(rows):
-            row = list(rows)[0]
-            return [
-                {
-                    "event_failure_risk_vector_ref": "efrv_test",
-                    "4_resolved_event_failure_risk_status": "no_reviewed_event_failure_risk",
-                    "event_failure_risk_vector": {
-                        "4_event_entry_block_pressure_score_1D": 0.0,
-                        "4_event_response_direction_score_1D": 0.0,
-                    },
-                    "event_failure_risk_diagnostics": {"horizon_reason_codes": {"1D": ["no_reviewed_event_failure_risk"]}},
-                    "target_candidate_id": row["target_candidate_id"],
-                }
-            ]
-
-        def alpha_confidence(rows, *, after_cost_alpha_model):
-            row = list(rows)[0]
-            score = float(after_cost_alpha_model["score"])
-            return [
-                {
-                    "alpha_confidence_vector_ref": f"acv_{score}",
-                    "alpha_confidence_vector": {"5_after_cost_alpha_score_1D": score},
-                    "alpha_confidence_diagnostics": {"after_cost_alpha_score": {"1D": {"score": score}}},
-                    "target_candidate_id": row["target_candidate_id"],
-                }
-            ]
-
         def unified_decision(rows):
             row = list(rows)[0]
             seen_policy_states.append(dict(row["policy_gate_state"]))
@@ -616,8 +594,6 @@ class ReplayExecutionTests(unittest.TestCase):
 
         try:
             replay_module._trading_model_generators = lambda: {
-                "model_04_event_failure_risk": event_failure,
-                "model_05_alpha_confidence": alpha_confidence,
                 "model_04_unified_decision": unified_decision,
                 "model_05_option_expression": lambda rows: [],
                 "model_06_residual_event_governance": lambda rows: [],
@@ -651,10 +627,10 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(low["prediction_score"], 0.25)
             self.assertEqual(high["prediction_score"], 0.82)
             self.assertEqual(
-                low["model_layer_diagnostics"]["model_05_alpha_confidence"]["alpha_gate_status"],
+                low["model_layer_diagnostics"]["entry_utility"]["utility_gate_status"],
                 "below_entry_threshold",
             )
-            self.assertEqual(high["model_layer_diagnostics"]["model_05_alpha_confidence"]["alpha_gate_status"], "passed")
+            self.assertEqual(high["model_layer_diagnostics"]["entry_utility"]["utility_gate_status"], "passed")
             high_scores = high["model_layer_diagnostics"]["model_04_unified_decision"]["dominant_horizon_scores"]
             self.assertEqual(high_scores["materiality_adjusted_action_score"], 0.42)
             self.assertEqual(high_scores["no_trade_probability_score"], 0.1)
@@ -1743,51 +1719,9 @@ def _after_cost_alpha_model() -> dict[str, object]:
     try:
         return copy.deepcopy(_AFTER_COST_ALPHA_MODEL)
     except NameError:
-        from models.model_05_alpha_confidence.contract import HORIZONS
-        from models.model_05_alpha_confidence.training import train_after_cost_alpha_model
-
-        training_rows = []
-        for index in range(16):
-            positive = index % 2 == 1
-            direction = 0.55 if positive else -0.55
-            training_rows.append(
-                {
-                    "after_cost_return": 0.03 if positive else -0.03,
-                    "market_context_state": {
-                        "1_market_risk_stress_score": 0.15 + index * 0.01,
-                        "1_market_liquidity_support_score": 0.75,
-                        "1_state_quality_score": 0.80,
-                    },
-                    "sector_context_state": {
-                        "2_sector_context_support_quality_score": 0.60,
-                        "2_state_quality_score": 0.75,
-                    },
-                    "target_context_state": {
-                        "3_target_direction_score_10min": direction,
-                        "3_target_direction_score_1h": direction,
-                        "3_target_direction_score_1D": direction,
-                        "3_target_direction_score_1W": direction,
-                        "3_target_trend_quality_score_10min": 0.70,
-                        "3_target_trend_quality_score_1h": 0.70,
-                        "3_target_trend_quality_score_1D": 0.70,
-                        "3_target_trend_quality_score_1W": 0.70,
-                        "3_state_quality_score": 0.80,
-                    },
-                    "event_failure_risk_vector": {},
-                    "quality_calibration_state": {
-                        "data_quality_score": 0.80,
-                        "model_ensemble_agreement_score": 0.70,
-                        "model_disagreement_score": 0.10,
-                        "out_of_distribution_score": 0.05,
-                    },
-                }
-            )
         _AFTER_COST_ALPHA_MODEL = {
-            "contract_type": "current_replay_after_cost_alpha_model_bundle",
-            "artifacts_by_horizon": {
-                horizon: train_after_cost_alpha_model(training_rows, horizon=horizon, iterations=2)
-                for horizon in HORIZONS
-            },
+            "contract_type": "current_replay_entry_utility_model_bundle",
+            "score_policy": "derive_from_current_m02_m03_state",
         }
         return copy.deepcopy(_AFTER_COST_ALPHA_MODEL)
 
@@ -1813,8 +1747,9 @@ def _current_layer_outputs(
         "event_state_vector": {"model_ref": "event-state-ref"},
         "prediction_score": alpha_score,
         "model_layer_refs": {
-            "model_04_event_failure_risk": "event-risk-ref",
-            "model_05_alpha_confidence": "alpha-ref",
+            "model_01_background_context": "background-ref",
+            "model_02_target_state": "target-ref",
+            "model_03_event_state": "event-ref",
             "model_04_unified_decision": "unified-ref",
         },
         "unified_decision_vector": {
@@ -1849,9 +1784,9 @@ def _current_layer_outputs(
                 "minimum_entry_alpha_confidence": 0.50,
                 "minimum_trade_intensity": 0.05,
             },
-            "model_05_alpha_confidence": {
-                "resolved_alpha_score": alpha_score,
-                "alpha_gate_status": alpha_gate_status,
+            "entry_utility": {
+                "resolved_utility_score": alpha_score,
+                "utility_gate_status": alpha_gate_status,
             },
             "model_04_unified_decision": {
                 "resolved_underlying_action_type": action_type,

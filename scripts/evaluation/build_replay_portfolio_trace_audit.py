@@ -55,7 +55,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--candidate-handoff-database-url", help="Load Layer 2 target-candidate handoff rows from PostgreSQL.")
     parser.add_argument("--candidate-handoff-schema", default="trading_data")
-    parser.add_argument("--candidate-handoff-table", default="model_02_sector_context_data_acquisition")
+    parser.add_argument("--candidate-handoff-table", default="model_02_target_state_data_acquisition")
     parser.add_argument(
         "--candidate-universe-path",
         type=Path,
