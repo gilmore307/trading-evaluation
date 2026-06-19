@@ -23,6 +23,40 @@ class ReplayExecutionTests(unittest.TestCase):
         self.assertEqual(replay_module._equity_market_close_timestamp("2021-01-04"), "2021-01-04T16:00:00-05:00")
         self.assertEqual(replay_module._equity_market_close_timestamp("2021-04-14"), "2021-04-14T16:00:00-04:00")
 
+    def test_option_position_allocation_uses_minimum_notional_floor_not_cap(self):
+        expensive_plan = {
+            "selected_contract": {
+                "contract_ref": "BEST_100C",
+                "mid_price": 100.0,
+                "contract_multiplier": 100.0,
+            }
+        }
+        cheap_plan = {
+            "selected_contract": {
+                "contract_ref": "NEXT_30C",
+                "mid_price": 30.0,
+                "contract_multiplier": 100.0,
+            }
+        }
+
+        expensive = replay_module._candidate_position_allocation(
+            cash=25_000.0,
+            minimum_position_notional_usd=5_000.0,
+            option_expression_plan=expensive_plan,
+            reference_price=100.0,
+        )
+        cheap = replay_module._candidate_position_allocation(
+            cash=15_000.0,
+            minimum_position_notional_usd=5_000.0,
+            option_expression_plan=cheap_plan,
+            reference_price=30.0,
+        )
+
+        self.assertEqual(expensive["quantity"], 1.0)
+        self.assertEqual(expensive["notional"], 10_000.0)
+        self.assertEqual(cheap["quantity"], 2.0)
+        self.assertEqual(cheap["notional"], 6_000.0)
+
     def _dataset(self, root: Path) -> Path:
         dataset_root = root / "dataset"
         dataset_root.mkdir()
@@ -1376,6 +1410,13 @@ class ReplayExecutionTests(unittest.TestCase):
                 self.assertEqual(rows[0]["return_source"], "m05_option_expression_contract_path")
                 self.assertEqual(rows[0]["option_entry_price"], 2.0)
                 self.assertEqual(rows[0]["option_exit_price"], 3.0)
+                self.assertEqual(rows[0]["planned_order_quantity"], 24.0)
+                self.assertEqual(rows[0]["planned_unit_cost_usd"], 215.0)
+                self.assertEqual(rows[0]["planned_position_notional_usd"], 5160.0)
+                self.assertEqual(
+                    rows[0]["position_sizing_policy"],
+                    "minimum_notional_floor_option_contract_round_up",
+                )
                 self.assertEqual(result.receipt["option_contract_path_symbol_count"], 1)
                 self.assertEqual(result.receipt["option_contract_path_bar_count"], 2)
                 self.assertEqual(result.receipt["option_replay_coverage"]["contract_path_coverage_status"], "complete")

@@ -14,6 +14,8 @@ sys.path.insert(0, "/root/projects/trading-model/src")
 
 from trading_evaluation import (
     DEFAULT_CALIBRATION_WINDOW_MONTH_COUNT,
+    DEFAULT_POSITION_MIN_NOTIONAL_FRACTION,
+    DEFAULT_PORTFOLIO_MAX_POSITIONS,
     DEFAULT_REPLAY_INITIAL_CAPITAL_USD,
     build_candidate_policy_replay_execution_run,
 )
@@ -63,8 +65,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=Path,
         help="Load the fixed historical replay candidate universe CSV. Defaults to the storage repo shared artifact.",
     )
-    parser.add_argument("--portfolio-max-positions", type=int, default=5)
-    parser.add_argument("--portfolio-position-notional-fraction", type=float, default=0.20)
+    parser.add_argument("--portfolio-max-positions", type=int, default=DEFAULT_PORTFOLIO_MAX_POSITIONS)
+    parser.add_argument("--portfolio-position-notional-fraction", type=float, default=DEFAULT_POSITION_MIN_NOTIONAL_FRACTION)
     parser.add_argument("--portfolio-switch-minimum-rank-score-delta", type=float, default=0.05)
     args = parser.parse_args(argv)
     after_cost_alpha_model = json.loads(args.after_cost_alpha_model_json.read_text(encoding="utf-8"))
