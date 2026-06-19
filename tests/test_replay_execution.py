@@ -675,7 +675,7 @@ class ReplayExecutionTests(unittest.TestCase):
             dataset_root = self._dataset(root)
             equity_source_root = self._equity_source_root(root)
 
-            with self.assertRaisesRegex(ValueError, "Layer 2 target-candidate handoff"):
+            with self.assertRaisesRegex(ValueError, "M02 target-candidate handoff"):
                 build_candidate_policy_replay_execution_run(
                     dataset_root=dataset_root,
                     run_id="test_candidate_handoff_required",
@@ -733,7 +733,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 )
 
                 self.assertEqual(result.receipt["candidate_handoff_status"], "available")
-                self.assertEqual(result.receipt["candidate_handoff_source"], "layer_02_target_candidate_handoff")
+                self.assertEqual(result.receipt["candidate_handoff_source"], "model_02_target_candidate_handoff")
                 self.assertEqual(result.receipt["candidate_handoff_symbols"], ["AAPL"])
                 rows = [json.loads(line) for line in result.decision_rows_path.read_text(encoding="utf-8").splitlines()]
                 self.assertEqual(rows[0]["target_ref"], "AAPL")

@@ -10,8 +10,8 @@
   "decision_reason": "fixture candidate passed replay gates",
   "decision_status": "eligible",
   "fold_id": "fold_2016-01_2016-06",
-  "fold_stack_evidence_ref": "storage://evaluation/fold_stack/fold_2016-01_2016-06/layer_01_10_complete",
-  "fold_stack_status": "complete_layer_01_10",
+  "fold_stack_evidence_ref": "storage://evaluation/fold_stack/fold_2016-01_2016-06/m01_m06_complete",
+  "fold_stack_status": "complete_m01_m06",
   "guardrail_refs": [
     "replay://guardrail/liquidity_regime"
   ],

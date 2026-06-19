@@ -16,7 +16,7 @@ This preparation step is not a replay freeze and does not use the manager task/r
 - source contract: accepted candidate-policy replay under `trading-evaluation/replays/`
 - replay window: canonical `2021-01-01` through `2026-01-01` end-exclusive unless an explicitly reviewed exception is supplied
 - candidate fold id: explicit, for example `fold_2016-01_2016-06`
-- base context artifact: explicit Layer 1/2 base-context used to validate replay substrate coverage
+- base context artifact: explicit M01/M02 base-context used to validate replay substrate coverage
 - local coverage scan root: `trading-storage/storage/01_source_data`
 - runtime output root: `trading-storage/storage/05_replay_datasets`
 
@@ -24,19 +24,19 @@ This preparation step is not a replay freeze and does not use the manager task/r
 
 Candidate-policy replay prepares one-shot acquisition requirements for the full replay window:
 
-- `01_feed_alpaca_bars` for Layer 1/2 base-context refs, reused from canonical monthly backfill
+- `01_feed_alpaca_bars` for M01/M02 base-context refs, reused from canonical monthly backfill
 - `05_feed_gdelt_news` for broad market, sector, theme, and symbol event evidence
 - `07_feed_trading_economics_calendar_web` for high-importance U.S. macro event evidence through logged-out visible-page custom-date requests
 - `04_feed_okx_crypto_market_data` only when the base context includes crypto context refs
 
-Replay predeclares only the Layer 1/2 base-context refs through `base_context_ref`, expanded into `pre_replay_target_refs` in the dataset manifest. Replay must not infer its candidate set by scanning already materialized local bar directories. Candidate equities, symbol-scoped liquidity/news, and option-chain snapshots are discovered during execution-component replay after C01 admits sectors/targets and downstream components create buy or option-expression points. Selected-contract feeds (`10_feed_thetadata_option_primary_tracking` and `11_feed_thetadata_option_event_timeline`) expand only after those snapshots produce concrete expiration/right/strike selections.
+Replay predeclares only the M01/M02 base-context refs through `base_context_ref`, expanded into `pre_replay_target_refs` in the dataset manifest. Replay must not infer its candidate set by scanning already materialized local bar directories. Candidate equities, symbol-scoped liquidity/news, and option-chain snapshots are discovered during execution-component replay after C01 admits sectors/targets and downstream components create buy or option-expression points. Selected-contract feeds (`10_feed_thetadata_option_primary_tracking` and `11_feed_thetadata_option_event_timeline`) expand only after those snapshots produce concrete expiration/right/strike selections.
 
 ## Replay Acquisition Boundary
 
 Replay acquisition is bounded by the historical replay clock, candidate policy, execution component graph, and monthly shard budget:
 
 - preflight may query or estimate source coverage, request counts, row counts, and storage footprint before provider execution;
-- Layer 1/2 base-context source data lives in canonical long-lived monthly backfill source roots and is retained after replay;
+- M01/M02 base-context source data lives in canonical long-lived monthly backfill source roots and is retained after replay;
 - provider execution may temporarily materialize only the month and candidate set admitted by C01-C07 during the replay shard;
 - temporary on-demand month-cache data lives under the replay dataset/run boundary, not under canonical long-lived monthly backfill source roots;
 - raw provider payloads are not persisted unless a source contract explicitly requires raw evidence;
@@ -64,7 +64,7 @@ Replay base data acquisition, event evidence collection, and source normalizatio
 
 All replay, fold settlement, promotion eligibility comparison, guardrail replay, and later regression checks for that fold and base-context scope must reference that frozen snapshot. They must not re-download, re-sample, reinterpret, or rebuild base replay data per model candidate. If the replay dataset is wrong or incomplete, the fix is a reviewed regenerated snapshot for the same scope or a new replay contract.
 
-Replay evaluation uses `trading-execution`'s `execution_runtime_component_graph` under a historical clock and Replay adapters. The runner feeds frozen point-in-time base context plus on-demand candidate evidence through the same task-level components used for live decision making. Models are inputs to those components; the execution unit is C01-C07, not a model layer. Replay must not use the model training pipeline, a training feature-generation route, or a separate evaluation-owned decision graph as the replay execution path. Layer 10 is reached only through the Failure Explanation Component after observed model or trade failure.
+Replay evaluation uses `trading-execution`'s `execution_runtime_component_graph` under a historical clock and Replay adapters. The runner feeds frozen point-in-time base context plus on-demand candidate evidence through the same task-level components used for live decision making. Models are inputs to those components; the execution unit is C01-C07, not a model layer. Replay must not use the model training pipeline, a training feature-generation route, or a separate evaluation-owned decision graph as the replay execution path. M06 is reached only through the Failure Explanation Component after observed model or trade failure.
 
 Replay component outputs use the same artifact contracts as live execution:
 `execution_intake_snapshot`, `entry_decision`,

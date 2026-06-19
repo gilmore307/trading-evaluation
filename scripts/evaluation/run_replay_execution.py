@@ -53,11 +53,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         dest="equity_symbols",
         help="Limit materialized Alpaca equity replay to one symbol. Repeat for multiple symbols.",
     )
-    parser.add_argument("--option-feature-database-url", help="Load point-in-time Layer 9 option feature rows from PostgreSQL.")
+    parser.add_argument("--option-feature-database-url", help="Load point-in-time M05 option feature rows from PostgreSQL.")
     parser.add_argument("--option-feature-schema", default="trading_data")
     parser.add_argument("--option-feature-table", default="model_05_option_expression_feature_generation")
     parser.add_argument("--option-contract-path-table", default="model_05_option_expression_data_acquisition_contract_path")
-    parser.add_argument("--candidate-handoff-database-url", help="Load Layer 2 target-candidate handoff rows from PostgreSQL.")
+    parser.add_argument("--candidate-handoff-database-url", help="Load M02 target-candidate handoff rows from PostgreSQL.")
     parser.add_argument("--candidate-handoff-schema", default="trading_data")
     parser.add_argument("--candidate-handoff-table", default="model_02_target_state_data_acquisition")
     parser.add_argument(

@@ -209,7 +209,7 @@ def build_candidate_policy_replay_execution_run(
 
     candidate_model_ref = _require_candidate_model_ref(candidate_model_ref)
     if after_cost_alpha_model is None:
-        raise ValueError("after_cost_alpha_model is required for replay Layer 5 inference")
+        raise ValueError("after_cost_alpha_model is required for replay M04 decision inference")
     _validate_after_cost_alpha_model_for_replay(after_cost_alpha_model)
     initial_capital_usd = _validated_initial_capital_usd(initial_capital_usd)
     _validate_portfolio_replay_policy(
@@ -420,7 +420,7 @@ def build_candidate_policy_replay_execution_run(
                 in {
                     "explicit_candidate_symbols_override",
                     "fixed_current_snapshot_historical_candidate_universe",
-                    "layer_02_target_candidate_handoff",
+                    "model_02_target_candidate_handoff",
                 }
             )
             else f"{candidate_handoff_schema}.{candidate_handoff_table}"
@@ -511,7 +511,7 @@ def build_candidate_policy_portfolio_trace_audit(
 
     candidate_model_ref = _require_candidate_model_ref(candidate_model_ref)
     if after_cost_alpha_model is None:
-        raise ValueError("after_cost_alpha_model is required for portfolio trace audit Layer 5 inference")
+        raise ValueError("after_cost_alpha_model is required for portfolio trace audit M04 decision inference")
     _validate_after_cost_alpha_model_for_replay(after_cost_alpha_model)
     initial_capital_usd = _validated_initial_capital_usd(initial_capital_usd)
     if max_positions < 0:
@@ -2070,7 +2070,7 @@ def _candidate_handoff_for_replay(
         if symbols:
             return {
                 "status": "available",
-                "source": "layer_02_target_candidate_handoff",
+                "source": "model_02_target_candidate_handoff",
                 "candidate_symbols": symbols,
                 "row_count": len(target_candidate_rows),
                 "artifact_ref": str(candidate_universe_path),
@@ -2108,12 +2108,12 @@ def _candidate_handoff_for_replay(
     symbols = tuple(sorted({str(row.get("holding_symbol") or "").upper() for row in rows if row.get("holding_symbol")}))
     if not symbols:
         raise ValueError(
-            "equity/options replay requires Layer 2 target-candidate handoff rows from "
-            f"{schema}.{table}; base_context pre_replay_target_refs are Layer 1/2 context only and are not trade candidates"
+            "equity/options replay requires M02 target-candidate handoff rows from "
+            f"{schema}.{table}; base_context pre_replay_target_refs are M01/M02 context only and are not trade candidates"
         )
     return {
         "status": "available",
-        "source": "layer_02_target_candidate_handoff",
+        "source": "model_02_target_candidate_handoff",
         "candidate_symbols": symbols,
         "row_count": len(rows),
     }
@@ -2190,12 +2190,12 @@ def _validate_equity_candidate_bar_coverage(
     if missing:
         sample = ", ".join(missing[:20])
         raise ValueError(
-            "Layer 2 target-candidate handoff produced equity/options candidates but replay is missing "
+            "M02 target-candidate handoff produced equity/options candidates but replay is missing "
             f"materialized candidate bars for {len(missing)} of {len(expected)} symbols; sample={sample}. "
             "Run the monthly on-demand Alpaca candidate acquisition for the fixed historical candidate universe before replay execution"
         )
     raise ValueError(
-        "Layer 2 target-candidate handoff produced equity/options candidates but replay found no materialized "
+        "M02 target-candidate handoff produced equity/options candidates but replay found no materialized "
         "candidate bars; run the monthly on-demand Alpaca candidate acquisition before replay execution"
     )
 
@@ -2269,7 +2269,7 @@ def _load_layer_two_candidate_handoff_rows(
         import psycopg  # type: ignore
         from psycopg.rows import dict_row  # type: ignore
     except ModuleNotFoundError as exc:  # pragma: no cover
-        raise RuntimeError("psycopg is required to load Layer 2 replay candidate handoff rows") from exc
+        raise RuntimeError("psycopg is required to load M02 replay candidate handoff rows") from exc
     with psycopg.connect(database_url, row_factory=dict_row) as conn:
         with conn.cursor() as cursor:
             cursor.execute("SELECT to_regclass(%s) AS table_ref", (f"{schema}.{table}",))
@@ -2308,14 +2308,14 @@ def _candidate_handoff_row_visible_in_month(row: Mapping[str, Any], replay_month
 def _candidate_handoff_allows_option_feature_requirements(candidate_handoff: Mapping[str, Any]) -> bool:
     return str(candidate_handoff.get("source") or "") in {
         "fixed_current_snapshot_historical_candidate_universe",
-        "layer_02_target_candidate_handoff",
+        "model_02_target_candidate_handoff",
     }
 
 
 def _option_feature_requirement_policy(candidate_handoff: Mapping[str, Any]) -> str:
     if str(candidate_handoff.get("source") or "") == "fixed_current_snapshot_historical_candidate_universe":
         return "fixed_historical_candidate_universe_allows_replay_option_feature_requirements"
-    if str(candidate_handoff.get("source") or "") == "layer_02_target_candidate_handoff":
+    if str(candidate_handoff.get("source") or "") == "model_02_target_candidate_handoff":
         return "point_in_time_candidate_handoff_allows_on_demand_option_feature_requirements"
     return "static_candidate_universe_does_not_authorize_provider_acquisition"
 
@@ -3977,7 +3977,7 @@ def _validate_frozen_dataset(manifest: Mapping[str, Any], freeze_receipt: Mappin
     if int(manifest.get("missing_feed_acquisition_count", -1)) != 0:
         errors.append("dataset manifest missing_feed_acquisition_count must be 0")
     if not _string_set(manifest.get("pre_replay_target_refs")):
-        errors.append("dataset manifest pre_replay_target_refs must include at least one Layer 1/2 base context target")
+        errors.append("dataset manifest pre_replay_target_refs must include at least one M01/M02 base context target")
     safety = freeze_receipt.get("safety")
     if not isinstance(safety, Mapping):
         errors.append("replay freeze receipt safety is required")

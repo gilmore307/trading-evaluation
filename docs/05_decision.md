@@ -50,4 +50,4 @@ readiness, but it does not choose among active/shadow production models. That
 choice belongs to the execution-owned shadow cycle after realtime evidence
 matures.
 
-Layer 10 remains an independent model, but Replay reaches it only through execution's Failure Explanation Component after observed model or trade failure. Normal entry and position lifecycle event risk remains Layer 4's forward-risk responsibility.
+M06 remains an independent model, but Replay reaches it only through execution's Failure Explanation Component after observed model or trade failure. Normal entry and position lifecycle event risk remains M03 event-state's forward-risk responsibility.

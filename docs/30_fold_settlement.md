@@ -2,7 +2,7 @@
 
 Fold settlement is the comprehensive post-fold evaluation step.
 
-It should run after a fold has completed Layer 1 through Layer 10 model evaluation and before promotion eligibility is accepted. Single-layer fold evaluation can be stored as diagnostic evidence, but promotion judgment evaluates one pinned Layer 1-10 version bundle. The bundle is accepted or rejected as a whole; no single layer or partial substack is promotion-ready by itself.
+It should run after a fold has completed M01 through M06 model evaluation and before promotion eligibility is accepted. Single-layer fold evaluation can be stored as diagnostic evidence, but promotion judgment evaluates one pinned M01-M06 version bundle. The bundle is accepted or rejected as a whole; no single layer or partial substack is promotion-ready by itself.
 
 ## Current Metric Contract
 

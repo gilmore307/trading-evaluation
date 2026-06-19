@@ -28,7 +28,7 @@ trading_evaluation.replay_contract
 - `selection_metric_refs`
 - `excluded_training_windows` covering the full replay window
 
-The validator requires a candidate-policy replay with a valid replay window, positive minimum trading days, sufficient declared market-condition coverage, non-empty candidate policy, replay route, data snapshot, cost model, baseline refs, guardrail refs, selection metric refs, explicit exclusion windows covering the full replay window, `candidate_fold_id`, and a Layer 1/2 `base_context_ref`. `target_symbol`, `target_refs`, and `replay_components` are rejected at the replay-contract boundary. The manager owns model-artifact selection from completed fold state; replay does not carry or consume the training target symbol. `is_training_fold_blocked_by_replay` blocks folds that overlap the sealed replay window.
+The validator requires a candidate-policy replay with a valid replay window, positive minimum trading days, sufficient declared market-condition coverage, non-empty candidate policy, replay route, data snapshot, cost model, baseline refs, guardrail refs, selection metric refs, explicit exclusion windows covering the full replay window, `candidate_fold_id`, and a M01/M02 `base_context_ref`. `target_symbol`, `target_refs`, and `replay_components` are rejected at the replay-contract boundary. The manager owns model-artifact selection from completed fold state; replay does not carry or consume the training target symbol. `is_training_fold_blocked_by_replay` blocks folds that overlap the sealed replay window.
 
 The accepted `replay_route_ref` is `trading-execution://execution_runtime_component_graph/replay`. Replay calls the execution-owned component graph with Replay adapters; evaluation does not own a separate trading decision graph.
 
@@ -124,13 +124,13 @@ Required fields include:
 - `coverage_summary_ref`
 - safety booleans proving no provider calls, SQL mutation, model training, activation, broker execution, or account mutation occurred
 
-The preparation bundle may write files under the `trading-storage/storage/05_replay_datasets/<contract_id>/`, but it does not generate manager task/request rows or reusable task keys. Layer 1/2 base-context source data is canonical historical source data shared with training and retained after replay. Historical provider acquisition for candidate equity, option, liquidity, and symbol-news evidence is a one-shot gated action during replay execution. It may temporarily materialize only the replay month and candidate set required by the current shard, and that on-demand month cache is deleted after the shard writes replay receipts, decision rows, coverage summaries, row counts, and input hashes. Replay must not infer its candidate set by scanning already materialized local bar directories.
+The preparation bundle may write files under the `trading-storage/storage/05_replay_datasets/<contract_id>/`, but it does not generate manager task/request rows or reusable task keys. M01/M02 base-context source data is canonical historical source data shared with training and retained after replay. Historical provider acquisition for candidate equity, option, liquidity, and symbol-news evidence is a one-shot gated action during replay execution. It may temporarily materialize only the replay month and candidate set required by the current shard, and that on-demand month cache is deleted after the shard writes replay receipts, decision rows, coverage summaries, row counts, and input hashes. Replay must not infer its candidate set by scanning already materialized local bar directories.
 
 After accepted base-context coverage, the replay contract references one frozen evidence snapshot for the explicit fold. All replay and downstream evaluation artifacts for that scope must consume that base snapshot. Candidate-specific long-lived data download, source reinterpretation, or training-flow feature generation is not allowed for replay judgment; candidate and option evidence discovered by C01-C07 is acquired on demand and retained only as lightweight replay evidence after the month shard completes.
 
 `replay_dataset_freeze_receipt` records the accepted storage-side freeze. It requires explicit `pre_replay_target_refs`, local coverage validation, `missing_feed_acquisition_count = 0`, and no missing base-context rows for the explicit fold boundary. It marks the manifest `freeze_status = frozen` and reports safety flags proving no provider calls, SQL mutation, model training, activation, broker execution, or account mutation occurred during freeze.
 
-Replay uses the execution runtime component graph with a historical clock. It consumes point-in-time market, event, liquidity, and account-context inputs from the frozen snapshot and on-demand replay cache, calls the same task-level components used by live execution, and then settles the emitted decision rows. Models are component input evidence; C01-C07 are the execution units. Layer 10 is called only through execution's `failure_explanation_component` after observed model or trade failure; normal entry and lifecycle event risk comes from Layer 4. Option-chain snapshots are requested only when replayed components create buy or option-expression points.
+Replay uses the execution runtime component graph with a historical clock. It consumes point-in-time market, event, liquidity, and account-context inputs from the frozen snapshot and on-demand replay cache, calls the same task-level components used by live execution, and then settles the emitted decision rows. Models are component input evidence; C01-C07 are the execution units. M06 is called only through execution's `failure_explanation_component` after observed model or trade failure; normal entry and lifecycle event risk comes from M03 event-state. Option-chain snapshots are requested only when replayed components create buy or option-expression points.
 
 ## Fold Settlement Run
 
@@ -193,7 +193,7 @@ Canonical SQL table:
 trading_evaluation.promotion_eligibility_decision
 ```
 
-An `eligible` decision must include frozen replay validation evidence, complete Layer 1-10 fold-stack evidence, non-empty metric refs, passed guardrail evidence, incumbent comparison evidence, and advisory `promotion-evaluation-review` evidence with `agent_review_recommendation = eligible_for_shadow`. For the first accepted model bundle, `first_model_bootstrap = true` allows the candidate's own frozen settlement run to serve as the bootstrap baseline for later anonymous incumbent comparisons.
+An `eligible` decision must include frozen replay validation evidence, complete M01-M06 fold-stack evidence, non-empty metric refs, passed guardrail evidence, incumbent comparison evidence, and advisory `promotion-evaluation-review` evidence with `agent_review_recommendation = eligible_for_shadow`. For the first accepted model bundle, `first_model_bootstrap = true` allows the candidate's own frozen settlement run to serve as the bootstrap baseline for later anonymous incumbent comparisons.
 
 Agent review evidence may support this decision only when it follows the fixed `promotion-evaluation-review` skill. The review is advisory and must not change the sealed replay, write active config pointers, or replace deterministic validation.
 
@@ -221,7 +221,7 @@ Required fields:
 - `settlement_run_ref`
 - non-empty `metric_refs`
 - `fold_stack_evidence_ref`
-- `fold_stack_status = complete_layer_01_10`
+- `fold_stack_status = complete_m01_m06`
 - non-empty `guardrail_refs`
 - `guardrail_status = passed`
 - `incumbent_comparison_ref`

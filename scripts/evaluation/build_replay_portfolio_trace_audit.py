@@ -53,7 +53,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         dest="equity_symbols",
         help="Limit materialized Alpaca equity audit to one symbol. Repeat for multiple symbols.",
     )
-    parser.add_argument("--candidate-handoff-database-url", help="Load Layer 2 target-candidate handoff rows from PostgreSQL.")
+    parser.add_argument("--candidate-handoff-database-url", help="Load M02 target-candidate handoff rows from PostgreSQL.")
     parser.add_argument("--candidate-handoff-schema", default="trading_data")
     parser.add_argument("--candidate-handoff-table", default="model_02_target_state_data_acquisition")
     parser.add_argument(

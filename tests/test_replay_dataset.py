@@ -13,12 +13,12 @@ VALID_DATASET_CONTRACT = {
     "contract_id": "promotion_replay_dataset_test",
     "replay_mode": "candidate_policy_replay",
     "candidate_fold_id": "fold_2016-01_2016-06",
-    "base_context_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/live_equivalent",
+    "base_context_policy_ref": "trading-model://model_02_target_candidate_universe_policy/live_equivalent",
     "start_date": "2021-01-01",
     "end_date": "2026-01-01",
     "min_trading_days": 1255,
     "market_condition_tags": ["trend_up", "drawdown", "high_volatility", "event_shock"],
-    "candidate_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/default",
+    "candidate_policy_ref": "trading-model://model_02_target_candidate_universe_policy/default",
     "replay_route_ref": "trading-execution://execution_runtime_component_graph/replay",
     "data_snapshot_ref": "storage://replay/promotion_replay/data_snapshot/pending_materialization",
     "cost_model_ref": "storage://replay/promotion_replay/cost_model/pending_review",
@@ -49,7 +49,7 @@ def _manifest_with_base_context(overrides: dict[str, object] | None = None) -> d
         "contract_type": "replay_dataset_preparation_manifest",
         "contract_id": "promotion_replay_dataset_test",
         "freeze_status": "not_frozen",
-        "base_context_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/live_equivalent",
+        "base_context_policy_ref": "trading-model://model_02_target_candidate_universe_policy/live_equivalent",
         "pre_replay_target_refs": ["AAPL"],
     }
     manifest.update(overrides or {})
@@ -162,7 +162,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
             self.assertTrue(te_params["persist_failure_diagnostics"])
             self.assertFalse([row for row in acquisition_rows if row["source_id"] == "okx_crypto_market_data"])
             self.assertIn(
-                "replay_dataset_requires_layer_01_02_base_market_context_scope",
+                "replay_dataset_requires_m01_m02_base_market_context_scope",
                 prepared.manifest["known_deferred_requirements"],
             )
             self.assertIn(
@@ -260,7 +260,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
                         "deferred_feed_acquisition_count": 0,
                         "missing_feed_acquisition_count": 0,
                         "known_deferred_requirements": [
-                            "replay_dataset_requires_layer_01_02_base_market_context_scope",
+                            "replay_dataset_requires_m01_m02_base_market_context_scope",
                             "replay_execution_expands_equity_and_option_targets_on_demand_from_layer_outputs",
                         ],
                         "artifact_refs": [],

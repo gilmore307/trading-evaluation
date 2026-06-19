@@ -4,8 +4,8 @@
     "baseline://no_trade"
   ],
   "replay_mode": "candidate_policy_replay",
-  "candidate_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/default",
-  "base_context_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/live_equivalent",
+  "candidate_policy_ref": "trading-model://model_02_target_candidate_universe_policy/default",
+  "base_context_policy_ref": "trading-model://model_02_target_candidate_universe_policy/live_equivalent",
   "base_context_ref": "/tmp/replay_base_context.json",
   "contract_id": "promotion_replay_fixture",
   "cost_model_ref": "storage://replay/promotion_replay/cost_model/pending_review",

@@ -175,7 +175,7 @@ def build_promotion_review_result(
     fold_stack_status = str(settlement_run.get("fold_stack_status") or "")
     if first_model_bootstrap:
         fold_stack_evidence_ref = fold_stack_evidence_ref or settlement_run_ref
-        fold_stack_status = fold_stack_status or "complete_layer_01_10"
+        fold_stack_status = fold_stack_status or "complete_m01_m06"
     eligibility = build_promotion_eligibility_decision(
         fold_id=str(settlement_run.get("fold_id") or ""),
         candidate_model_ref=str(settlement_run.get("candidate_model_ref") or ""),

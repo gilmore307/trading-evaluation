@@ -2,14 +2,14 @@
 
 ## Active Tasks
 
-- Complete the remaining Layer 1/2 base-context coverage for the fold-bound replay dataset, then run replay through the execution-owned runtime component graph.
+- Complete the remaining M01/M02 base-context coverage for the fold-bound replay dataset, then run replay through the execution-owned runtime component graph.
 - Materialize true option-contract replay inputs for the equity/options account path. Replay may use direct-underlying fallback only as explicit missing option-surface evidence, not as proof that listed options were traded.
 - Move remaining promotion eligibility and readiness logic out of manager/model paths into this repository in controlled slices.
 
 ## Current Replay Dataset Coverage
 
-- Replay coverage is evaluated against explicit `candidate_fold_id`, `base_context_ref`, Layer 1/2 base-context refs, and fold scope.
-- Layer 1/2 base-context source data is canonical historical source data shared with training and is retained after replay.
+- Replay coverage is evaluated against explicit `candidate_fold_id`, `base_context_ref`, M01/M02 base-context refs, and fold scope.
+- M01/M02 base-context source data is canonical historical source data shared with training and is retained after replay.
 - Candidate equity, option, liquidity, and symbol-news data is not preexpanded. It is acquired on demand when the replayed execution components admit a sector, target, or option-expression point.
 - Historical provider acquisition for on-demand replay data is gated and month-scoped. Temporary month-cache data is deleted after the shard writes replay receipts, decision rows, coverage summaries, row counts, and input hashes.
 

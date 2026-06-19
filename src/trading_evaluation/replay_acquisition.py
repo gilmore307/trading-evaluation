@@ -209,7 +209,7 @@ def fixed_candidate_alpaca_bar_items(
             output_root = storage_source_root / "monthly_backfill" / "alpaca_bars" / symbol / month
             receipt_path = output_root / "completion_receipt.json"
             params = {
-                "candidate_policy_ref": "trading-model://layer_03_target_candidate_universe_policy/live_equivalent",
+                "candidate_policy_ref": "trading-model://model_02_target_candidate_universe_policy/live_equivalent",
                 "contract_id": contract_id,
                 "end": window["end_date_exclusive"],
                 "instrument_route": "live_equivalent_underlying_then_option_expression",

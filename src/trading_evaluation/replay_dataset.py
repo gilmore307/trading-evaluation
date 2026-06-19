@@ -171,9 +171,9 @@ def prepare_replay_dataset(
         "pre_replay_target_refs": list(pre_replay_target_refs),
         "candidate_discovery_policy": {
             "mode": "on_demand_from_replay_layer_outputs",
-            "pre_replay_scope": "layer_01_02_base_market_context_only",
+            "pre_replay_scope": "m01_m02_base_market_context_only",
             "equity_and_option_targets": "not_preexpanded",
-            "downstream_acquisition": "layer_02_sector_signal_then_target_and_option_chain_lookup",
+            "downstream_acquisition": "m02_target_signal_then_target_and_option_chain_lookup",
         },
         "dataset_root": str(dataset_root),
         "storage_ref": f"storage://trading-storage/05_replay_datasets/{contract.contract_id}/",
@@ -199,7 +199,7 @@ def prepare_replay_dataset(
         },
         "known_deferred_requirements": [
             "one_shot_provider_acquisition_requires_separate_gate",
-            "replay_dataset_requires_layer_01_02_base_market_context_scope",
+            "replay_dataset_requires_m01_m02_base_market_context_scope",
             "replay_execution_expands_equity_and_option_targets_on_demand_from_layer_outputs",
             "thetadata_option_selection_snapshot_expands_from_model_buy_point_decisions",
             "thetadata_option_primary_tracking_and_event_timeline_expand_after_snapshot_contract_selection",
@@ -393,7 +393,7 @@ def _acquisition_rows_for_source_window(
                         "underlying_symbol": target_ref,
                         "instrument_route": "live_equivalent_underlying_then_option_expression",
                     },
-                    notes_suffix=f"; Layer 1/2 base market-context target {target_ref}",
+                    notes_suffix=f"; M01/M02 base market-context target {target_ref}",
                 )
             )
         return rows
@@ -466,7 +466,7 @@ def _replay_sources() -> tuple[dict[str, str], ...]:
             "source_id": "alpaca_bars",
             "feed": "01_feed_alpaca_bars",
             "timeframe": "1Day",
-            "notes": "Layer 1/2 base market-context daily OHLCV surface reused from canonical monthly backfill",
+            "notes": "M01/M02 base market-context daily OHLCV surface reused from canonical monthly backfill",
             "candidate_dependent": "base_target_refs",
         },
         {
@@ -733,7 +733,7 @@ def _freeze_validation_errors(manifest: Mapping[str, Any], coverage_rows: Iterab
         errors.append(f"missing_feed_acquisition_count must be 0, got {manifest.get('missing_feed_acquisition_count')}")
     pre_replay_target_refs = _string_set(manifest.get("pre_replay_target_refs"))
     if not pre_replay_target_refs:
-        errors.append("pre_replay_target_refs must include at least one Layer 1/2 base context target")
+        errors.append("pre_replay_target_refs must include at least one M01/M02 base context target")
 
     rows = list(coverage_rows)
     if not rows:

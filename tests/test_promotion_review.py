@@ -119,7 +119,7 @@ class PromotionEvaluationReviewTests(unittest.TestCase):
             self.assertTrue(result.eligibility_decision["first_model_bootstrap"])
             self.assertEqual(result.eligibility_decision["bootstrap_baseline_ref"], "storage://settlement/bootstrap")
             self.assertEqual(result.eligibility_decision["incumbent_comparison_ref"], "storage://settlement/bootstrap")
-            self.assertEqual(result.eligibility_decision["fold_stack_status"], "complete_layer_01_10")
+            self.assertEqual(result.eligibility_decision["fold_stack_status"], "complete_m01_m06")
 
 
 if __name__ == "__main__":

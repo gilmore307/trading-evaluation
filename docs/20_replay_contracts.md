@@ -2,18 +2,18 @@
 
 ## Promotion Replay Requirements
 
-The promotion replay must be selected once and then frozen. For Layer 3 and later target-selection models, the replay is a historical-clock candidate-policy replay. It freezes the candidate-generation policy and historical replay substrate, not a hand-picked list of final trade targets.
+The promotion replay must be selected once and then frozen. For M02 and later target-selection models, the replay is a historical-clock candidate-policy replay. It freezes the candidate-generation policy and historical replay substrate, not a hand-picked list of final trade targets.
 
 Required properties:
 
 - one replay contract with field `replay_mode = candidate_policy_replay`.
-- the canonical five-year replay window `2021-01-01` through `2026-01-01` end-exclusive, candidate fold id, and base-context artifact for the Layer 1/2 replay substrate.
+- the canonical five-year replay window `2021-01-01` through `2026-01-01` end-exclusive, candidate fold id, and base-context artifact for the M01/M02 replay substrate.
 - a frozen base source snapshot, candidate policy, cost model, baseline ladder, selection metrics, and guardrails.
 - a fixed replay initial capital of `25000.0` `USD` for replay equity-path diagnostics, dollar PnL normalization, and charting; this is not broker/account state and replay still performs no account mutation.
 - candidate policy inputs covering point-in-time M01 background-context sector or industry opportunity evidence, reviewed target-context mappings or proxies, market-wide hot/liquid-name admission rules, quality filters, and control candidates when contrast is required.
 - replay must execute through `trading-execution`'s `execution_runtime_component_graph` under Replay adapters. Models are point-in-time evidence consumed by the components, not the replay execution unit.
 - equity/options replay allocation is ranked best-first with no fixed top-N position-count limit by default. M04 must emit the target allocation as a fraction of total portfolio/account budget. Replay converts that model fraction to a minimum new-target notional floor; the default target-allocation fraction is only a fallback when the model field is missing. For listed options, replay buys one contract when a single contract costs more than the model-derived floor, and otherwise rounds contract count up so planned notional is at least that floor while cash remains available.
-- no `target_symbol` or contract-level `target_refs`; use `candidate_fold_id` for fold binding and `base_context_ref` for the Layer 1/2 base-context scope.
+- no `target_symbol` or contract-level `target_refs`; use `candidate_fold_id` for fold binding and `base_context_ref` for the M01/M02 base-context scope.
 - metrics must evaluate realized replay performance after cost, risk, drawdown, turnover, selection quality, and guardrails.
 - metadata for candidate source, M01 background-context state, target-context source, event state, data availability, and model decision provenance.
 - explicit sector coverage metadata, including consumer and entertainment/media coverage.
@@ -22,7 +22,7 @@ Required properties:
 - explicit event coverage metadata for earnings-crossing windows, policy/macro shocks, liquidity or squeeze events, product-cycle repricing, and crypto-cycle events.
 - deliberate point-in-time admission of then-hot thematic single-name candidates through C01 and the accepted candidate policy, including names outside the selected ETF universe when target-context review exists.
 - a small crypto sleeve because crypto is a future primary execution focus.
-- a small controlled stress sleeve for critical data-edge cases such as crypto missing quote/order-book context, sparse bars, missing Layer 2 context, or partial event coverage.
+- a small controlled stress sleeve for critical data-edge cases such as crypto missing quote/order-book context, sparse bars, missing M02 context, or partial event coverage.
 - no leakage from the frozen replay window into training-used folds.
 - any fold that intersects the sealed promotion replay window must be skipped or blocked for candidate training.
 - fixed data snapshot, cost model, slippage/fee assumptions, and baseline ladder.
@@ -58,6 +58,6 @@ Guardrail replays may catch overfit or pathological candidates. They should not 
 
 ## Current Selection Status
 
-The current model-group replay dataset is an explicit model-fold and Layer 1/2 base-context snapshot over the canonical five-year replay window. A frozen dataset or replay receipt is eligible only when its fold id matches the completed fold. The training target symbol is manager-owned model selection context; replay does not carry it and it does not constrain the replay trading scope.
+The current model-group replay dataset is an explicit model-fold and M01/M02 base-context snapshot over the canonical five-year replay window. A frozen dataset or replay receipt is eligible only when its fold id matches the completed fold. The training target symbol is manager-owned model selection context; replay does not carry it and it does not constrain the replay trading scope.
 
 Do not use ad hoc target/window panels for training, tuning, prompt iteration, model selection, or promotion. Full promotion judgment requires an accepted candidate-policy replay with explicit fold, base-context scope, and execution-component replay path.

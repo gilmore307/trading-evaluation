@@ -25,8 +25,8 @@ class PromotionTests(unittest.TestCase):
             guardrail_refs=["replay://guardrail/risk"],
             replay_validation_ref="storage://replay/validation/passed",
             replay_freeze_status="frozen",
-            fold_stack_evidence_ref="storage://fold/complete_layer_01_10",
-            fold_stack_status="complete_layer_01_10",
+            fold_stack_evidence_ref="storage://fold/complete_m01_m06",
+            fold_stack_status="complete_m01_m06",
             guardrail_status="passed",
             incumbent_comparison_ref="storage://comparison/incumbent",
             incumbent_comparison_status="passed",
@@ -49,7 +49,7 @@ class PromotionTests(unittest.TestCase):
         self.assertFalse(record["broker_execution_performed"])
         self.assertFalse(record["account_mutation_performed"])
         self.assertEqual(record["replay_freeze_status"], "frozen")
-        self.assertEqual(record["fold_stack_status"], "complete_layer_01_10")
+        self.assertEqual(record["fold_stack_status"], "complete_m01_m06")
         self.assertEqual(record["agent_review_recommendation"], "eligible_for_shadow")
         self.assertTrue(record["first_model_bootstrap"])
         self.assertEqual(record["bootstrap_baseline_ref"], "storage://settlement/run")
