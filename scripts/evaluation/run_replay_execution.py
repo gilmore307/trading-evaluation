@@ -14,7 +14,7 @@ sys.path.insert(0, "/root/projects/trading-model/src")
 
 from trading_evaluation import (
     DEFAULT_CALIBRATION_WINDOW_MONTH_COUNT,
-    DEFAULT_POSITION_MIN_NOTIONAL_FRACTION,
+    DEFAULT_TARGET_ALLOCATION_FRACTION,
     DEFAULT_PORTFOLIO_MAX_POSITIONS,
     DEFAULT_REPLAY_INITIAL_CAPITAL_USD,
     build_candidate_policy_replay_execution_run,
@@ -66,7 +66,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Load the fixed historical replay candidate universe CSV. Defaults to the storage repo shared artifact.",
     )
     parser.add_argument("--portfolio-max-positions", type=int, default=DEFAULT_PORTFOLIO_MAX_POSITIONS)
-    parser.add_argument("--portfolio-position-notional-fraction", type=float, default=DEFAULT_POSITION_MIN_NOTIONAL_FRACTION)
+    parser.add_argument("--portfolio-default-target-allocation-fraction", type=float, default=DEFAULT_TARGET_ALLOCATION_FRACTION)
     parser.add_argument("--portfolio-switch-minimum-rank-score-delta", type=float, default=0.05)
     args = parser.parse_args(argv)
     after_cost_alpha_model = json.loads(args.after_cost_alpha_model_json.read_text(encoding="utf-8"))
@@ -97,7 +97,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         candidate_handoff_table=args.candidate_handoff_table,
         candidate_universe_path=args.candidate_universe_path,
         portfolio_max_positions=args.portfolio_max_positions,
-        portfolio_position_notional_fraction=args.portfolio_position_notional_fraction,
+        portfolio_default_target_allocation_fraction=args.portfolio_default_target_allocation_fraction,
         portfolio_switch_minimum_rank_score_delta=args.portfolio_switch_minimum_rank_score_delta,
     )
     print(json.dumps(result.receipt, indent=2, sort_keys=True))

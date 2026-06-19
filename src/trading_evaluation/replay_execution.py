@@ -73,7 +73,7 @@ MINIMUM_CALIBRATION_ALPHA_STDEV = 0.0001
 REPLAY_COST_PER_FILLED_DECISION = 0.0015
 DEFAULT_REPLAY_INITIAL_CAPITAL_USD = 25_000.0
 DEFAULT_PORTFOLIO_MAX_POSITIONS = 0
-DEFAULT_POSITION_MIN_NOTIONAL_FRACTION = 0.20
+DEFAULT_TARGET_ALLOCATION_FRACTION = 0.20
 US_OPTION_CONTRACT_MULTIPLIER = 100.0
 NEW_YORK = ZoneInfo("America/New_York")
 REPLAY_INITIAL_CAPITAL_CURRENCY = "USD"
@@ -207,7 +207,7 @@ def build_candidate_policy_replay_execution_run(
     candidate_universe_path: Path | None = None,
     initial_capital_usd: float = DEFAULT_REPLAY_INITIAL_CAPITAL_USD,
     portfolio_max_positions: int = DEFAULT_PORTFOLIO_MAX_POSITIONS,
-    portfolio_position_notional_fraction: float = DEFAULT_POSITION_MIN_NOTIONAL_FRACTION,
+    portfolio_default_target_allocation_fraction: float = DEFAULT_TARGET_ALLOCATION_FRACTION,
     portfolio_switch_minimum_rank_score_delta: float = 0.05,
 ) -> ReplayExecutionResult:
     """Run candidate-policy replay over frozen crypto plus materialized equity bars."""
@@ -219,7 +219,7 @@ def build_candidate_policy_replay_execution_run(
     initial_capital_usd = _validated_initial_capital_usd(initial_capital_usd)
     _validate_portfolio_replay_policy(
         max_positions=portfolio_max_positions,
-        position_notional_fraction=portfolio_position_notional_fraction,
+        default_target_allocation_fraction=portfolio_default_target_allocation_fraction,
         switch_minimum_rank_score_delta=portfolio_switch_minimum_rank_score_delta,
     )
     manifest = _load_json(dataset_root / "dataset_manifest.json")
@@ -318,7 +318,7 @@ def build_candidate_policy_replay_execution_run(
         option_candidates_by_underlying_time=option_candidates_by_underlying_time,
         initial_capital_usd=initial_capital_usd,
         max_positions=portfolio_max_positions,
-        position_notional_fraction=portfolio_position_notional_fraction,
+        default_target_allocation_fraction=portfolio_default_target_allocation_fraction,
         switch_minimum_rank_score_delta=portfolio_switch_minimum_rank_score_delta,
     )
     decision_rows = _build_candidate_policy_decision_rows(
@@ -337,7 +337,8 @@ def build_candidate_policy_replay_execution_run(
         selected_equity_replay_keys=selected_equity_replay_keys,
         precomputed_layer_outputs=precomputed_layer_outputs,
         precomputed_option_expression_plans=precomputed_option_expression_plans,
-        portfolio_position_min_notional_usd=initial_capital_usd * portfolio_position_notional_fraction,
+        total_portfolio_notional_usd=initial_capital_usd,
+        default_target_allocation_fraction=portfolio_default_target_allocation_fraction,
     )
     option_replay_coverage = _option_replay_coverage_summary(
         bars_by_target=bars_by_target,
@@ -375,8 +376,9 @@ def build_candidate_policy_replay_execution_run(
             "enabled_for_equity_options_sleeve": bool(include_equity),
             "time_major_candidate_selection": bool(include_equity),
             "max_positions": portfolio_max_positions,
-            "position_notional_fraction": portfolio_position_notional_fraction,
-            "position_notional_role": "minimum_new_target_allocation_floor_not_single_position_cap",
+            "default_target_allocation_fraction": portfolio_default_target_allocation_fraction,
+            "target_allocation_fraction_role": "model_output_target_allocation_fraction_times_total_budget_not_single_position_cap",
+            "default_fraction_role": "fallback_only_when_model_output_target_allocation_fraction_is_missing",
             "switch_minimum_rank_score_delta": portfolio_switch_minimum_rank_score_delta,
             "m05_trigger_policy": "ranked_m04_equity_intents_use_point_in_time_m05_selected_contract_cost_for_affordability",
             "position_sizing_policy": "rank_ordered_best_first_no_fixed_top_n_minimum_notional_floor_option_contract_round_up",
@@ -500,7 +502,7 @@ def build_candidate_policy_portfolio_trace_audit(
     initial_capital_usd: float = DEFAULT_REPLAY_INITIAL_CAPITAL_USD,
     max_trace_timestamps: int | None = 20,
     max_positions: int = DEFAULT_PORTFOLIO_MAX_POSITIONS,
-    position_notional_fraction: float = DEFAULT_POSITION_MIN_NOTIONAL_FRACTION,
+    default_target_allocation_fraction: float = DEFAULT_TARGET_ALLOCATION_FRACTION,
     switch_minimum_rank_score_delta: float = 0.05,
 ) -> PortfolioTraceAuditResult:
     """Trace how many M04 option-intent signals survive a finite-capital portfolio screen.
@@ -517,8 +519,8 @@ def build_candidate_policy_portfolio_trace_audit(
     initial_capital_usd = _validated_initial_capital_usd(initial_capital_usd)
     if max_positions < 0:
         raise ValueError("max_positions must be zero for unbounded or a positive integer")
-    if position_notional_fraction <= 0.0 or position_notional_fraction > 1.0:
-        raise ValueError("position_notional_fraction must be in (0, 1]")
+    if default_target_allocation_fraction <= 0.0 or default_target_allocation_fraction > 1.0:
+        raise ValueError("default_target_allocation_fraction must be in (0, 1]")
     if switch_minimum_rank_score_delta < 0.0:
         raise ValueError("switch_minimum_rank_score_delta must be non-negative")
     if max_trace_timestamps is not None and max_trace_timestamps <= 0:
@@ -596,7 +598,7 @@ def build_candidate_policy_portfolio_trace_audit(
         initial_capital_usd=initial_capital_usd,
         max_trace_timestamps=max_trace_timestamps,
         max_positions=max_positions,
-        position_notional_fraction=position_notional_fraction,
+        default_target_allocation_fraction=default_target_allocation_fraction,
         switch_minimum_rank_score_delta=switch_minimum_rank_score_delta,
     )
     _write_jsonl(trace_rows_path, trace_rows)
@@ -626,7 +628,7 @@ def build_candidate_policy_portfolio_trace_audit(
             "broker_or_account_state": False,
         },
         "max_positions": max_positions,
-        "position_notional_fraction": position_notional_fraction,
+        "default_target_allocation_fraction": default_target_allocation_fraction,
         "switch_minimum_rank_score_delta": switch_minimum_rank_score_delta,
         "max_trace_timestamps": max_trace_timestamps,
         "timestamp_count": trace_summary["timestamp_count"],
@@ -690,7 +692,7 @@ def _build_candidate_policy_portfolio_trace_rows(
     initial_capital_usd: float,
     max_trace_timestamps: int | None,
     max_positions: int,
-    position_notional_fraction: float,
+    default_target_allocation_fraction: float,
     switch_minimum_rank_score_delta: float,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     history_by_target = {target: list(bars) for target, bars in bars_by_target.items()}
@@ -718,7 +720,7 @@ def _build_candidate_policy_portfolio_trace_rows(
         timestamps = timestamps[:max_trace_timestamps]
 
     cash = initial_capital_usd
-    position_budget = initial_capital_usd * position_notional_fraction
+    position_budget = initial_capital_usd * default_target_allocation_fraction
     positions: dict[str, dict[str, Any]] = {}
     rows: list[dict[str, Any]] = []
     summary = {
@@ -952,6 +954,44 @@ def _ranked_candidate_option_expression_plan(
     )
 
 
+def _target_allocation_context(
+    *,
+    layer_outputs: Mapping[str, Any],
+    total_portfolio_notional_usd: float,
+    default_target_allocation_fraction: float,
+) -> dict[str, Any]:
+    fraction, source = _model_output_target_allocation_fraction(layer_outputs)
+    if fraction is None:
+        fraction = default_target_allocation_fraction
+        source = "portfolio_default_target_allocation_fraction"
+    notional = max(0.0, total_portfolio_notional_usd * fraction)
+    return {
+        "target_allocation_fraction": float(fraction),
+        "target_allocation_fraction_source": source,
+        "total_portfolio_notional_usd": float(total_portfolio_notional_usd),
+        "target_allocation_notional_usd": float(notional),
+    }
+
+
+def _model_output_target_allocation_fraction(layer_outputs: Mapping[str, Any]) -> tuple[float | None, str | None]:
+    unified = _as_mapping(layer_outputs.get("unified_decision_vector"))
+    direct_intent = _as_mapping(layer_outputs.get("direct_underlying_intent") or unified.get("direct_underlying_intent"))
+    handoff = _as_mapping(direct_intent.get("handoff_to_model_05"))
+    sources = (
+        ("model_05_handoff.target_allocation_fraction", handoff.get("target_allocation_fraction")),
+        ("direct_underlying_intent.target_allocation_fraction", direct_intent.get("target_allocation_fraction")),
+        ("unified_decision_vector.4_resolved_target_allocation_fraction", unified.get("4_resolved_target_allocation_fraction")),
+        ("unified_decision_vector.target_allocation_fraction", unified.get("target_allocation_fraction")),
+        ("unified_decision_vector.4_target_allocation_fraction_1D", unified.get("4_target_allocation_fraction_1D")),
+        ("unified_decision_vector.4_target_allocation_fraction_1W", unified.get("4_target_allocation_fraction_1W")),
+    )
+    for source, raw in sources:
+        fraction = _safe_float(raw)
+        if fraction is not None and 0.0 < fraction <= 1.0:
+            return fraction, source
+    return None, None
+
+
 def _candidate_position_allocation(
     *,
     cash: float,
@@ -1014,13 +1054,13 @@ def _selected_option_contract_unit_cost(selected_contract: Mapping[str, Any]) ->
 def _validate_portfolio_replay_policy(
     *,
     max_positions: int,
-    position_notional_fraction: float,
+    default_target_allocation_fraction: float,
     switch_minimum_rank_score_delta: float,
 ) -> None:
     if max_positions < 0:
         raise ValueError("portfolio max_positions must be zero for unbounded or a positive integer")
-    if position_notional_fraction <= 0.0 or position_notional_fraction > 1.0:
-        raise ValueError("portfolio position_notional_fraction must be in (0, 1]")
+    if default_target_allocation_fraction <= 0.0 or default_target_allocation_fraction > 1.0:
+        raise ValueError("portfolio default_target_allocation_fraction must be in (0, 1]")
     if switch_minimum_rank_score_delta < 0.0:
         raise ValueError("portfolio switch_minimum_rank_score_delta must be non-negative")
 
@@ -1034,7 +1074,7 @@ def _select_candidate_policy_portfolio_replay_keys(
     option_candidates_by_underlying_time: Mapping[tuple[str, str], Sequence[Mapping[str, Any]]],
     initial_capital_usd: float,
     max_positions: int,
-    position_notional_fraction: float,
+    default_target_allocation_fraction: float,
     switch_minimum_rank_score_delta: float,
 ) -> tuple[
     set[tuple[str, int]],
@@ -1044,7 +1084,7 @@ def _select_candidate_policy_portfolio_replay_keys(
 ]:
     _validate_portfolio_replay_policy(
         max_positions=max_positions,
-        position_notional_fraction=position_notional_fraction,
+        default_target_allocation_fraction=default_target_allocation_fraction,
         switch_minimum_rank_score_delta=switch_minimum_rank_score_delta,
     )
     history_by_target = {target: list(bars) for target, bars in bars_by_target.items()}
@@ -1065,7 +1105,6 @@ def _select_candidate_policy_portfolio_replay_keys(
             candidates_by_time[_replay_time_pointer_for_bar(bar)].append((target, index, bar))
 
     cash = initial_capital_usd
-    minimum_position_notional_usd = initial_capital_usd * position_notional_fraction
     positions: dict[str, dict[str, Any]] = {}
     selected_keys: set[tuple[str, int]] = set()
     layer_outputs_by_key: dict[tuple[str, int], dict[str, Any]] = {}
@@ -1077,8 +1116,8 @@ def _select_candidate_policy_portfolio_replay_keys(
         "independent_m05_signal_count": 0,
         "capital_selected_m05_count": 0,
         "avoided_m05_request_count": 0,
-        "minimum_position_notional_usd": round(minimum_position_notional_usd, 6),
-        "position_notional_role": "minimum_new_target_allocation_floor_not_single_position_cap",
+        "default_target_allocation_fraction": default_target_allocation_fraction,
+        "target_allocation_fraction_role": "model_output_target_allocation_fraction_times_total_budget_not_single_position_cap",
         "max_positions": max_positions,
         "max_positions_role": "unbounded_when_zero" if max_positions == 0 else "optional_position_count_limit",
         "final_cash": initial_capital_usd,
@@ -1137,9 +1176,14 @@ def _select_candidate_policy_portfolio_replay_keys(
                     option_candidates_by_underlying_time=option_candidates_by_underlying_time,
                 )
                 option_expression_plans_by_key[key] = option_expression_plan
+                allocation_context = _target_allocation_context(
+                    layer_outputs=_as_mapping(candidate["layer_outputs"]),
+                    total_portfolio_notional_usd=initial_capital_usd,
+                    default_target_allocation_fraction=default_target_allocation_fraction,
+                )
                 allocation = _candidate_position_allocation(
                     cash=cash,
-                    minimum_position_notional_usd=minimum_position_notional_usd,
+                    minimum_position_notional_usd=allocation_context["target_allocation_notional_usd"],
                     option_expression_plan=option_expression_plan,
                     reference_price=float(candidate["reference_price"]),
                 )
@@ -1175,9 +1219,14 @@ def _select_candidate_policy_portfolio_replay_keys(
             )
             option_expression_plans_by_key[key] = option_expression_plan
             prospective_cash = cash + _portfolio_trace_position_value(worst_position)
+            allocation_context = _target_allocation_context(
+                layer_outputs=_as_mapping(candidate["layer_outputs"]),
+                total_portfolio_notional_usd=initial_capital_usd,
+                default_target_allocation_fraction=default_target_allocation_fraction,
+            )
             allocation = _candidate_position_allocation(
                 cash=prospective_cash,
-                minimum_position_notional_usd=minimum_position_notional_usd,
+                minimum_position_notional_usd=allocation_context["target_allocation_notional_usd"],
                 option_expression_plan=option_expression_plan,
                 reference_price=float(candidate["reference_price"]),
             )
@@ -1585,8 +1634,8 @@ def _build_candidate_policy_decision_rows(
     selected_equity_replay_keys: set[tuple[str, int]] | None = None,
     precomputed_layer_outputs: Mapping[tuple[str, int], Mapping[str, Any]] | None = None,
     precomputed_option_expression_plans: Mapping[tuple[str, int], Mapping[str, Any] | None] | None = None,
-    portfolio_position_min_notional_usd: float = DEFAULT_REPLAY_INITIAL_CAPITAL_USD
-    * DEFAULT_POSITION_MIN_NOTIONAL_FRACTION,
+    total_portfolio_notional_usd: float = DEFAULT_REPLAY_INITIAL_CAPITAL_USD,
+    default_target_allocation_fraction: float = DEFAULT_TARGET_ALLOCATION_FRACTION,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     missing_option_feature_requirements: list[dict[str, str]] = []
@@ -1613,7 +1662,7 @@ def _build_candidate_policy_decision_rows(
             option_candidates_by_underlying_time=option_candidates_by_underlying_time,
             initial_capital_usd=DEFAULT_REPLAY_INITIAL_CAPITAL_USD,
             max_positions=DEFAULT_PORTFOLIO_MAX_POSITIONS,
-            position_notional_fraction=DEFAULT_POSITION_MIN_NOTIONAL_FRACTION,
+            default_target_allocation_fraction=DEFAULT_TARGET_ALLOCATION_FRACTION,
             switch_minimum_rank_score_delta=0.05,
         )
     precomputed_layer_outputs = precomputed_layer_outputs or {}
@@ -1683,7 +1732,11 @@ def _build_candidate_policy_decision_rows(
             replay_trade_risk_cap = _trade_risk_cap(
                 float(replay_market_snapshot["reference_price"]),
                 option_expression_plan=option_expression_plan,
-                minimum_position_notional_usd=portfolio_position_min_notional_usd,
+                allocation_context=_target_allocation_context(
+                    layer_outputs=layer_outputs,
+                    total_portfolio_notional_usd=total_portfolio_notional_usd,
+                    default_target_allocation_fraction=default_target_allocation_fraction,
+                ),
             )
             replay_result = build_replay_runtime_dry_run(
                 account_sleeve_id=_account_sleeve_for_bar(bar),
@@ -1800,6 +1853,9 @@ def _build_candidate_policy_decision_rows(
                     "planned_position_notional_usd": replay_trade_risk_cap.get("planned_position_notional_usd"),
                     "planned_unit_cost_usd": replay_trade_risk_cap.get("estimated_contract_cost_usd")
                     or replay_trade_risk_cap.get("planned_unit_cost_usd"),
+                    "target_allocation_fraction": replay_trade_risk_cap.get("target_allocation_fraction"),
+                    "target_allocation_fraction_source": replay_trade_risk_cap.get("target_allocation_fraction_source"),
+                    "total_portfolio_notional_usd": replay_trade_risk_cap.get("total_portfolio_notional_usd"),
                     "position_sizing_policy": replay_trade_risk_cap.get("position_sizing_policy"),
                     "prediction_score": layer_outputs["prediction_score"],
                     "outcome_label": outcome_label,
@@ -3912,9 +3968,12 @@ def _trade_risk_cap(
     reference_price: float,
     *,
     option_expression_plan: Mapping[str, Any] | None = None,
-    minimum_position_notional_usd: float = DEFAULT_REPLAY_INITIAL_CAPITAL_USD
-    * DEFAULT_POSITION_MIN_NOTIONAL_FRACTION,
+    allocation_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    allocation = _as_mapping(allocation_context)
+    minimum_position_notional_usd = _safe_float(allocation.get("target_allocation_notional_usd"))
+    if minimum_position_notional_usd is None:
+        minimum_position_notional_usd = DEFAULT_REPLAY_INITIAL_CAPITAL_USD * DEFAULT_TARGET_ALLOCATION_FRACTION
     selected_contract = _as_mapping(_as_mapping(option_expression_plan).get("selected_contract"))
     unit_cost = _selected_option_contract_unit_cost(selected_contract) if selected_contract else reference_price
     if unit_cost is None or unit_cost <= 0.0:
@@ -3938,6 +3997,9 @@ def _trade_risk_cap(
         "planned_unit_cost_usd": float(unit_cost),
         "planned_position_notional_usd": float(planned_position_notional),
         "minimum_position_notional_usd": float(minimum_position_notional_usd),
+        "target_allocation_fraction": allocation.get("target_allocation_fraction"),
+        "target_allocation_fraction_source": allocation.get("target_allocation_fraction_source"),
+        "total_portfolio_notional_usd": allocation.get("total_portfolio_notional_usd"),
         "position_sizing_policy": "minimum_notional_floor_option_contract_round_up",
         "sizing_reason_codes": [
             "minimum_position_notional_is_floor_not_cap",

@@ -14,7 +14,7 @@ sys.path.insert(0, "/root/projects/trading-model/src")
 
 from trading_evaluation import (
     DEFAULT_CALIBRATION_WINDOW_MONTH_COUNT,
-    DEFAULT_POSITION_MIN_NOTIONAL_FRACTION,
+    DEFAULT_TARGET_ALLOCATION_FRACTION,
     DEFAULT_PORTFOLIO_MAX_POSITIONS,
     DEFAULT_REPLAY_INITIAL_CAPITAL_USD,
     build_candidate_policy_portfolio_trace_audit,
@@ -63,7 +63,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--max-trace-timestamps", type=int, default=20)
     parser.add_argument("--max-positions", type=int, default=DEFAULT_PORTFOLIO_MAX_POSITIONS)
-    parser.add_argument("--position-notional-fraction", type=float, default=DEFAULT_POSITION_MIN_NOTIONAL_FRACTION)
+    parser.add_argument("--default-target-allocation-fraction", type=float, default=DEFAULT_TARGET_ALLOCATION_FRACTION)
     parser.add_argument("--switch-minimum-rank-score-delta", type=float, default=0.05)
     args = parser.parse_args(argv)
 
@@ -90,7 +90,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         candidate_universe_path=args.candidate_universe_path,
         max_trace_timestamps=args.max_trace_timestamps,
         max_positions=args.max_positions,
-        position_notional_fraction=args.position_notional_fraction,
+        default_target_allocation_fraction=args.default_target_allocation_fraction,
         switch_minimum_rank_score_delta=args.switch_minimum_rank_score_delta,
     )
     print(json.dumps(result.summary, indent=2, sort_keys=True))

@@ -57,6 +57,17 @@ class ReplayExecutionTests(unittest.TestCase):
         self.assertEqual(cheap["quantity"], 2.0)
         self.assertEqual(cheap["notional"], 6_000.0)
 
+    def test_target_allocation_fraction_comes_from_model_output(self):
+        context = replay_module._target_allocation_context(
+            layer_outputs=_current_layer_outputs(target_allocation_fraction=0.40),
+            total_portfolio_notional_usd=25_000.0,
+            default_target_allocation_fraction=0.20,
+        )
+
+        self.assertEqual(context["target_allocation_fraction"], 0.40)
+        self.assertEqual(context["target_allocation_notional_usd"], 10_000.0)
+        self.assertEqual(context["target_allocation_fraction_source"], "model_05_handoff.target_allocation_fraction")
+
     def _dataset(self, root: Path) -> Path:
         dataset_root = root / "dataset"
         dataset_root.mkdir()
@@ -795,7 +806,7 @@ class ReplayExecutionTests(unittest.TestCase):
         finally:
             replay_module._option_expression_plan_for_bar = original_plan_builder
 
-    def test_portfolio_trace_audit_caps_m05_triggers_by_finite_capital(self):
+    def test_portfolio_trace_audit_limits_m05_triggers_by_finite_capital(self):
         original_bars_loader = replay_module._load_candidate_policy_bars
         original_handoff = replay_module._candidate_handoff_for_replay
         original_calibration = replay_module._build_entry_calibration
@@ -878,7 +889,7 @@ class ReplayExecutionTests(unittest.TestCase):
                     include_crypto=False,
                     max_trace_timestamps=1,
                     max_positions=1,
-                    position_notional_fraction=1.0,
+                    default_target_allocation_fraction=1.0,
                     switch_minimum_rank_score_delta=999.0,
                 )
 
@@ -903,7 +914,7 @@ class ReplayExecutionTests(unittest.TestCase):
             replay_module._load_option_candidate_features = original_feature_loader
             replay_module._load_option_candidate_features_for_timestamp = original_point_feature_loader
 
-    def test_candidate_policy_replay_requests_m05_only_for_portfolio_selected_equity_intents(self):
+    def test_candidate_policy_replay_requests_m05_for_ranked_affordable_equity_intents(self):
         original_bars_loader = replay_module._load_candidate_policy_bars
         original_handoff = replay_module._candidate_handoff_for_replay
         original_calibration = replay_module._build_entry_calibration
@@ -977,13 +988,13 @@ class ReplayExecutionTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "replay_option_feature_acquisition_required") as raised:
                     build_candidate_policy_replay_execution_run(
                         dataset_root=dataset_root,
-                        run_id="test_portfolio_selected_requirements",
+                        run_id="test_ranked_affordable_requirements",
                         candidate_model_ref="storage://trading-manager/model_group/test_fold",
                         after_cost_alpha_model=_after_cost_alpha_model(),
                         include_crypto=False,
                         option_feature_database_url="",
                         portfolio_max_positions=1,
-                        portfolio_position_notional_fraction=1.0,
+                        portfolio_default_target_allocation_fraction=1.0,
                         portfolio_switch_minimum_rank_score_delta=999.0,
                     )
 
@@ -1413,6 +1424,9 @@ class ReplayExecutionTests(unittest.TestCase):
                 self.assertEqual(rows[0]["planned_order_quantity"], 24.0)
                 self.assertEqual(rows[0]["planned_unit_cost_usd"], 215.0)
                 self.assertEqual(rows[0]["planned_position_notional_usd"], 5160.0)
+                self.assertEqual(rows[0]["target_allocation_fraction"], 0.20)
+                self.assertEqual(rows[0]["target_allocation_fraction_source"], "model_05_handoff.target_allocation_fraction")
+                self.assertEqual(rows[0]["total_portfolio_notional_usd"], 25000.0)
                 self.assertEqual(
                     rows[0]["position_sizing_policy"],
                     "minimum_notional_floor_option_contract_round_up",
@@ -1789,6 +1803,7 @@ def _current_layer_outputs(
     action_confidence: float = 0.82,
     action_direction: float = 0.18,
     expected_return: float = 0.04,
+    target_allocation_fraction: float = 0.20,
 ) -> dict[str, object]:
     alpha_gate_status = "passed" if alpha_score >= 0.50 else "below_entry_threshold"
     return {
@@ -1807,15 +1822,18 @@ def _current_layer_outputs(
             "unified_decision_vector_ref": "udv_test",
             "unified_decision_confidence_score": alpha_score,
             "minimum_entry_confidence": 0.50,
+            "4_resolved_target_allocation_fraction": target_allocation_fraction,
         },
         "direct_underlying_intent": {
             "model_ref": "unified-decision-ref",
             "underlying_action_type": action_type,
             "action_side": action_side,
+            "target_allocation_fraction": target_allocation_fraction,
             "trade_intensity_score": trade_intensity,
             "entry_style": entry_style,
             "handoff_to_model_05": {
                 "underlying_path_direction": direction,
+                "target_allocation_fraction": target_allocation_fraction,
                 "expected_holding_time_minutes": 1440,
                 "expected_entry_price": 100.0,
                 "expected_target_price": 110.0,
