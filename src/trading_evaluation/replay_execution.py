@@ -92,9 +92,7 @@ OPTION_CANDIDATE_POINT_IN_TIME_SAMPLE_LIMIT = 20
 OPTION_EXPRESSION_SIGNAL_ACTION_TYPES = frozenset(
     {
         "open_long",
-        "increase_long",
         "open_short",
-        "increase_short",
         "bearish_underlying_path_but_no_short_allowed",
     }
 )
