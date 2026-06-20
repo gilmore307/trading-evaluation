@@ -2788,7 +2788,7 @@ def _load_equity_bars_from_sql_bulk(
     symbol_windows: Mapping[str, Sequence[tuple[str, str]]],
     database_url: str | None,
     schema: str = "trading_data",
-    table: str = "model_02_target_state_data_acquisition",
+    table: str = "model_01_market_regime_data_acquisition",
 ) -> dict[str, list[dict[str, Any]]]:
     normalized_windows = {
         str(symbol).upper(): tuple((str(start), str(end)) for start, end in windows)
@@ -2855,7 +2855,7 @@ def _load_equity_bars_from_sql(
     end_date_exclusive: str,
     database_url: str | None,
     schema: str = "trading_data",
-    table: str = "model_02_target_state_data_acquisition",
+    table: str = "model_01_market_regime_data_acquisition",
 ) -> list[dict[str, Any]]:
     if not database_url or not symbol or not start_date or not end_date_exclusive:
         return []
