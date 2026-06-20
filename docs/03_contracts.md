@@ -39,13 +39,13 @@ validation results, and safety flags. It must not train models, call providers,
 write active model config, submit broker requests, or mutate account state.
 
 `evaluation_replay_execution_run` records a side-effect-free Replay execution
-over frozen local base-context artifacts and month-scoped on-demand candidate
-artifacts. It calls `trading-execution` runtime builders under Replay adapters,
-writes settlement-ready `evaluation_replay_decision_row` JSONL, and records
-safety flags proving no broker call, account mutation, model training, or
-active config write occurred. Provider calls are allowed only through reviewed
-on-demand replay acquisition gates. This is Replay evidence, not a promotion
-eligibility decision.
+over frozen local base-context artifacts and demand-driven replay evidence. It
+calls `trading-execution` runtime builders under Replay adapters, writes
+settlement-ready `evaluation_replay_decision_row` JSONL, and records safety flags
+proving no broker call, account mutation, model training, or active config write
+occurred. Provider calls are allowed only through reviewed on-demand replay
+acquisition gates. This is Replay evidence, not a promotion eligibility
+decision.
 
 Ordinary promotion replay reads the fixed historical candidate universe from
 `trading-storage/main/shared/historical_candidate_universe.csv` and lets the
@@ -59,6 +59,22 @@ for C01-C07 model/execution inputs, including on-demand option-chain evidence.
 Future bars, selected-contract path rows, fill settlement, labels, and realized
 returns are allowed only after the decision row is emitted and only for
 evaluation settlement. They must not feed the same-row decision inputs.
+
+Demand-driven replay data acquisition is the accepted route for candidate
+equity, symbol-scoped liquidity/news, option-chain, selected-contract path, and
+other sparse or high-cost evidence discovered during execution-component replay.
+Replay must not prepare broad candidate or option universes in advance. The base
+M01/M02 replay substrate may be frozen once for the fold/window, but downstream
+evidence is acquired only when a replay-visible component state creates a need.
+Known historical intervals may be fetched as exact bounded intervals. Unknown
+duration tracking, such as an active selected contract, extends coverage through
+monotonic forward staging chunks. Physically staged rows after the
+`replay_time_pointer` remain decision-invisible until the pointer reaches them;
+decision-facing readers must gate by replay-visible availability, not raw cache
+presence. Coverage manifests, row counts, future gaps, and provider failures
+after the pointer are also invisible to C01-C07 decision logic. Settlement and
+label readers may consume future paths only after the triggering decision has
+been emitted and only through the settlement access mode.
 
 Replay option-expression inputs come from
 `trading_data.model_05_option_expression_feature_generation` only after M04 emits

@@ -37,7 +37,8 @@ Replay acquisition is bounded by the historical replay clock, candidate policy, 
 
 - preflight may query or estimate source coverage, request counts, row counts, and storage footprint before provider execution;
 - M01/M02 base-context source data lives in canonical long-lived monthly backfill source roots and is retained after replay;
-- provider execution may temporarily materialize only the month and candidate set admitted by C01-C07 during the replay shard;
+- provider execution may temporarily materialize only demand-driven evidence created by replay-visible component state during the replay shard, including admitted candidate equities, symbol-scoped liquidity/news, option-chain snapshots, and selected-contract paths;
+- known historical intervals are fetched as exact bounded intervals; unknown duration tracking extends coverage through monotonic forward staging chunks whose future rows and coverage metadata remain decision-invisible until the replay pointer reaches them;
 - temporary on-demand month-cache data lives under the replay dataset/run boundary, not under canonical long-lived monthly backfill source roots;
 - raw provider payloads are not persisted unless a source contract explicitly requires raw evidence;
 - after the month shard writes its replay receipt, decision rows, coverage summary, row counts, and input hashes, the temporary month-cache data is deleted;

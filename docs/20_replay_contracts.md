@@ -27,7 +27,16 @@ Required properties:
 - any fold that intersects the sealed promotion replay window must be skipped or blocked for candidate training.
 - fixed data snapshot, cost model, slippage/fee assumptions, and baseline ladder.
 - fixed initial capital of `25000.0` USD for all candidate-policy replay runs so replay performance K-lines and ETF/context comparisons use the same account-size denominator.
-- replay acquisition and event/source normalization are construction phases that produce a frozen base data snapshot for the explicit model fold and replay window. Candidate/option data discovered during replay is month-scoped, on-demand replay cache.
+- replay acquisition and event/source normalization are construction phases that
+  produce a frozen base data snapshot for the explicit model fold and replay
+  window.
+- candidate equity, symbol-scoped liquidity/news, option-chain,
+  selected-contract path, and other sparse or high-cost evidence discovered
+  during replay follow the demand-driven acquisition contract in
+  `docs/03_contracts.md`: known intervals are fetched exactly, unknown duration
+  tracking extends by monotonic forward staging chunks, and future staged rows
+  or coverage metadata stay decision-invisible until the replay pointer reaches
+  them.
 - all replay, settlement, promotion eligibility, guardrail, and regression checks for that scope must reuse that frozen data snapshot instead of rebuilding data per model candidate.
 - replay evaluation must run through the execution runtime component graph under a historical clock, not through the model training pipeline or an evaluation-owned trading decision graph.
 - replay must not run `execution_shadow_cycle_selection`; shadow-cycle selection is a realtime execution mechanism for already-promoted models, not a historical evaluation mechanism for training outputs.
