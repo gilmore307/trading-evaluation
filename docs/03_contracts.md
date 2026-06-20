@@ -76,6 +76,27 @@ after the pointer are also invisible to C01-C07 decision logic. Settlement and
 label readers may consume future paths only after the triggering decision has
 been emitted and only through the settlement access mode.
 
+Default forward staging chunks are deliberately small until provider throughput
+evidence justifies changing them:
+
+- point-in-time option-chain or candidate snapshots needed for a same-row
+  decision use an as-of snapshot window ending at the `replay_time_pointer`;
+  they do not stage future decision inputs.
+- active selected-contract path tracking and other high-frequency active-trade
+  paths stage `15` regular-session minutes at a time and request the next chunk
+  when replay-visible remaining coverage is `3` minutes or less.
+- active admitted-target equity quote/liquidity tracking stages `30` regular-
+  session minutes at a time and requests the next chunk when replay-visible
+  remaining coverage is `5` minutes or less.
+- symbol-scoped news, event, and other sparse feeds stage `60` minutes at a time
+  unless the provider exposes only coarser day/session requests; future items
+  and future coverage metadata still remain decision-invisible.
+- settlement-only path tracking, after the triggering decision is emitted and no
+  decision component can consume the future path, stages `60` minutes at a time
+  or the remaining known interval, whichever is shorter.
+- explicit historical requests with known start/end bounds fetch the exact
+  interval, splitting only for provider reliability or request-size limits.
+
 Replay option-expression inputs come from
 `trading_data.model_05_option_expression_feature_generation` only after M04 emits
 an option-expression handoff for the current replay timestamp. If the manager
