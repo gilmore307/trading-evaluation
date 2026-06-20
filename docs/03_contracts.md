@@ -97,6 +97,39 @@ evidence justifies changing them:
 - explicit historical requests with known start/end bounds fetch the exact
   interval, splitting only for provider reliability or request-size limits.
 
+Canonical replay sequence for demand-driven acquisition:
+
+1. At the start of a replay shard, the runner loads the frozen M01/M02 replay
+   substrate, the candidate policy, the simulated account state, and any already
+   persisted replay-cache coverage. No candidate-specific or option universe is
+   downloaded just because the shard begins.
+2. The `replay_time_pointer` advances monotonically. A component may admit a
+   target, open an active-position scope, or request a known historical interval
+   only from state visible at or before that pointer.
+3. When C01 admits a target, the acquisition resolver may stage the target's
+   equity quote/liquidity/news evidence using the default chunks above. Future
+   rows and future coverage metadata remain hidden from decision readers until
+   the pointer reaches them.
+4. When M04 emits an option-expression handoff, the resolver fetches only the
+   as-of option-chain or candidate snapshot needed for the current same-row M05
+   decision. It must not stage future option-chain inputs for that decision.
+5. If M05 selects a concrete option contract and C05/C06 emit a simulated order
+   path, the resolver starts selected-contract path tracking from the decision
+   time using active-tracking chunks. The replay lifecycle components may read
+   only path rows visible at the current pointer.
+6. If an active tracking obligation nears the refill threshold and remains
+   active at the current pointer, the resolver extends coverage with the next
+   monotonic chunk. It must not choose chunk length from future exit time,
+   future volatility, future liquidity, or future outcome labels.
+7. When an exit, block, expiry, or other replay-visible lifecycle event ends the
+   active tracking obligation, the resolver stops active chunks. Settlement-only
+   readers may then use the settlement access mode for future path evidence
+   needed to compute fill quality, realized return, and labels.
+8. If a later component explicitly requires historical evidence for a known
+   interval, the resolver fetches that exact bounded interval and records why
+   the interval became known. The fetched evidence cannot change already emitted
+   decisions.
+
 Replay option-expression inputs come from
 `trading_data.model_05_option_expression_feature_generation` only after M04 emits
 an option-expression handoff for the current replay timestamp. If the manager
