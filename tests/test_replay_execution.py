@@ -518,8 +518,14 @@ class ReplayExecutionTests(unittest.TestCase):
 
         payload = json.loads(message.split(": ", 1)[1])
         self.assertEqual(payload["missing_count"], 2)
+        self.assertEqual(payload["resolver_policy_ref"], "replay_on_demand_resolver_forward_only_asof")
+        self.assertEqual(payload["requirement_kind"], "same_row_option_snapshot")
         self.assertEqual(len(payload["sample"]), 2)
         self.assertEqual(payload["sample"][0]["maximum_permitted_source_end"], "2021-05-19T16:00:00-04:00")
+        self.assertEqual(payload["sample"][0]["resolver_policy_ref"], "replay_on_demand_resolver_forward_only_asof")
+        self.assertEqual(payload["sample"][0]["replay_time_pointer"], "2021-05-19T16:00:00-04:00")
+        self.assertEqual(payload["sample"][0]["source_window_end"], "2021-05-19T16:00:00-04:00")
+        self.assertEqual(payload["sample"][0]["future_source_rows_decision_visible"], "false")
         self.assertEqual(payload["sample"][1]["timestamp"], "2021-05-21T16:00:00-04:00")
 
     def test_replay_option_feature_acquisition_payload_can_reference_full_requirements_artifact(self):

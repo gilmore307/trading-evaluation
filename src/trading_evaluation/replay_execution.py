@@ -85,6 +85,9 @@ OPTION_SOURCE_UNAVAILABLE_SNAPSHOT_TYPE = "source_unavailable"
 OPTION_SOURCE_UNAVAILABLE_STATUS = "option_source_unavailable"
 OPTION_SOURCE_UNAVAILABLE_SYMBOL = "__OPTION_SOURCE_UNAVAILABLE__"
 REPLAY_TIME_POINTER_POLICY_REF = "replay_time_pointer_excludes_future_decision_inputs"
+REPLAY_ON_DEMAND_RESOLVER_POLICY_REF = "replay_on_demand_resolver_forward_only_asof"
+REPLAY_OPTION_SNAPSHOT_REQUIREMENT_KIND = "same_row_option_snapshot"
+REPLAY_OPTION_SNAPSHOT_STAGING_CHUNK_MINUTES = 1
 OPTION_CANDIDATE_POINT_IN_TIME_SAMPLE_LIMIT = 20
 OPTION_EXPRESSION_SIGNAL_ACTION_TYPES = frozenset(
     {
@@ -1092,7 +1095,7 @@ def _select_candidate_policy_portfolio_replay_keys(
     set[tuple[str, int]],
     dict[tuple[str, int], dict[str, Any]],
     dict[tuple[str, int], Mapping[str, Any] | None],
-    list[dict[str, str]],
+    list[dict[str, Any]],
     dict[str, Any],
 ]:
     _validate_portfolio_replay_policy(
@@ -1122,7 +1125,7 @@ def _select_candidate_policy_portfolio_replay_keys(
     selected_keys: set[tuple[str, int]] = set()
     layer_outputs_by_key: dict[tuple[str, int], dict[str, Any]] = {}
     option_expression_plans_by_key: dict[tuple[str, int], Mapping[str, Any] | None] = {}
-    missing_option_feature_requirements: list[dict[str, str]] = []
+    missing_option_feature_requirements: list[dict[str, Any]] = []
     summary = {
         "timestamp_count": 0,
         "candidate_count": 0,
@@ -1180,7 +1183,7 @@ def _select_candidate_policy_portfolio_replay_keys(
                 summary["independent_m05_signal_count"] += 1
 
         timestamp_candidates.sort(key=lambda row: (-float(row["diagnostic_rank_score"]), str(row["target_ref"])))
-        timestamp_missing_requirements: list[dict[str, str]] = []
+        timestamp_missing_requirements: list[dict[str, Any]] = []
         for candidate in timestamp_candidates:
             key = candidate["key"]
             option_expression_plan = _ranked_candidate_option_expression_plan(
@@ -1702,7 +1705,7 @@ def _build_candidate_policy_decision_rows(
     default_target_allocation_fraction: float = DEFAULT_TARGET_ALLOCATION_FRACTION,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    missing_option_feature_requirements: list[dict[str, str]] = []
+    missing_option_feature_requirements: list[dict[str, Any]] = []
     history_by_target = {target: list(bars) for target, bars in bars_by_target.items()}
     index_by_target_date = {
         target: {str(row["date"]): index for index, row in enumerate(target_rows)}
@@ -3056,17 +3059,24 @@ def _option_expression_plan_for_bar(
     )
 
 
-def _replay_option_feature_requirement_sample(*, target: str, timestamp: str) -> dict[str, str]:
+def _replay_option_feature_requirement_sample(*, target: str, timestamp: str) -> dict[str, Any]:
     return {
         "target_ref": str(target).upper(),
         "timestamp": timestamp,
+        "replay_time_pointer": timestamp,
+        "requirement_kind": REPLAY_OPTION_SNAPSHOT_REQUIREMENT_KIND,
+        "resolver_policy_ref": REPLAY_ON_DEMAND_RESOLVER_POLICY_REF,
+        "staging_mode": "as_of_snapshot_no_future_staging",
+        "staging_chunk_minutes": str(REPLAY_OPTION_SNAPSHOT_STAGING_CHUNK_MINUTES),
+        "source_window_end": timestamp,
         "maximum_permitted_source_end": timestamp,
+        "future_source_rows_decision_visible": "false",
         "signal_source": "model_04_unified_decision.direct_underlying_intent.handoff_to_model_05",
     }
 
 
 def _replay_option_feature_acquisition_error(
-    requirements: Sequence[Mapping[str, str]],
+    requirements: Sequence[Mapping[str, Any]],
     *,
     artifact_ref: Path | None = None,
 ) -> ValueError:
@@ -3076,7 +3086,7 @@ def _replay_option_feature_acquisition_error(
 def _write_replay_option_feature_requirements(
     *,
     path: Path | None,
-    requirements: Sequence[Mapping[str, str]],
+    requirements: Sequence[Mapping[str, Any]],
 ) -> str | None:
     if path is None:
         return None
@@ -3089,9 +3099,9 @@ def _write_replay_option_feature_requirements(
 
 
 def _deduped_replay_option_feature_requirements(
-    requirements: Sequence[Mapping[str, str]],
-) -> list[dict[str, str]]:
-    deduped: list[dict[str, str]] = []
+    requirements: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for item in requirements:
         target = str(item.get("target_ref") or "").upper()
@@ -3107,7 +3117,7 @@ def _deduped_replay_option_feature_requirements(
 
 
 def _replay_option_feature_acquisition_message(
-    requirements: Sequence[Mapping[str, str]],
+    requirements: Sequence[Mapping[str, Any]],
     *,
     artifact_ref: Path | str | None = None,
 ) -> str:
@@ -3117,7 +3127,10 @@ def _replay_option_feature_acquisition_message(
         "missing_count": len(deduped),
         "sample": sample,
         "sample_limit": REPLAY_OPTION_FEATURE_MISSING_SAMPLE_LIMIT,
-        "required_next_step": "run ThetaData option acquisition only for emitted replay signal timestamps, generate M05 option features, then retry replay execution from the same replay clock",
+        "required_next_step": "resolve the emitted same-row option snapshot requirements through cache-first source acquisition, generate M05 option features, then retry replay execution from the same replay clock",
+        "resolver_policy_ref": REPLAY_ON_DEMAND_RESOLVER_POLICY_REF,
+        "requirement_kind": REPLAY_OPTION_SNAPSHOT_REQUIREMENT_KIND,
+        "staging_policy": "same-row option snapshot windows end at replay_time_pointer and must not expose future source rows or coverage metadata to decision readers",
         "point_in_time_policy": "option provider acquisition for replay must not request or consume data after each replay_time_pointer that emitted an option-expression signal",
     }
     if artifact_ref:
