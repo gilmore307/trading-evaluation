@@ -246,6 +246,10 @@ def build_candidate_policy_replay_execution_run(
         include_equity=include_equity,
         replay_month=replay_month,
     )
+    _validate_replay_candidate_model_scope(
+        candidate_model_ref=candidate_model_ref,
+        candidate_handoff=candidate_handoff,
+    )
     generated_at = generated_at_utc or _now_utc()
     run_id = run_id or f"candidate_policy_replay_{generated_at.replace(':', '').replace('-', '').replace('Z', 'Z')}"
     output_dir = output_dir or dataset_root / "replay_execution_runs" / run_id
@@ -1264,6 +1268,29 @@ def _require_candidate_model_ref(candidate_model_ref: str) -> str:
     if text in DISALLOWED_PLACEHOLDER_CANDIDATE_MODEL_REFS:
         raise ValueError("candidate_model_ref must point to a concrete model-group candidate, not the deterministic placeholder")
     return text
+
+
+def _validate_replay_candidate_model_scope(
+    *,
+    candidate_model_ref: str,
+    candidate_handoff: Mapping[str, Any],
+) -> None:
+    """Reject full-universe replay when the model ref is still target-scoped."""
+
+    source = str(candidate_handoff.get("source") or "").strip()
+    symbols = tuple(_string_set(candidate_handoff.get("candidate_symbols")))
+    if source != "fixed_current_snapshot_historical_candidate_universe" or len(symbols) <= 1:
+        return
+    marker = "/model_group/"
+    if marker not in candidate_model_ref:
+        return
+    tail = candidate_model_ref.split(marker, 1)[1].strip("/")
+    parts = tuple(part for part in tail.split("/") if part)
+    if len(parts) >= 2:
+        raise ValueError(
+            "full fixed-universe replay requires a fold-scoped model_group candidate_model_ref; "
+            "target-scoped model refs are valid only for diagnostic single-target replay"
+        )
 
 
 def _validated_initial_capital_usd(value: float) -> float:

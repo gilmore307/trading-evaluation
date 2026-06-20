@@ -782,6 +782,26 @@ class ReplayExecutionTests(unittest.TestCase):
         finally:
             replay_module._option_expression_plan_for_bar = original_plan_builder
 
+    def test_full_fixed_candidate_universe_rejects_target_scoped_model_ref(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dataset_root = self._dataset(root)
+            equity_source_root = self._equity_source_root(root)
+            candidate_universe_path = self._candidate_universe(root, ["AAPL", "MSFT"])
+
+            with self.assertRaisesRegex(ValueError, "requires a fold-scoped model_group candidate_model_ref"):
+                build_candidate_policy_replay_execution_run(
+                    dataset_root=dataset_root,
+                    run_id="test_target_scoped_candidate_model_ref",
+                    candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
+                    after_cost_alpha_model=_after_cost_alpha_model(),
+                    equity_source_root=equity_source_root,
+                    include_crypto=False,
+                    max_decision_rows=1,
+                    option_feature_database_url="",
+                    candidate_universe_path=candidate_universe_path,
+                )
+
     def test_portfolio_trace_audit_limits_m05_triggers_by_finite_capital(self):
         original_bars_loader = replay_module._load_candidate_policy_bars
         original_handoff = replay_module._candidate_handoff_for_replay
