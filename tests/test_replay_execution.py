@@ -712,9 +712,14 @@ class ReplayExecutionTests(unittest.TestCase):
             replay_module._option_expression_plan_for_bar = lambda **_: {
                 "model_ref": "storage://trading-manager/model_group/test_fold/model_05_option_expression/test",
                 "target_ref": "AAPL",
-                "asset_expression_route": "option_expression_unfilled",
-                    "option_surface_status": "optionable_chain_available",
-                }
+                "asset_expression_route": "listed_option_contract",
+                "option_surface_status": "optionable_chain_available",
+                "selected_expression_type": "long_call",
+                "selected_contract": {
+                    "contract_ref": "AAPL_2021-01-15_C_100",
+                    "mid_price": 1.0,
+                },
+            }
             replay_module._candidate_layer_outputs = lambda **_: _current_layer_outputs()
             replay_module._load_option_contract_path_bars = lambda **_: {}
             with tempfile.TemporaryDirectory() as tmp:
@@ -1004,6 +1009,102 @@ class ReplayExecutionTests(unittest.TestCase):
             replay_module._build_entry_calibration = original_calibration
             replay_module._candidate_layer_outputs = original_layer_outputs
             replay_module._load_option_contract_path_bars = original_path_loader
+
+    def test_portfolio_selection_skips_unexecutable_m05_plan_before_capital(self):
+        original_layer_outputs = replay_module._candidate_layer_outputs
+        original_plan_builder = replay_module._option_expression_plan_for_bar
+        try:
+            replay_module._candidate_layer_outputs = lambda *, target, **_: _current_layer_outputs(
+                alpha_score={"AAPL": 0.90, "MSFT": 0.80}[target],
+                target_allocation_fraction=0.20,
+            )
+
+            def fake_option_plan(*, bar, **_):
+                target = str(bar["symbol"])
+                if target == "AAPL":
+                    return {
+                        "target_ref": target,
+                        "asset_expression_route": "option_expression_unfilled",
+                        "option_surface_status": "optionable_chain_available",
+                        "selected_expression_type": "underlying_only_expression",
+                        "selected_contract": None,
+                    }
+                return {
+                    "target_ref": target,
+                    "asset_expression_route": "listed_option_contract",
+                    "option_surface_status": "optionable_chain_available",
+                    "selected_expression_type": "long_call",
+                    "selected_contract": {
+                        "contract_ref": "MSFT_2021-01-15_C_100",
+                        "mid_price": 1.0,
+                    },
+                }
+
+            replay_module._option_expression_plan_for_bar = fake_option_plan
+            bars_by_target = {
+                symbol: [
+                    {
+                        "symbol": symbol,
+                        "asset_class": "us_equity",
+                        "source_id": "alpaca_bars",
+                        "timestamp": "2021-01-04T16:00:00-05:00",
+                        "date": "2021-01-04",
+                        "bar_open": price,
+                        "bar_high": price + 1.0,
+                        "bar_low": price - 1.0,
+                        "bar_close": price,
+                        "bar_volume": 1000.0,
+                    },
+                    {
+                        "symbol": symbol,
+                        "asset_class": "us_equity",
+                        "source_id": "alpaca_bars",
+                        "timestamp": "2021-01-05T16:00:00-05:00",
+                        "date": "2021-01-05",
+                        "bar_open": price + 1.0,
+                        "bar_high": price + 2.0,
+                        "bar_low": price,
+                        "bar_close": price + 1.0,
+                        "bar_volume": 1200.0,
+                    },
+                ]
+                for symbol, price in {"AAPL": 100.0, "MSFT": 101.0}.items()
+            }
+            calibration_artifact = {
+                "selected_thresholds": {
+                    "minimum_entry_alpha_confidence": 0.50,
+                    "minimum_trade_intensity": 0.05,
+                }
+            }
+            selected_keys, _, option_plans, summary = replay_module._select_candidate_policy_portfolio_replay_keys(
+                bars_by_target=bars_by_target,
+                candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                after_cost_alpha_model=_after_cost_alpha_model(),
+                entry_calibration=replay_module.EntryCalibration(
+                    artifact=calibration_artifact,
+                    path=Path("entry_threshold_calibration.json"),
+                ),
+                option_candidates_by_underlying_time={
+                    ("AAPL", "2021-01-04T16:00:00-05:00"): [{"contract_ref": "AAPL_NO_CONTRACT"}],
+                    ("MSFT", "2021-01-04T16:00:00-05:00"): [{"contract_ref": "MSFT_2021-01-15_C_100"}],
+                },
+                initial_capital_usd=25_000.0,
+                max_positions=1,
+                default_target_allocation_fraction=0.20,
+                switch_minimum_rank_score_delta=999.0,
+            )
+
+            self.assertEqual(selected_keys, {("MSFT", 0)})
+            self.assertIsNone(option_plans[("AAPL", 0)]["selected_contract"])
+            self.assertEqual(option_plans[("MSFT", 0)]["selected_contract"]["contract_ref"], "MSFT_2021-01-15_C_100")
+            self.assertEqual(summary["independent_m05_signal_count"], 2)
+            self.assertEqual(summary["unexecutable_m05_plan_count"], 1)
+            self.assertEqual(summary["capital_selected_m05_count"], 1)
+            self.assertEqual(summary["avoided_m05_request_count"], 1)
+            self.assertEqual(summary["final_position_targets"], ["MSFT"])
+        finally:
+            replay_module._candidate_layer_outputs = original_layer_outputs
+            replay_module._option_expression_plan_for_bar = original_plan_builder
 
     def test_candidate_policy_replay_rejects_partial_candidate_bar_coverage(self):
         with tempfile.TemporaryDirectory() as tmp:

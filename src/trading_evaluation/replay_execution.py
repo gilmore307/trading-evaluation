@@ -957,6 +957,13 @@ def _ranked_candidate_option_expression_plan(
     )
 
 
+def _option_expression_plan_has_selected_contract(option_expression_plan: Mapping[str, Any] | None) -> bool:
+    selected_contract = _as_mapping(_as_mapping(option_expression_plan).get("selected_contract"))
+    if not selected_contract:
+        return False
+    return _selected_option_contract_unit_cost(selected_contract) is not None
+
+
 def _target_allocation_context(
     *,
     layer_outputs: Mapping[str, Any],
@@ -1118,6 +1125,7 @@ def _select_candidate_policy_portfolio_replay_keys(
         "m04_trade_intent_count": 0,
         "independent_m05_signal_count": 0,
         "capital_selected_m05_count": 0,
+        "unexecutable_m05_plan_count": 0,
         "avoided_m05_request_count": 0,
         "default_target_allocation_fraction": default_target_allocation_fraction,
         "target_allocation_fraction_role": "model_output_target_allocation_fraction_times_total_budget_not_single_position_cap",
@@ -1182,6 +1190,9 @@ def _select_candidate_policy_portfolio_replay_keys(
                     option_candidates_by_underlying_time=option_candidates_by_underlying_time,
                 )
                 option_expression_plans_by_key[key] = option_expression_plan
+                if option_expression_plan is not None and not _option_expression_plan_has_selected_contract(option_expression_plan):
+                    summary["unexecutable_m05_plan_count"] += 1
+                    continue
                 allocation_context = _target_allocation_context(
                     layer_outputs=_as_mapping(candidate["layer_outputs"]),
                     total_portfolio_notional_usd=initial_capital_usd,
@@ -1224,6 +1235,9 @@ def _select_candidate_policy_portfolio_replay_keys(
                 option_candidates_by_underlying_time=option_candidates_by_underlying_time,
             )
             option_expression_plans_by_key[key] = option_expression_plan
+            if option_expression_plan is not None and not _option_expression_plan_has_selected_contract(option_expression_plan):
+                summary["unexecutable_m05_plan_count"] += 1
+                continue
             prospective_cash = cash + _portfolio_trace_position_value(worst_position)
             allocation_context = _target_allocation_context(
                 layer_outputs=_as_mapping(candidate["layer_outputs"]),
