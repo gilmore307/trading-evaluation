@@ -470,7 +470,7 @@ def build_candidate_policy_replay_execution_run(
         ],
     }
     receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    _write_jsonl(progress_path, progress_rows)
+    _write_replay_progress_jsonl(progress_path, progress_rows)
     return ReplayExecutionResult(
         receipt_path=receipt_path,
         decision_rows_path=decision_rows_path,
@@ -2048,10 +2048,15 @@ def _load_candidate_policy_bars(
                     _load_equity_bars(
                         equity_source_root=equity_source_root,
                         equity_symbols=missing_symbols,
+                        replay_month=replay_month,
                     )
                 )
         if not equity_rows:
-            equity_rows = _load_equity_bars(equity_source_root=equity_source_root, equity_symbols=equity_symbols)
+            equity_rows = _load_equity_bars(
+                equity_source_root=equity_source_root,
+                equity_symbols=equity_symbols,
+                replay_month=replay_month,
+            )
         for target, rows in equity_rows.items():
             if rows:
                 rows_by_target[target] = rows
@@ -2681,7 +2686,12 @@ def _load_equity_bars_from_plan(
     return deduped
 
 
-def _load_equity_bars(*, equity_source_root: Path, equity_symbols: Sequence[str] | None = None) -> dict[str, list[dict[str, Any]]]:
+def _load_equity_bars(
+    *,
+    equity_source_root: Path,
+    equity_symbols: Sequence[str] | None = None,
+    replay_month: str | None = None,
+) -> dict[str, list[dict[str, Any]]]:
     rows_by_target: dict[str, list[dict[str, Any]]] = {}
     if not equity_source_root.exists():
         return rows_by_target
@@ -2695,6 +2705,8 @@ def _load_equity_bars(*, equity_source_root: Path, equity_symbols: Sequence[str]
         daily: dict[str, dict[str, Any]] = {}
         daily_by_symbol[symbol] = daily
         for month_dir in sorted(path for path in symbol_dir.iterdir() if path.is_dir()):
+            if replay_month and month_dir.name != replay_month:
+                continue
             if month_dir.name < "2021-01" or month_dir.name > "2025-12":
                 continue
             csv_rows_loaded = False
@@ -2702,6 +2714,8 @@ def _load_equity_bars(*, equity_source_root: Path, equity_symbols: Sequence[str]
                 for row in _read_bar_csv(csv_path):
                     timestamp = str(row["timestamp"])
                     year_month = timestamp[:7]
+                    if replay_month and year_month != replay_month:
+                        continue
                     if year_month < "2021-01" or year_month > "2025-12":
                         continue
                     date_text = str(row["date"])
@@ -4039,6 +4053,31 @@ def _write_jsonl(path: Path, rows: Iterable[Mapping[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
+            handle.write(json.dumps(row, sort_keys=True) + "\n")
+
+
+def _write_replay_progress_jsonl(path: Path, rows: Iterable[Mapping[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    if path.exists():
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                if not isinstance(row, Mapping):
+                    continue
+                run_id = str(row.get("replay_execution_run_id") or "").strip()
+                month = str(row.get("month") or row.get("replay_month") or "").strip()
+                if run_id and month:
+                    rows_by_key[(run_id, month)] = dict(row)
+    for row in rows:
+        run_id = str(row.get("replay_execution_run_id") or "").strip()
+        month = str(row.get("month") or row.get("replay_month") or "").strip()
+        if run_id and month:
+            rows_by_key[(run_id, month)] = dict(row)
+    with path.open("w", encoding="utf-8") as handle:
+        for _, row in sorted(rows_by_key.items(), key=lambda item: (str(item[1].get("month") or ""), item[0][0])):
             handle.write(json.dumps(row, sort_keys=True) + "\n")
 
 

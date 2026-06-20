@@ -1082,6 +1082,91 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(len(rows["MSFT"]), 2)
             self.assertEqual(rows["MSFT"][0]["bar_close"], 200.5)
 
+    def test_load_equity_bars_filters_fallback_rows_to_replay_month(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_root = root / "alpaca_bars"
+            for month, first_close, second_close in (("2021-01", 100.5, 101.5), ("2021-02", 200.5, 201.5)):
+                bar_path = source_root / "MSFT" / month / "runs" / "run" / "saved" / "equity_bar.csv"
+                bar_path.parent.mkdir(parents=True)
+                with bar_path.open("w", newline="", encoding="utf-8") as handle:
+                    writer = csv.DictWriter(
+                        handle,
+                        fieldnames=[
+                            "symbol",
+                            "timeframe",
+                            "timestamp",
+                            "bar_open",
+                            "bar_high",
+                            "bar_low",
+                            "bar_close",
+                            "bar_volume",
+                        ],
+                    )
+                    writer.writeheader()
+                    writer.writerows(
+                        [
+                            {
+                                "symbol": "MSFT",
+                                "timeframe": "1Day",
+                                "timestamp": f"{month}-01T16:00:00-05:00",
+                                "bar_open": first_close,
+                                "bar_high": first_close,
+                                "bar_low": first_close,
+                                "bar_close": first_close,
+                                "bar_volume": 1000,
+                            },
+                            {
+                                "symbol": "MSFT",
+                                "timeframe": "1Day",
+                                "timestamp": f"{month}-02T16:00:00-05:00",
+                                "bar_open": second_close,
+                                "bar_high": second_close,
+                                "bar_low": second_close,
+                                "bar_close": second_close,
+                                "bar_volume": 1100,
+                            },
+                        ]
+                    )
+
+            rows = replay_module._load_equity_bars(
+                equity_source_root=source_root,
+                equity_symbols=["MSFT"],
+                replay_month="2021-02",
+            )
+
+            self.assertEqual([row["timestamp"][:7] for row in rows["MSFT"]], ["2021-02", "2021-02"])
+            self.assertEqual(rows["MSFT"][0]["bar_close"], 200.5)
+
+    def test_write_replay_progress_preserves_existing_months(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "replay_progress.jsonl"
+            replay_module._write_replay_progress_jsonl(
+                path,
+                [
+                    {
+                        "contract_type": "evaluation_replay_progress",
+                        "status": "completed",
+                        "month": "2021-01",
+                        "replay_execution_run_id": "run_1",
+                    }
+                ],
+            )
+            replay_module._write_replay_progress_jsonl(
+                path,
+                [
+                    {
+                        "contract_type": "evaluation_replay_progress",
+                        "status": "completed",
+                        "month": "2021-02",
+                        "replay_execution_run_id": "run_2",
+                    }
+                ],
+            )
+
+            rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual([(row["replay_execution_run_id"], row["month"]) for row in rows], [("run_1", "2021-01"), ("run_2", "2021-02")])
+
     def test_target_market_universe_rows_selects_current_target(self):
         universe = (
             {"target_ref": "AAPL", "reference_price": 100.0},
