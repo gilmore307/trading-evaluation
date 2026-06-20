@@ -1000,9 +1000,8 @@ class ReplayExecutionTests(unittest.TestCase):
                     )
 
                 payload = json.loads(str(raised.exception).split(": ", 1)[1])
-                self.assertEqual(payload["missing_count"], 1)
-                self.assertEqual(payload["sample"][0]["target_ref"], "AAPL")
-                self.assertNotIn("MSFT", json.dumps(payload))
+                self.assertEqual(payload["missing_count"], 2)
+                self.assertEqual({item["target_ref"] for item in payload["sample"]}, {"AAPL", "MSFT"})
         finally:
             replay_module._load_candidate_policy_bars = original_bars_loader
             replay_module._candidate_handoff_for_replay = original_handoff
@@ -1076,7 +1075,7 @@ class ReplayExecutionTests(unittest.TestCase):
                     "minimum_trade_intensity": 0.05,
                 }
             }
-            selected_keys, _, option_plans, summary = replay_module._select_candidate_policy_portfolio_replay_keys(
+            selected_keys, _, option_plans, missing_requirements, summary = replay_module._select_candidate_policy_portfolio_replay_keys(
                 bars_by_target=bars_by_target,
                 candidate_model_ref="storage://trading-manager/model_group/test_fold",
                 after_cost_alpha_model=_after_cost_alpha_model(),
@@ -1095,6 +1094,7 @@ class ReplayExecutionTests(unittest.TestCase):
             )
 
             self.assertEqual(selected_keys, {("MSFT", 0)})
+            self.assertEqual(missing_requirements, [])
             self.assertIsNone(option_plans[("AAPL", 0)]["selected_contract"])
             self.assertEqual(option_plans[("MSFT", 0)]["selected_contract"]["contract_ref"], "MSFT_2021-01-15_C_100")
             self.assertEqual(summary["independent_m05_signal_count"], 2)

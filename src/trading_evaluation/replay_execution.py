@@ -308,6 +308,7 @@ def build_candidate_policy_replay_execution_run(
         selected_equity_replay_keys,
         precomputed_layer_outputs,
         precomputed_option_expression_plans,
+        precomputed_option_feature_requirements,
         portfolio_selection_summary,
     ) = _select_candidate_policy_portfolio_replay_keys(
         bars_by_target=bars_by_target,
@@ -333,6 +334,7 @@ def build_candidate_policy_replay_execution_run(
         option_contract_paths_by_symbol=option_contract_paths_by_symbol,
         option_feature_requirements_path=option_feature_requirements_path,
         allow_option_feature_requirements=_candidate_handoff_allows_option_feature_requirements(candidate_handoff),
+        precomputed_option_feature_requirements=precomputed_option_feature_requirements,
         selected_equity_replay_keys=selected_equity_replay_keys,
         precomputed_layer_outputs=precomputed_layer_outputs,
         precomputed_option_expression_plans=precomputed_option_expression_plans,
@@ -1090,6 +1092,7 @@ def _select_candidate_policy_portfolio_replay_keys(
     set[tuple[str, int]],
     dict[tuple[str, int], dict[str, Any]],
     dict[tuple[str, int], Mapping[str, Any] | None],
+    list[dict[str, str]],
     dict[str, Any],
 ]:
     _validate_portfolio_replay_policy(
@@ -1119,6 +1122,7 @@ def _select_candidate_policy_portfolio_replay_keys(
     selected_keys: set[tuple[str, int]] = set()
     layer_outputs_by_key: dict[tuple[str, int], dict[str, Any]] = {}
     option_expression_plans_by_key: dict[tuple[str, int], Mapping[str, Any] | None] = {}
+    missing_option_feature_requirements: list[dict[str, str]] = []
     summary = {
         "timestamp_count": 0,
         "candidate_count": 0,
@@ -1127,6 +1131,7 @@ def _select_candidate_policy_portfolio_replay_keys(
         "capital_selected_m05_count": 0,
         "unexecutable_m05_plan_count": 0,
         "avoided_m05_request_count": 0,
+        "missing_option_feature_requirement_count": 0,
         "default_target_allocation_fraction": default_target_allocation_fraction,
         "target_allocation_fraction_role": "model_output_target_allocation_fraction_times_total_budget_not_single_position_cap",
         "max_positions": max_positions,
@@ -1175,6 +1180,27 @@ def _select_candidate_policy_portfolio_replay_keys(
                 summary["independent_m05_signal_count"] += 1
 
         timestamp_candidates.sort(key=lambda row: (-float(row["diagnostic_rank_score"]), str(row["target_ref"])))
+        timestamp_missing_requirements: list[dict[str, str]] = []
+        for candidate in timestamp_candidates:
+            key = candidate["key"]
+            option_expression_plan = _ranked_candidate_option_expression_plan(
+                candidate=candidate,
+                candidate_model_ref=candidate_model_ref,
+                option_candidates_by_underlying_time=option_candidates_by_underlying_time,
+            )
+            option_expression_plans_by_key[key] = option_expression_plan
+            if option_expression_plan is None:
+                timestamp_missing_requirements.append(
+                    _replay_option_feature_requirement_sample(
+                        target=str(candidate["target_ref"]),
+                        timestamp=str(candidate["timestamp"]),
+                    )
+                )
+        if timestamp_missing_requirements:
+            missing_option_feature_requirements.extend(timestamp_missing_requirements)
+            summary["missing_option_feature_requirement_count"] += len(timestamp_missing_requirements)
+            break
+
         selected_this_timestamp = 0
         for candidate in timestamp_candidates:
             target = str(candidate["target_ref"])
@@ -1184,12 +1210,7 @@ def _select_candidate_policy_portfolio_replay_keys(
                 continue
             key = candidate["key"]
             if _position_limit_allows_new_position(positions=positions, max_positions=max_positions) and cash > 0.0:
-                option_expression_plan = _ranked_candidate_option_expression_plan(
-                    candidate=candidate,
-                    candidate_model_ref=candidate_model_ref,
-                    option_candidates_by_underlying_time=option_candidates_by_underlying_time,
-                )
-                option_expression_plans_by_key[key] = option_expression_plan
+                option_expression_plan = option_expression_plans_by_key.get(key)
                 if option_expression_plan is not None and not _option_expression_plan_has_selected_contract(option_expression_plan):
                     summary["unexecutable_m05_plan_count"] += 1
                     continue
@@ -1229,12 +1250,7 @@ def _select_candidate_policy_portfolio_replay_keys(
             worst_score = float(worst_position.get("last_rank_score") or worst_position.get("entry_rank_score") or 0.0)
             if candidate_score - worst_score < switch_minimum_rank_score_delta:
                 continue
-            option_expression_plan = _ranked_candidate_option_expression_plan(
-                candidate=candidate,
-                candidate_model_ref=candidate_model_ref,
-                option_candidates_by_underlying_time=option_candidates_by_underlying_time,
-            )
-            option_expression_plans_by_key[key] = option_expression_plan
+            option_expression_plan = option_expression_plans_by_key.get(key)
             if option_expression_plan is not None and not _option_expression_plan_has_selected_contract(option_expression_plan):
                 summary["unexecutable_m05_plan_count"] += 1
                 continue
@@ -1272,7 +1288,7 @@ def _select_candidate_policy_portfolio_replay_keys(
     summary["final_cash"] = round(cash, 6)
     summary["final_position_count"] = len(positions)
     summary["final_position_targets"] = sorted(positions)
-    return selected_keys, layer_outputs_by_key, option_expression_plans_by_key, summary
+    return selected_keys, layer_outputs_by_key, option_expression_plans_by_key, missing_option_feature_requirements, summary
 
 
 def _require_candidate_model_ref(candidate_model_ref: str) -> str:
@@ -1678,6 +1694,7 @@ def _build_candidate_policy_decision_rows(
     option_contract_paths_by_symbol: Mapping[str, Sequence[Mapping[str, Any]]],
     option_feature_requirements_path: Path | None = None,
     allow_option_feature_requirements: bool = True,
+    precomputed_option_feature_requirements: Sequence[Mapping[str, str]] | None = None,
     selected_equity_replay_keys: set[tuple[str, int]] | None = None,
     precomputed_layer_outputs: Mapping[tuple[str, int], Mapping[str, Any]] | None = None,
     precomputed_option_expression_plans: Mapping[tuple[str, int], Mapping[str, Any] | None] | None = None,
@@ -1700,6 +1717,7 @@ def _build_candidate_policy_decision_rows(
             selected_equity_replay_keys,
             precomputed_layer_outputs,
             precomputed_option_expression_plans,
+            precomputed_option_feature_requirements,
             _,
         ) = _select_candidate_policy_portfolio_replay_keys(
             bars_by_target=bars_by_target,
@@ -1714,6 +1732,8 @@ def _build_candidate_policy_decision_rows(
         )
     precomputed_layer_outputs = precomputed_layer_outputs or {}
     precomputed_option_expression_plans = precomputed_option_expression_plans or {}
+    if allow_option_feature_requirements:
+        missing_option_feature_requirements.extend(precomputed_option_feature_requirements or [])
     replay_items: list[tuple[float, str, int]] = []
     for target in sorted(history_by_target):
         for index, bar in enumerate(history_by_target[target][:-1]):
