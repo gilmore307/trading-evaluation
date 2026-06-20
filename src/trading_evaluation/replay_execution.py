@@ -4034,18 +4034,6 @@ def _validate_replay_month_coverage(*, plan_path: Path, replay_month: str) -> No
     ]
     if unavailable:
         raise ValueError(f"replay month {replay_month} source coverage is incomplete: {', '.join(unavailable)}")
-    expected_sources = {
-        "alpaca_bars",
-        "alpaca_liquidity",
-        "alpaca_news",
-        "gdelt_news",
-        "trading_economics_calendar_web",
-    }
-    present_sources = {str(row.get("source_id") or "") for row in rows}
-    missing_sources = sorted(expected_sources - present_sources)
-    if missing_sources:
-        raise ValueError(f"replay month {replay_month} missing required source rows: {', '.join(missing_sources)}")
-
 
 def _write_jsonl(path: Path, rows: Iterable[Mapping[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -1337,6 +1337,23 @@ class ReplayExecutionTests(unittest.TestCase):
         finally:
             replay_module._load_equity_bars_from_sql = original_sql_loader
 
+    def test_replay_month_coverage_accepts_current_candidate_policy_sources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_path = Path(tmp) / "feed_acquisition_plan.csv"
+            with plan_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=["source_id", "month", "coverage_status"])
+                writer.writeheader()
+                for source_id in ("alpaca_bars", "gdelt_news", "trading_economics_calendar_web"):
+                    writer.writerow(
+                        {
+                            "source_id": source_id,
+                            "month": "2021-02",
+                            "coverage_status": "available",
+                        }
+                    )
+
+            replay_module._validate_replay_month_coverage(plan_path=plan_path, replay_month="2021-02")
+
     def test_candidate_policy_replay_uses_m05_option_path_return(self):
         original_feature_loader = replay_module._load_option_candidate_features
         original_point_feature_loader = replay_module._load_option_candidate_features_for_timestamp
