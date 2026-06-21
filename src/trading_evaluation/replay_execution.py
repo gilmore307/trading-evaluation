@@ -1362,6 +1362,7 @@ def _build_model_candidate_selection_trace_rows(
                 },
             }
             if layer_outputs:
+                option_plan = _as_mapping(option_expression_plan)
                 diagnostics = _portfolio_trace_candidate_diagnostics(
                     target=target,
                     timestamp=timestamp,
@@ -1386,7 +1387,20 @@ def _build_model_candidate_selection_trace_rows(
                         "option_expression_signal_required": _option_expression_signal_required(layer_outputs),
                         "option_expression_plan_available": option_expression_plan is not None,
                         "option_expression_selected_contract_available": bool(selected_contract),
+                        "option_expression_route": option_plan.get("asset_expression_route"),
+                        "option_surface_status": option_plan.get("option_surface_status"),
+                        "selected_expression_type": option_plan.get("selected_expression_type"),
+                        "candidate_count_before_filter": option_plan.get("candidate_count_before_filter"),
+                        "candidate_count_after_filter": option_plan.get("candidate_count_after_filter"),
+                        "eligible_candidate_count": option_plan.get("eligible_candidate_count"),
+                        "top_contract_fit_score": option_plan.get("top_contract_fit_score"),
+                        "source_unavailable_reason": option_plan.get("source_unavailable_reason"),
+                        "option_hard_filter_reason_counts": _option_hard_filter_reason_counts(option_plan),
                     }
+                )
+                row["option_expression_unexecutable_reason"] = _option_expression_unexecutable_reason(
+                    row=row,
+                    option_expression_plan=option_expression_plan,
                 )
                 row["model_candidate_trace_status"] = _model_candidate_trace_status(
                     row=row,
@@ -1399,6 +1413,8 @@ def _build_model_candidate_selection_trace_rows(
                         "option_expression_signal_required": False,
                         "option_expression_plan_available": False,
                         "option_expression_selected_contract_available": False,
+                        "option_expression_unexecutable_reason": "",
+                        "option_hard_filter_reason_counts": {},
                         "model_candidate_trace_status": "visible_candidate_not_scored",
                     }
                 )
@@ -1435,8 +1451,49 @@ def _model_candidate_trace_status(
     return "scored_not_selected_by_portfolio"
 
 
+def _option_expression_unexecutable_reason(
+    *,
+    row: Mapping[str, Any],
+    option_expression_plan: Mapping[str, Any] | None,
+) -> str:
+    if not bool(row.get("option_expression_signal_required")):
+        return ""
+    if option_expression_plan is None:
+        return "option_expression_features_missing_or_not_built"
+    if bool(row.get("option_expression_selected_contract_available")):
+        return ""
+    option_plan = _as_mapping(option_expression_plan)
+    if str(option_plan.get("option_surface_status") or "") == OPTION_SOURCE_UNAVAILABLE_STATUS:
+        return "option_source_unavailable"
+    before_filter = _safe_float(option_plan.get("candidate_count_before_filter"))
+    eligible_count = _safe_float(option_plan.get("eligible_candidate_count"))
+    if before_filter is not None and before_filter <= 0:
+        return "no_option_contract_candidates"
+    if eligible_count is not None and eligible_count <= 0:
+        return "zero_eligible_contracts_after_filter"
+    return "selected_contract_missing"
+
+
+def _option_hard_filter_reason_counts(option_expression_plan: Mapping[str, Any]) -> dict[str, int]:
+    diagnostics = _as_mapping(option_expression_plan).get("diagnostics")
+    scored_candidates = _as_mapping(diagnostics).get("scored_candidates")
+    if not isinstance(scored_candidates, Sequence) or isinstance(scored_candidates, (str, bytes, bytearray)):
+        return {}
+    reason_counts: dict[str, int] = defaultdict(int)
+    for candidate in scored_candidates:
+        if not isinstance(candidate, Mapping):
+            continue
+        for reason in candidate.get("hard_filter_fail_reason_codes") or []:
+            reason_text = str(reason or "").strip()
+            if reason_text:
+                reason_counts[reason_text] += 1
+    return dict(sorted(reason_counts.items()))
+
+
 def _model_candidate_selection_trace_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     status_counts: dict[str, int] = defaultdict(int)
+    unexecutable_reason_counts: dict[str, int] = defaultdict(int)
+    hard_filter_reason_counts: dict[str, int] = defaultdict(int)
     selected_targets: set[str] = set()
     scored_targets: set[str] = set()
     top_rows = sorted(
@@ -1449,6 +1506,12 @@ def _model_candidate_selection_trace_summary(rows: Sequence[Mapping[str, Any]]) 
     )
     for row in rows:
         status_counts[str(row.get("model_candidate_trace_status") or "unknown")] += 1
+        if str(row.get("model_candidate_trace_status") or "") == "option_expression_unexecutable":
+            unexecutable_reason_counts[str(row.get("option_expression_unexecutable_reason") or "unknown")] += 1
+            hard_filter_counts = row.get("option_hard_filter_reason_counts")
+            if isinstance(hard_filter_counts, Mapping):
+                for reason, count in hard_filter_counts.items():
+                    hard_filter_reason_counts[str(reason)] += int(_safe_float(count) or 0)
         if row.get("selected_by_replay"):
             selected_targets.add(str(row.get("target_ref") or ""))
         if row.get("model_score_available"):
@@ -1461,6 +1524,8 @@ def _model_candidate_selection_trace_summary(rows: Sequence[Mapping[str, Any]]) 
         "scored_target_count": len(scored_targets),
         "selected_target_count": len(selected_targets),
         "status_counts": dict(sorted(status_counts.items())),
+        "option_expression_unexecutable_reason_counts": dict(sorted(unexecutable_reason_counts.items())),
+        "option_hard_filter_reason_counts": dict(sorted(hard_filter_reason_counts.items())),
         "top_model_ranked_candidates_sample": [
             {
                 "target_ref": row.get("target_ref"),
