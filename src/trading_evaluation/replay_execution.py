@@ -1808,6 +1808,12 @@ def _build_candidate_policy_decision_rows(
                     default_target_allocation_fraction=default_target_allocation_fraction,
                 ),
             )
+            residual_event_governance = _residual_event_governance_for_bar(
+                candidate_model_ref=candidate_model_ref,
+                timestamp=replay_time_pointer,
+                layer_outputs=layer_outputs,
+                option_expression_plan=option_expression_plan,
+            )
             replay_result = build_replay_runtime_dry_run(
                 account_sleeve_id=_account_sleeve_for_bar(bar),
                 target_ref=target,
@@ -1817,12 +1823,7 @@ def _build_candidate_policy_decision_rows(
                 event_state_vector=layer_outputs["event_state_vector"],
                 unified_decision_vector=layer_outputs["unified_decision_vector"],
                 option_expression_plan=option_expression_plan,
-                residual_event_governance=_residual_event_governance_for_bar(
-                    candidate_model_ref=candidate_model_ref,
-                    timestamp=replay_time_pointer,
-                    layer_outputs=layer_outputs,
-                    option_expression_plan=option_expression_plan,
-                ),
+                residual_event_governance=residual_event_governance,
                 trade_risk_cap=replay_trade_risk_cap,
                 market_snapshot=replay_market_snapshot,
                 replay_fill_policy={
@@ -1948,8 +1949,16 @@ def _build_candidate_policy_decision_rows(
                     "entry_minimum_trade_intensity": entry_calibration.minimum_trade_intensity,
                     "model_evidence_chain": list(MODEL_EVIDENCE_CHAIN),
                     "model_evidence_mode": "component_input_model_evidence_generators",
-                    "model_layer_refs": layer_outputs["model_layer_refs"],
-                    "model_layer_diagnostics": layer_outputs["model_layer_diagnostics"],
+                    "model_layer_refs": _replay_model_layer_refs(
+                        layer_outputs=layer_outputs,
+                        option_expression_plan=option_expression_plan,
+                        residual_event_governance=residual_event_governance,
+                    ),
+                    "model_layer_diagnostics": _replay_model_layer_diagnostics(
+                        layer_outputs=layer_outputs,
+                        option_expression_plan=option_expression_plan,
+                        residual_event_governance=residual_event_governance,
+                    ),
                     "validation_status": replay_result["validation_status"],
                     "side_effects": replay_result["side_effects"],
                 }
@@ -2015,6 +2024,162 @@ def _path_conditioning_context(
         "path_scope": f"selected_target:{selected_target}",
         "candidate_set_scope": candidate_set_scope,
         "miss_attribution_layer": miss_layer,
+    }
+
+
+def _replay_model_layer_refs(
+    *,
+    layer_outputs: Mapping[str, Any],
+    option_expression_plan: Mapping[str, Any] | None,
+    residual_event_governance: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    refs = dict(_as_mapping(layer_outputs.get("model_layer_refs")))
+    option_ref = str(_as_mapping(option_expression_plan).get("model_ref") or "").strip()
+    if option_ref:
+        refs["model_05_option_expression"] = option_ref
+    residual_ref = str(_as_mapping(residual_event_governance).get("model_ref") or "").strip()
+    if residual_ref:
+        refs["model_06_residual_event_governance"] = residual_ref
+    return refs
+
+
+def _replay_model_layer_diagnostics(
+    *,
+    layer_outputs: Mapping[str, Any],
+    option_expression_plan: Mapping[str, Any] | None,
+    residual_event_governance: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    diagnostics = dict(_as_mapping(layer_outputs.get("model_layer_diagnostics")))
+    diagnostics["model_01_background_context"] = _model_01_background_context_diagnostics(
+        layer_outputs.get("market_context_state")
+    )
+    diagnostics["model_02_target_state"] = _model_02_target_state_diagnostics(
+        layer_outputs.get("target_context_state")
+    )
+    diagnostics["model_03_event_state"] = _model_03_event_state_diagnostics(
+        layer_outputs.get("event_state_vector")
+    )
+    option_diagnostics = _model_05_option_expression_diagnostics(option_expression_plan)
+    if option_diagnostics:
+        diagnostics["model_05_option_expression"] = option_diagnostics
+        diagnostics["model_05_alpha_confidence"] = {
+            "alpha_gate_status": option_diagnostics["selection_gate_status"],
+            "resolved_alpha_score": option_diagnostics["resolved_selection_score"],
+            "selected_expression_type": option_diagnostics["selected_expression_type"],
+            "selected_contract_ref": option_diagnostics["selected_contract_ref"],
+            "option_surface_status": option_diagnostics["option_surface_status"],
+        }
+    residual_diagnostics = _model_06_residual_event_governance_diagnostics(residual_event_governance)
+    if residual_diagnostics:
+        diagnostics["model_06_residual_event_governance"] = residual_diagnostics
+    return diagnostics
+
+
+def _model_01_background_context_diagnostics(state: Any) -> dict[str, Any]:
+    values = _as_mapping(state)
+    return {
+        "model_ref": str(values.get("model_ref") or ""),
+        "market_risk_stress_score": _first_float(values.get("1_market_risk_stress_score"), default=0.0),
+        "market_liquidity_support_score": _first_float(values.get("1_market_liquidity_support_score"), default=0.0),
+        "transition_risk_score": _first_float(values.get("1_transition_risk_score"), default=0.0),
+        "state_quality_score": _first_float(values.get("1_state_quality_score"), default=0.0),
+    }
+
+
+def _model_02_target_state_diagnostics(state: Any) -> dict[str, Any]:
+    values = _as_mapping(state)
+    return {
+        "model_ref": str(values.get("model_ref") or ""),
+        "target_ref": str(values.get("target_ref") or ""),
+        "target_direction_score_1D": _first_float(values.get("2_target_direction_score_1D"), default=0.0),
+        "target_direction_score_1W": _first_float(values.get("2_target_direction_score_1W"), default=0.0),
+        "target_trend_quality_score_1D": _first_float(values.get("2_target_trend_quality_score_1D"), default=0.0),
+        "tradability_score_1D": _first_float(values.get("2_tradability_score_1D"), default=0.0),
+        "state_quality_score": _first_float(values.get("2_state_quality_score"), default=0.0),
+    }
+
+
+def _model_03_event_state_diagnostics(state: Any) -> dict[str, Any]:
+    values = _as_mapping(state)
+    return {
+        "model_ref": str(values.get("model_ref") or ""),
+        "event_path_risk_score_1D": _first_float(values.get("3_event_path_risk_score_1D"), default=0.0),
+        "event_uncertainty_score_1D": _first_float(values.get("3_event_uncertainty_score_1D"), default=0.0),
+        "event_entry_block_pressure_score_1D": _first_float(
+            values.get("3_event_entry_block_pressure_score_1D"),
+            default=0.0,
+        ),
+        "event_strategy_disable_pressure_score_1D": _first_float(
+            values.get("3_event_strategy_disable_pressure_score_1D"),
+            default=0.0,
+        ),
+    }
+
+
+def _model_05_option_expression_diagnostics(option_expression_plan: Mapping[str, Any] | None) -> dict[str, Any]:
+    plan = _as_mapping(option_expression_plan)
+    if not plan:
+        return {}
+    selected_contract = _as_mapping(plan.get("selected_contract"))
+    selected_contract_ref = str(
+        selected_contract.get("contract_ref") or selected_contract.get("option_symbol") or ""
+    ).strip()
+    selected_score = _first_float(
+        selected_contract.get("contract_fit_score"),
+        selected_contract.get("fit_score"),
+        selected_contract.get("expression_fit_score"),
+        selected_contract.get("score"),
+        plan.get("resolved_alpha_score"),
+        plan.get("expression_confidence_score"),
+        default=1.0 if selected_contract_ref else 0.0,
+    )
+    if selected_contract_ref:
+        gate_status = "passed"
+    elif str(plan.get("asset_expression_route") or "") == "option_expression_unfilled":
+        gate_status = "unfilled"
+    else:
+        gate_status = "not_applicable"
+    return {
+        "model_ref": str(plan.get("model_ref") or ""),
+        "selection_gate_status": gate_status,
+        "resolved_selection_score": selected_score,
+        "asset_expression_route": str(plan.get("asset_expression_route") or ""),
+        "option_surface_status": str(plan.get("option_surface_status") or ""),
+        "selected_expression_type": str(plan.get("selected_expression_type") or ""),
+        "selected_contract_ref": selected_contract_ref,
+        "selected_contract_mid_price": _first_float(selected_contract.get("mid_price"), default=None),
+        "candidate_count_before_filter": int(_first_float(plan.get("candidate_count_before_filter"), default=0.0) or 0),
+        "candidate_count_after_filter": int(_first_float(plan.get("candidate_count_after_filter"), default=0.0) or 0),
+        "eligible_candidate_count": int(_first_float(plan.get("eligible_candidate_count"), default=0.0) or 0),
+        "top_contract_fit_score": _first_float(plan.get("top_contract_fit_score"), default=0.0),
+        "source_unavailable_reason": str(plan.get("source_unavailable_reason") or ""),
+    }
+
+
+def _model_06_residual_event_governance_diagnostics(
+    residual_event_governance: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    governance = _as_mapping(residual_event_governance)
+    if not governance:
+        return {}
+    block_new_entries = bool(governance.get("block_new_entries"))
+    halt_new_entries = bool(governance.get("halt_new_entries"))
+    intervention_action = "block_new_entries" if block_new_entries else "halt_new_entries" if halt_new_entries else "allow"
+    observations = governance.get("residual_event_observations")
+    observation_count = (
+        len(observations)
+        if isinstance(observations, Sequence) and not isinstance(observations, (str, bytes))
+        else 0
+    )
+    return {
+        "model_ref": str(governance.get("model_ref") or ""),
+        "event_risk_intervention_ref": str(governance.get("event_risk_intervention_ref") or ""),
+        "action_surface_status": "measured",
+        "intervention_action": intervention_action,
+        "risk_level": str(governance.get("risk_level") or ""),
+        "block_new_entries": block_new_entries,
+        "halt_new_entries": halt_new_entries,
+        "residual_event_observation_count": observation_count,
     }
 
 
@@ -3008,6 +3173,10 @@ def _option_expression_plan_for_bar(
             "option_surface_status": OPTION_SOURCE_UNAVAILABLE_STATUS,
             "selected_expression_type": "no_option_source_available",
             "selected_contract": None,
+            "candidate_count_before_filter": 0,
+            "candidate_count_after_filter": 0,
+            "eligible_candidate_count": 0,
+            "top_contract_fit_score": 0.0,
             "source_unavailable_reason": "historical option source unavailable at replay signal timestamp",
         }
     if option_candidates:
@@ -3049,6 +3218,16 @@ def _option_expression_plan_for_bar(
                 "target_ref": target,
                 "asset_expression_route": "listed_option_contract" if selected_contract else "option_expression_unfilled",
                 "option_surface_status": model_row.get("option_surface_status") or "optionable_chain_available",
+                "candidate_count_before_filter": len(option_candidates),
+                "candidate_count_after_filter": 1 if selected_contract else 0,
+                "eligible_candidate_count": 1 if selected_contract else 0,
+                "top_contract_fit_score": _first_float(
+                    selected_contract.get("contract_fit_score"),
+                    selected_contract.get("fit_score"),
+                    selected_contract.get("expression_fit_score"),
+                    selected_contract.get("score"),
+                    default=1.0 if selected_contract else 0.0,
+                ),
             }
         )
         return plan

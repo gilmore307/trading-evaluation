@@ -52,6 +52,7 @@ Required replay behavior:
 - M06 ResidualEventGovernance remains an independent model surface and is invoked only through execution-owned failure review or other accepted residual-governance component inputs after observed model or trade failure.
 - the replay judges final realized replay performance and guardrail behavior, not isolated hand-picked episodes.
 - replay output must preserve enough per-decision evidence to audit why targets were selected, watched, blocked, traded, or skipped.
+- each `evaluation_replay_decision_row` must carry `model_layer_refs` and `model_layer_diagnostics` for the model-backed component surfaces that shaped the row. At minimum, C01-C03 context surfaces need component-internal score diagnostics, C04/M04 needs unified-decision diagnostics, C05/M05 needs option-expression selection diagnostics and explicit model ref, and C08/M06 needs residual-event action-surface diagnostics and explicit model ref when invoked. Missing selected option paths are C06 materialization censoring and must not be mixed into model win-rate statistics.
 
 Suggested promotion-benchmark replay coverage:
 

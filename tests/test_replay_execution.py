@@ -748,6 +748,27 @@ class ReplayExecutionTests(unittest.TestCase):
                 self.assertEqual(result.receipt["candidate_handoff_symbols"], ["AAPL"])
                 rows = [json.loads(line) for line in result.decision_rows_path.read_text(encoding="utf-8").splitlines()]
                 self.assertEqual(rows[0]["target_ref"], "AAPL")
+                self.assertIn("model_05_option_expression", rows[0]["model_layer_refs"])
+                self.assertIn("model_06_residual_event_governance", rows[0]["model_layer_refs"])
+                self.assertIn("model_05_option_expression", rows[0]["model_layer_diagnostics"])
+                self.assertIn("model_05_alpha_confidence", rows[0]["model_layer_diagnostics"])
+                self.assertEqual(
+                    rows[0]["model_layer_diagnostics"]["model_05_option_expression"]["selection_gate_status"],
+                    "passed",
+                )
+                self.assertEqual(
+                    rows[0]["model_layer_diagnostics"]["model_05_option_expression"]["selected_contract_ref"],
+                    "AAPL_2021-01-15_C_100",
+                )
+                self.assertIn("model_06_residual_event_governance", rows[0]["model_layer_diagnostics"])
+                self.assertEqual(
+                    rows[0]["model_layer_diagnostics"]["model_06_residual_event_governance"]["action_surface_status"],
+                    "measured",
+                )
+                self.assertEqual(
+                    rows[0]["model_layer_diagnostics"]["model_06_residual_event_governance"]["intervention_action"],
+                    "allow",
+                )
         finally:
             replay_module._load_layer_two_candidate_handoff_rows = original_loader
             replay_module._load_option_candidate_features = original_feature_loader
