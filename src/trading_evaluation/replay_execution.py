@@ -28,6 +28,7 @@ from .execution_runtime import EXECUTION_REPLAY_ROUTE_REF, build_replay_runtime_
 REPLAY_EXECUTION_RUN_CONTRACT = "evaluation_replay_execution_run"
 REPLAY_DECISION_ROW_CONTRACT = "evaluation_replay_decision_row"
 REPLAY_PROGRESS_CONTRACT = "evaluation_replay_progress"
+MODEL_CANDIDATE_SELECTION_TRACE_ROW_CONTRACT = "evaluation_model_candidate_selection_trace_row"
 PORTFOLIO_TRACE_AUDIT_CONTRACT = "candidate_policy_portfolio_trace_audit"
 PORTFOLIO_TRACE_AUDIT_ROW_CONTRACT = "candidate_policy_portfolio_trace_audit_row"
 ENTRY_THRESHOLD_CALIBRATION_CONTRACT = "validation_entry_threshold_calibration"
@@ -114,6 +115,7 @@ class ReplayExecutionResult:
 
     receipt_path: Path
     decision_rows_path: Path
+    model_candidate_selection_trace_path: Path
     progress_path: Path
     receipt: dict[str, Any]
 
@@ -258,6 +260,7 @@ def build_candidate_policy_replay_execution_run(
     output_dir = output_dir or dataset_root / "replay_execution_runs" / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
     decision_rows_path = output_dir / "decision_rows.jsonl"
+    model_candidate_selection_trace_path = output_dir / "model_candidate_selection_trace.jsonl"
     receipt_path = output_dir / "replay_execution_receipt.json"
     progress_path = progress_path or dataset_root / "replay_progress.jsonl"
     calibration_path = output_dir / "entry_threshold_calibration.json"
@@ -344,6 +347,18 @@ def build_candidate_policy_replay_execution_run(
         total_portfolio_notional_usd=initial_capital_usd,
         default_target_allocation_fraction=portfolio_default_target_allocation_fraction,
     )
+    model_candidate_selection_trace_rows = _build_model_candidate_selection_trace_rows(
+        bars_by_target=bars_by_target,
+        run_id=run_id,
+        candidate_model_ref=candidate_model_ref,
+        replay_contract_ref=replay_contract_ref,
+        selected_equity_replay_keys=selected_equity_replay_keys,
+        precomputed_layer_outputs=precomputed_layer_outputs,
+        precomputed_option_expression_plans=precomputed_option_expression_plans,
+    )
+    model_candidate_selection_trace_summary = _model_candidate_selection_trace_summary(
+        model_candidate_selection_trace_rows
+    )
     option_replay_coverage = _option_replay_coverage_summary(
         bars_by_target=bars_by_target,
         option_candidates_by_underlying_time=option_candidates_by_underlying_time,
@@ -351,6 +366,7 @@ def build_candidate_policy_replay_execution_run(
         decision_rows=decision_rows,
     )
     _write_jsonl(decision_rows_path, decision_rows)
+    _write_jsonl(model_candidate_selection_trace_path, model_candidate_selection_trace_rows)
     progress_rows = _build_replay_progress_rows(
         decision_rows=decision_rows,
         run_id=run_id,
@@ -413,6 +429,8 @@ def build_candidate_policy_replay_execution_run(
         "replay_freeze_receipt_ref": None if replay_month else str(freeze_receipt_path),
         "replay_month": replay_month,
         "decision_rows_ref": str(decision_rows_path),
+        "model_candidate_selection_trace_ref": str(model_candidate_selection_trace_path),
+        "model_candidate_selection_trace_summary": model_candidate_selection_trace_summary,
         "progress_ref": str(progress_path),
         "entry_threshold_calibration_ref": str(entry_calibration.path),
         "entry_threshold_calibration_status": entry_calibration.artifact["calibration_status"],
@@ -479,6 +497,7 @@ def build_candidate_policy_replay_execution_run(
     return ReplayExecutionResult(
         receipt_path=receipt_path,
         decision_rows_path=decision_rows_path,
+        model_candidate_selection_trace_path=model_candidate_selection_trace_path,
         progress_path=progress_path,
         receipt=receipt,
     )
@@ -1292,6 +1311,170 @@ def _select_candidate_policy_portfolio_replay_keys(
     summary["final_position_count"] = len(positions)
     summary["final_position_targets"] = sorted(positions)
     return selected_keys, layer_outputs_by_key, option_expression_plans_by_key, missing_option_feature_requirements, summary
+
+
+def _build_model_candidate_selection_trace_rows(
+    *,
+    bars_by_target: Mapping[str, Sequence[Mapping[str, Any]]],
+    run_id: str,
+    candidate_model_ref: str,
+    replay_contract_ref: str,
+    selected_equity_replay_keys: set[tuple[str, int]],
+    precomputed_layer_outputs: Mapping[tuple[str, int], Mapping[str, Any]],
+    precomputed_option_expression_plans: Mapping[tuple[str, int], Mapping[str, Any] | None],
+) -> list[dict[str, Any]]:
+    """Return the model's point-in-time candidate discovery and selection trace."""
+
+    timestamp_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for target in sorted(bars_by_target):
+        target_rows = list(bars_by_target[target])
+        for index, bar in enumerate(target_rows[:-1]):
+            if str(bar.get("asset_class") or "") != "us_equity":
+                continue
+            timestamp = _replay_time_pointer_for_bar(bar)
+            key = (target, index)
+            layer_outputs = _as_mapping(precomputed_layer_outputs.get(key))
+            option_expression_plan = precomputed_option_expression_plans.get(key)
+            selected_contract = _as_mapping(_as_mapping(option_expression_plan).get("selected_contract"))
+            row: dict[str, Any] = {
+                "contract_type": MODEL_CANDIDATE_SELECTION_TRACE_ROW_CONTRACT,
+                "replay_execution_run_id": run_id,
+                "replay_contract_ref": replay_contract_ref,
+                "candidate_model_ref": candidate_model_ref,
+                "target_ref": target,
+                "timestamp": str(bar.get("timestamp") or ""),
+                "replay_time_pointer": timestamp,
+                "candidate_set_scope": "visible_candidate_model_scoring_trace",
+                "point_in_time_policy": REPLAY_TIME_POINTER_POLICY_REF,
+                "diagnostic_only": True,
+                "future_outcome_label_included": False,
+                "future_return_label_role": "excluded_from_model_candidate_trace; join only in downstream review metrics",
+                "model_score_available": bool(layer_outputs),
+                "model_rank_within_timestamp": None,
+                "selected_by_replay": key in selected_equity_replay_keys,
+                "selected_option_contract_ref": selected_contract.get("contract_ref") or selected_contract.get("option_symbol"),
+                "model_selection_trace_policy": (
+                    "records all point-in-time visible equity candidates scored by replay before settlement labels"
+                ),
+                "selection_rank_policy": {
+                    "rank_field": "diagnostic_rank_score",
+                    "formula": "positive(alpha_score-min_alpha) * positive(trade_intensity-min_trade_intensity) * positive(expected_return_score) * positive(action_direction_score)",
+                },
+            }
+            if layer_outputs:
+                diagnostics = _portfolio_trace_candidate_diagnostics(
+                    target=target,
+                    timestamp=timestamp,
+                    reference_price=float(bar["bar_close"]),
+                    layer_outputs=layer_outputs,
+                )
+                row.update(
+                    {
+                        "reference_price": diagnostics["reference_price"],
+                        "m04_trade_intent": diagnostics["m04_trade_intent"],
+                        "underlying_action_type": diagnostics["underlying_action_type"],
+                        "action_side": diagnostics["action_side"],
+                        "entry_style": diagnostics["entry_style"],
+                        "alpha_score": diagnostics["alpha_score"],
+                        "alpha_gate_status": diagnostics["alpha_gate_status"],
+                        "minimum_entry_alpha_confidence": diagnostics["minimum_entry_alpha_confidence"],
+                        "trade_intensity_score": diagnostics["trade_intensity_score"],
+                        "minimum_trade_intensity": diagnostics["minimum_trade_intensity"],
+                        "action_direction_score": diagnostics["action_direction_score"],
+                        "expected_return_score": diagnostics["expected_return_score"],
+                        "diagnostic_rank_score": diagnostics["diagnostic_rank_score"],
+                        "option_expression_signal_required": _option_expression_signal_required(layer_outputs),
+                        "option_expression_plan_available": option_expression_plan is not None,
+                        "option_expression_selected_contract_available": bool(selected_contract),
+                    }
+                )
+                row["model_candidate_trace_status"] = _model_candidate_trace_status(
+                    row=row,
+                    option_expression_plan=option_expression_plan,
+                )
+            else:
+                row.update(
+                    {
+                        "m04_trade_intent": False,
+                        "option_expression_signal_required": False,
+                        "option_expression_plan_available": False,
+                        "option_expression_selected_contract_available": False,
+                        "model_candidate_trace_status": "visible_candidate_not_scored",
+                    }
+                )
+            timestamp_rows[timestamp].append(row)
+
+    rows: list[dict[str, Any]] = []
+    for timestamp in sorted(timestamp_rows, key=_timestamp_sort_key):
+        ranked = sorted(
+            timestamp_rows[timestamp],
+            key=lambda item: (-float(item.get("diagnostic_rank_score") or 0.0), str(item.get("target_ref") or "")),
+        )
+        for rank, row in enumerate(ranked, start=1):
+            if row.get("model_score_available"):
+                row["model_rank_within_timestamp"] = rank
+            rows.append(row)
+    return rows
+
+
+def _model_candidate_trace_status(
+    *,
+    row: Mapping[str, Any],
+    option_expression_plan: Mapping[str, Any] | None,
+) -> str:
+    if bool(row.get("selected_by_replay")):
+        return "selected_by_replay"
+    if not bool(row.get("m04_trade_intent")):
+        return "scored_no_entry_intent"
+    if not bool(row.get("option_expression_signal_required")):
+        return "scored_no_option_expression_signal"
+    if option_expression_plan is None:
+        return "option_expression_features_missing_or_not_built"
+    if not bool(row.get("option_expression_selected_contract_available")):
+        return "option_expression_unexecutable"
+    return "scored_not_selected_by_portfolio"
+
+
+def _model_candidate_selection_trace_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    status_counts: dict[str, int] = defaultdict(int)
+    selected_targets: set[str] = set()
+    scored_targets: set[str] = set()
+    top_rows = sorted(
+        [row for row in rows if row.get("model_score_available")],
+        key=lambda item: (
+            str(item.get("replay_time_pointer") or ""),
+            int(item.get("model_rank_within_timestamp") or 10**9),
+            str(item.get("target_ref") or ""),
+        ),
+    )
+    for row in rows:
+        status_counts[str(row.get("model_candidate_trace_status") or "unknown")] += 1
+        if row.get("selected_by_replay"):
+            selected_targets.add(str(row.get("target_ref") or ""))
+        if row.get("model_score_available"):
+            scored_targets.add(str(row.get("target_ref") or ""))
+    return {
+        "contract_type": "evaluation_model_candidate_selection_trace_summary",
+        "trace_row_count": len(rows),
+        "scored_candidate_row_count": sum(1 for row in rows if row.get("model_score_available")),
+        "selected_candidate_row_count": sum(1 for row in rows if row.get("selected_by_replay")),
+        "scored_target_count": len(scored_targets),
+        "selected_target_count": len(selected_targets),
+        "status_counts": dict(sorted(status_counts.items())),
+        "top_model_ranked_candidates_sample": [
+            {
+                "target_ref": row.get("target_ref"),
+                "replay_time_pointer": row.get("replay_time_pointer"),
+                "model_rank_within_timestamp": row.get("model_rank_within_timestamp"),
+                "diagnostic_rank_score": row.get("diagnostic_rank_score"),
+                "selected_by_replay": row.get("selected_by_replay"),
+                "model_candidate_trace_status": row.get("model_candidate_trace_status"),
+            }
+            for row in top_rows[:20]
+        ],
+        "future_outcome_label_included": False,
+        "summary_role": "model_standard_candidate_discovery_trace_not_hindsight_return_rank",
+    }
 
 
 def _require_candidate_model_ref(candidate_model_ref: str) -> str:

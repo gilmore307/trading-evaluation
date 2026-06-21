@@ -811,6 +811,32 @@ class ReplayExecutionTests(unittest.TestCase):
                     result.receipt["option_feature_requirement_policy"],
                     "fixed_historical_candidate_universe_allows_replay_option_feature_requirements",
                 )
+                self.assertEqual(
+                    result.receipt["model_candidate_selection_trace_ref"],
+                    str(result.model_candidate_selection_trace_path),
+                )
+                self.assertEqual(
+                    result.receipt["model_candidate_selection_trace_summary"]["future_outcome_label_included"],
+                    False,
+                )
+                trace_rows = [
+                    json.loads(line)
+                    for line in result.model_candidate_selection_trace_path.read_text(encoding="utf-8").splitlines()
+                ]
+                self.assertEqual(trace_rows[0]["contract_type"], "evaluation_model_candidate_selection_trace_row")
+                self.assertEqual(trace_rows[0]["target_ref"], "AAPL")
+                self.assertTrue(trace_rows[0]["model_score_available"])
+                self.assertEqual(trace_rows[0]["future_outcome_label_included"], False)
+                self.assertEqual(trace_rows[0]["model_rank_within_timestamp"], 1)
+                self.assertIn(
+                    trace_rows[0]["model_candidate_trace_status"],
+                    {
+                        "selected_by_replay",
+                        "scored_no_entry_intent",
+                        "scored_no_option_expression_signal",
+                        "option_expression_features_missing_or_not_built",
+                    },
+                )
         finally:
             replay_module._option_expression_plan_for_bar = original_plan_builder
 
