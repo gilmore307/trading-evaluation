@@ -3745,6 +3745,8 @@ def _replay_option_feature_requirement_sample(*, target: str, timestamp: str) ->
         "maximum_permitted_source_end": timestamp,
         "future_source_rows_decision_visible": "false",
         "signal_source": "model_04_unified_decision.direct_underlying_intent.handoff_to_model_05",
+        "portfolio_capacity_policy": PORTFOLIO_CAPACITY_POLICY,
+        "max_positions": str(DEFAULT_PORTFOLIO_MAX_POSITIONS),
     }
 
 
