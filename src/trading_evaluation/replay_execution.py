@@ -403,6 +403,7 @@ def build_candidate_policy_replay_execution_run(
             "default_fraction_role": "fallback_only_when_model_output_target_allocation_fraction_is_missing",
             "switch_minimum_rank_score_delta": portfolio_switch_minimum_rank_score_delta,
             "switch_policy": "no_continuous_rebalance; replace_worst_held_only_when_new_rank_exceeds_threshold",
+            "full_budget_replacement_policy": "continue_scanning_after_budget_full",
             "position_invalidation_policy": "existing_position_exit_reduce_stop_take_profit_belongs_to_execution_c03_lifecycle_before_released_capital_reenters_ranked_candidate_path",
             "m05_trigger_policy": "ranked_m04_equity_intents_use_point_in_time_m05_selected_contract_cost_for_affordability",
             "position_sizing_policy": "rank_ordered_best_first_no_fixed_top_n_minimum_notional_floor_option_contract_round_up",
