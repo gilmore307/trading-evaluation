@@ -404,6 +404,7 @@ def build_candidate_policy_replay_execution_run(
             "switch_minimum_rank_score_delta": portfolio_switch_minimum_rank_score_delta,
             "switch_policy": "no_continuous_rebalance; replace_worst_held_only_when_new_rank_exceeds_threshold",
             "full_budget_replacement_policy": "continue_scanning_after_budget_full",
+            "residual_cash_replacement_policy": "insufficient_cash_falls_through_to_replacement",
             "position_invalidation_policy": "existing_position_exit_reduce_stop_take_profit_belongs_to_execution_c03_lifecycle_before_released_capital_reenters_ranked_candidate_path",
             "m05_trigger_policy": "ranked_m04_equity_intents_use_point_in_time_m05_selected_contract_cost_for_affordability",
             "position_sizing_policy": "rank_ordered_best_first_no_fixed_top_n_minimum_notional_floor_option_contract_round_up",
@@ -1322,39 +1323,28 @@ def _select_candidate_policy_portfolio_replay_keys(
                     option_expression_plan=option_expression_plan,
                     reference_price=float(candidate["reference_price"]),
                 )
-                if allocation is None:
+                if allocation is not None:
                     portfolio_selection_diagnostics_by_key[key] = _portfolio_selection_diagnostics(
-                        action="not_selected",
-                        reason="allocation_unavailable_before_portfolio_entry",
+                        action="open_new_position",
+                        reason="cash_and_position_capacity_available",
                         candidate=candidate,
                         cash_before=cash,
                         positions=positions,
                         switch_minimum_rank_score_delta=switch_minimum_rank_score_delta,
-                        selected=False,
+                        selected=True,
                         replacement_status="not_needed_capacity_available",
                     )
+                    positions[target] = _portfolio_trace_position(
+                        candidate=candidate,
+                        notional=allocation["notional"],
+                        quantity=allocation["quantity"],
+                        unit_cost=allocation["unit_cost"],
+                        opened_at=timestamp,
+                    )
+                    cash -= allocation["notional"]
+                    selected_keys.add(candidate["key"])
+                    selected_this_timestamp += 1
                     continue
-                portfolio_selection_diagnostics_by_key[key] = _portfolio_selection_diagnostics(
-                    action="open_new_position",
-                    reason="cash_and_position_capacity_available",
-                    candidate=candidate,
-                    cash_before=cash,
-                    positions=positions,
-                    switch_minimum_rank_score_delta=switch_minimum_rank_score_delta,
-                    selected=True,
-                    replacement_status="not_needed_capacity_available",
-                )
-                positions[target] = _portfolio_trace_position(
-                    candidate=candidate,
-                    notional=allocation["notional"],
-                    quantity=allocation["quantity"],
-                    unit_cost=allocation["unit_cost"],
-                    opened_at=timestamp,
-                )
-                cash -= allocation["notional"]
-                selected_keys.add(candidate["key"])
-                selected_this_timestamp += 1
-                continue
             if not positions:
                 portfolio_selection_diagnostics_by_key[key] = _portfolio_selection_diagnostics(
                     action="not_selected",

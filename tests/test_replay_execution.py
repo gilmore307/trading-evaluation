@@ -1166,7 +1166,7 @@ class ReplayExecutionTests(unittest.TestCase):
             def fake_layer_outputs(*, target, **_):
                 return _current_layer_outputs(
                     alpha_score={"AAPL": 0.60, "MSFT": 0.92}[target],
-                    target_allocation_fraction=1.0,
+                    target_allocation_fraction=0.99,
                 )
 
             def fake_option_plan(*, bar, **_):
@@ -1178,7 +1178,7 @@ class ReplayExecutionTests(unittest.TestCase):
                     "selected_expression_type": "long_call",
                     "selected_contract": {
                         "contract_ref": f"{target}_2021-01-15_C_100",
-                        "mid_price": 1.0,
+                        "estimated_contract_cost_usd": 24_750.0,
                     },
                 }
 
