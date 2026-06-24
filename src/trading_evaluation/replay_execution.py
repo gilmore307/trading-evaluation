@@ -74,6 +74,8 @@ DEFAULT_TARGET_ALLOCATION_FRACTION = 0.20
 DEFAULT_PORTFOLIO_MAX_POSITIONS = int(1 / DEFAULT_TARGET_ALLOCATION_FRACTION)
 PORTFOLIO_CAPACITY_POLICY = "default_5_simultaneous_risk_slots_from_20pct_allocation"
 PORTFOLIO_UNBOUNDED_OVERRIDE_POLICY = "explicit_unbounded_position_count_override_for_research_only"
+DEFAULT_SWITCH_MINIMUM_RANK_SCORE_DELTA = 0.00001
+PORTFOLIO_SWITCH_THRESHOLD_POLICY = "score_scale_aware_absolute_rank_delta"
 US_OPTION_CONTRACT_MULTIPLIER = 100.0
 NEW_YORK = ZoneInfo("America/New_York")
 REPLAY_INITIAL_CAPITAL_CURRENCY = "USD"
@@ -210,7 +212,7 @@ def build_candidate_policy_replay_execution_run(
     initial_capital_usd: float = DEFAULT_REPLAY_INITIAL_CAPITAL_USD,
     portfolio_max_positions: int = DEFAULT_PORTFOLIO_MAX_POSITIONS,
     portfolio_default_target_allocation_fraction: float = DEFAULT_TARGET_ALLOCATION_FRACTION,
-    portfolio_switch_minimum_rank_score_delta: float = 0.05,
+    portfolio_switch_minimum_rank_score_delta: float = DEFAULT_SWITCH_MINIMUM_RANK_SCORE_DELTA,
 ) -> ReplayExecutionResult:
     """Run candidate-policy replay over frozen crypto plus materialized equity bars."""
 
@@ -416,6 +418,7 @@ def build_candidate_policy_replay_execution_run(
             "target_allocation_fraction_role": "model_output_target_allocation_fraction_times_total_budget_not_single_position_cap",
             "default_fraction_role": "fallback_only_when_model_output_target_allocation_fraction_is_missing",
             "switch_minimum_rank_score_delta": portfolio_switch_minimum_rank_score_delta,
+            "switch_threshold_policy": PORTFOLIO_SWITCH_THRESHOLD_POLICY,
             "switch_policy": "no_continuous_rebalance; replace_worst_held_only_when_new_rank_exceeds_threshold",
             "full_budget_replacement_policy": "continue_scanning_after_budget_full",
             "residual_cash_replacement_policy": "insufficient_cash_falls_through_to_replacement",
@@ -546,7 +549,7 @@ def build_candidate_policy_portfolio_trace_audit(
     max_trace_timestamps: int | None = 20,
     max_positions: int = DEFAULT_PORTFOLIO_MAX_POSITIONS,
     default_target_allocation_fraction: float = DEFAULT_TARGET_ALLOCATION_FRACTION,
-    switch_minimum_rank_score_delta: float = 0.05,
+    switch_minimum_rank_score_delta: float = DEFAULT_SWITCH_MINIMUM_RANK_SCORE_DELTA,
 ) -> PortfolioTraceAuditResult:
     """Trace how many M04 option-intent signals survive a finite-capital portfolio screen.
 
@@ -683,6 +686,7 @@ def build_candidate_policy_portfolio_trace_audit(
         ),
         "default_target_allocation_fraction": default_target_allocation_fraction,
         "switch_minimum_rank_score_delta": switch_minimum_rank_score_delta,
+        "switch_threshold_policy": PORTFOLIO_SWITCH_THRESHOLD_POLICY,
         "switch_policy": "no_continuous_rebalance; replace_worst_held_only_when_new_rank_exceeds_threshold",
         "position_invalidation_policy": "existing_position_exit_reduce_stop_take_profit_belongs_to_execution_c03_lifecycle_before_released_capital_reenters_ranked_candidate_path",
         "max_trace_timestamps": max_trace_timestamps,
@@ -1019,6 +1023,7 @@ def _portfolio_selection_diagnostics(
         "portfolio_replacement_evaluation_status": replacement_status,
         "portfolio_switch_policy": "continue_scanning_after_budget_full; replace_weakest_held_only_when_new_rank_exceeds_threshold",
         "portfolio_switch_minimum_rank_score_delta": switch_minimum_rank_score_delta,
+        "portfolio_switch_threshold_policy": PORTFOLIO_SWITCH_THRESHOLD_POLICY,
         "portfolio_candidate_rank_score": candidate_score,
         "portfolio_worst_held_target_before": worst_target or "",
         "portfolio_worst_held_rank_score_before": worst_score,
@@ -1281,6 +1286,7 @@ def _select_candidate_policy_portfolio_replay_keys(
             else "explicit_simultaneous_position_cap_override"
         ),
         "switch_minimum_rank_score_delta": switch_minimum_rank_score_delta,
+        "switch_threshold_policy": PORTFOLIO_SWITCH_THRESHOLD_POLICY,
         "switch_policy": "no_continuous_rebalance; replace_worst_held_only_when_new_rank_exceeds_threshold",
         "position_invalidation_policy": "existing_position_exit_reduce_stop_take_profit_belongs_to_execution_c03_lifecycle",
         "final_cash": initial_capital_usd,
@@ -1620,6 +1626,8 @@ def _build_model_candidate_selection_trace_rows(
                 "portfolio_switch_minimum_rank_score_delta": portfolio_selection.get(
                     "portfolio_switch_minimum_rank_score_delta"
                 ),
+                "portfolio_switch_threshold_policy": portfolio_selection.get("portfolio_switch_threshold_policy")
+                or PORTFOLIO_SWITCH_THRESHOLD_POLICY,
                 "portfolio_candidate_rank_score": portfolio_selection.get("portfolio_candidate_rank_score"),
                 "portfolio_worst_held_target_before": portfolio_selection.get("portfolio_worst_held_target_before") or "",
                 "portfolio_worst_held_rank_score_before": portfolio_selection.get(
@@ -2289,7 +2297,7 @@ def _build_candidate_policy_decision_rows(
             initial_capital_usd=DEFAULT_REPLAY_INITIAL_CAPITAL_USD,
             max_positions=DEFAULT_PORTFOLIO_MAX_POSITIONS,
             default_target_allocation_fraction=DEFAULT_TARGET_ALLOCATION_FRACTION,
-            switch_minimum_rank_score_delta=0.05,
+            switch_minimum_rank_score_delta=DEFAULT_SWITCH_MINIMUM_RANK_SCORE_DELTA,
         )
     precomputed_layer_outputs = precomputed_layer_outputs or {}
     precomputed_option_expression_plans = precomputed_option_expression_plans or {}

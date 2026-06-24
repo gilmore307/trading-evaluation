@@ -17,6 +17,7 @@ from trading_evaluation import (
     DEFAULT_TARGET_ALLOCATION_FRACTION,
     DEFAULT_PORTFOLIO_MAX_POSITIONS,
     DEFAULT_REPLAY_INITIAL_CAPITAL_USD,
+    DEFAULT_SWITCH_MINIMUM_RANK_SCORE_DELTA,
     build_candidate_policy_replay_execution_run,
 )
 
@@ -67,7 +68,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--portfolio-max-positions", type=int, default=DEFAULT_PORTFOLIO_MAX_POSITIONS)
     parser.add_argument("--portfolio-default-target-allocation-fraction", type=float, default=DEFAULT_TARGET_ALLOCATION_FRACTION)
-    parser.add_argument("--portfolio-switch-minimum-rank-score-delta", type=float, default=0.05)
+    parser.add_argument(
+        "--portfolio-switch-minimum-rank-score-delta",
+        type=float,
+        default=DEFAULT_SWITCH_MINIMUM_RANK_SCORE_DELTA,
+    )
     args = parser.parse_args(argv)
     after_cost_alpha_model = json.loads(args.after_cost_alpha_model_json.read_text(encoding="utf-8"))
 
