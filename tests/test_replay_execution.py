@@ -23,7 +23,7 @@ class ReplayExecutionTests(unittest.TestCase):
         self.assertEqual(replay_module._equity_market_close_timestamp("2021-01-04"), "2021-01-04T16:00:00-05:00")
         self.assertEqual(replay_module._equity_market_close_timestamp("2021-04-14"), "2021-04-14T16:00:00-04:00")
 
-    def test_option_position_allocation_uses_minimum_notional_floor_not_cap(self):
+    def test_option_position_allocation_uses_target_notional_floor_not_cap(self):
         expensive_plan = {
             "selected_contract": {
                 "contract_ref": "BEST_100C",
@@ -67,6 +67,27 @@ class ReplayExecutionTests(unittest.TestCase):
         self.assertEqual(context["target_allocation_fraction"], 0.40)
         self.assertEqual(context["target_allocation_notional_usd"], 10_000.0)
         self.assertEqual(context["target_allocation_fraction_source"], "model_05_handoff.target_allocation_fraction")
+        self.assertEqual(context["allocation_contract_status"], "current")
+
+    def test_target_allocation_fraction_below_slot_requires_explicit_partial_mode(self):
+        context = replay_module._target_allocation_context(
+            layer_outputs=_current_layer_outputs(target_allocation_fraction=0.03),
+            total_portfolio_notional_usd=25_000.0,
+            default_target_allocation_fraction=0.20,
+        )
+        partial_context = replay_module._target_allocation_context(
+            layer_outputs=_current_layer_outputs(
+                target_allocation_fraction=0.03,
+                unified_decision_overrides={"allocation_mode": "partial_slot"},
+            ),
+            total_portfolio_notional_usd=25_000.0,
+            default_target_allocation_fraction=0.20,
+        )
+
+        self.assertEqual(context["allocation_contract_status"], "below_minimum_actionable_slot_fraction")
+        self.assertFalse(context["partial_target_allocation_allowed"])
+        self.assertEqual(partial_context["allocation_contract_status"], "current")
+        self.assertTrue(partial_context["partial_target_allocation_allowed"])
 
     def _dataset(self, root: Path) -> Path:
         dataset_root = root / "dataset"
@@ -1174,7 +1195,7 @@ class ReplayExecutionTests(unittest.TestCase):
                     "META": 0.87,
                     "TSLA": 0.86,
                 }[target]
-                return _current_layer_outputs(alpha_score=score, target_allocation_fraction=0.03)
+                return _current_layer_outputs(alpha_score=score, target_allocation_fraction=0.20)
 
             def fake_option_plan(*, bar, **_):
                 target = str(bar["symbol"])
@@ -1185,7 +1206,7 @@ class ReplayExecutionTests(unittest.TestCase):
                     "selected_expression_type": "long_call",
                     "selected_contract": {
                         "contract_ref": f"{target}_2021-01-15_C_100",
-                        "estimated_contract_cost_usd": 800.0,
+                        "estimated_contract_cost_usd": 1_000.0,
                     },
                 }
 
@@ -1254,6 +1275,97 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(summary["portfolio_capacity_policy"], replay_module.PORTFOLIO_CAPACITY_POLICY)
             self.assertEqual(summary["final_position_count"], 5)
             self.assertEqual(portfolio_diagnostics[("TSLA", 0)]["portfolio_replacement_evaluation_status"], "blocked_by_switch_threshold")
+        finally:
+            replay_module._candidate_layer_outputs = original_layer_outputs
+            replay_module._option_expression_plan_for_bar = original_plan_builder
+
+    def test_portfolio_selection_rejects_low_allocation_without_partial_slot_mode(self):
+        original_layer_outputs = replay_module._candidate_layer_outputs
+        original_plan_builder = replay_module._option_expression_plan_for_bar
+        try:
+            def fake_layer_outputs(*, target, **_):
+                return _current_layer_outputs(alpha_score=0.90, target_allocation_fraction=0.03)
+
+            def fake_option_plan(*, bar, **_):
+                target = str(bar["symbol"])
+                return {
+                    "target_ref": target,
+                    "asset_expression_route": "listed_option_contract",
+                    "option_surface_status": "optionable_chain_available",
+                    "selected_expression_type": "long_call",
+                    "selected_contract": {
+                        "contract_ref": f"{target}_2021-01-15_C_100",
+                        "estimated_contract_cost_usd": 800.0,
+                    },
+                }
+
+            replay_module._candidate_layer_outputs = fake_layer_outputs
+            replay_module._option_expression_plan_for_bar = fake_option_plan
+            bars_by_target = {
+                symbol: [
+                    {
+                        "symbol": symbol,
+                        "asset_class": "us_equity",
+                        "source_id": "alpaca_bars",
+                        "timestamp": "2021-01-04T16:00:00-05:00",
+                        "date": "2021-01-04",
+                        "bar_open": 100.0,
+                        "bar_high": 101.0,
+                        "bar_low": 99.0,
+                        "bar_close": 100.0,
+                        "bar_volume": 1000.0,
+                    },
+                    {
+                        "symbol": symbol,
+                        "asset_class": "us_equity",
+                        "source_id": "alpaca_bars",
+                        "timestamp": "2021-01-05T16:00:00-05:00",
+                        "date": "2021-01-05",
+                        "bar_open": 101.0,
+                        "bar_high": 102.0,
+                        "bar_low": 100.0,
+                        "bar_close": 101.0,
+                        "bar_volume": 1100.0,
+                    },
+                ]
+                for symbol in ("AAPL", "MSFT")
+            }
+
+            selected_keys, _, _, missing_requirements, portfolio_diagnostics, summary = (
+                replay_module._select_candidate_policy_portfolio_replay_keys(
+                    bars_by_target=bars_by_target,
+                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    after_cost_alpha_model=_after_cost_alpha_model(),
+                    entry_calibration=replay_module.EntryCalibration(
+                        artifact={
+                            "selected_thresholds": {
+                                "minimum_entry_alpha_confidence": 0.50,
+                                "minimum_trade_intensity": 0.05,
+                            }
+                        },
+                        path=Path("entry_threshold_calibration.json"),
+                    ),
+                    option_candidates_by_underlying_time={
+                        (symbol, "2021-01-04T16:00:00-05:00"): [
+                            {"contract_ref": f"{symbol}_2021-01-15_C_100"}
+                        ]
+                        for symbol in ("AAPL", "MSFT")
+                    },
+                    initial_capital_usd=25_000.0,
+                    max_positions=replay_module.DEFAULT_PORTFOLIO_MAX_POSITIONS,
+                    default_target_allocation_fraction=replay_module.DEFAULT_TARGET_ALLOCATION_FRACTION,
+                    switch_minimum_rank_score_delta=999.0,
+                )
+            )
+
+            self.assertEqual(missing_requirements, [])
+            self.assertEqual(selected_keys, set())
+            self.assertEqual(summary["portfolio_allocation_contract_violation_count"], 2)
+            self.assertEqual(summary["final_position_count"], 0)
+            self.assertEqual(
+                portfolio_diagnostics[("AAPL", 0)]["portfolio_selection_reason"],
+                "target_allocation_fraction_below_minimum_actionable_slot",
+            )
         finally:
             replay_module._candidate_layer_outputs = original_layer_outputs
             replay_module._option_expression_plan_for_bar = original_plan_builder
@@ -1371,7 +1483,7 @@ class ReplayExecutionTests(unittest.TestCase):
                     },
                     initial_capital_usd=25_000.0,
                     max_positions=0,
-                    default_target_allocation_fraction=1.0,
+                    default_target_allocation_fraction=replay_module.DEFAULT_TARGET_ALLOCATION_FRACTION,
                     switch_minimum_rank_score_delta=0.00001,
                 )
             )
@@ -1914,7 +2026,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 self.assertEqual(rows[0]["total_portfolio_notional_usd"], 25000.0)
                 self.assertEqual(
                     rows[0]["position_sizing_policy"],
-                    "minimum_notional_floor_option_contract_round_up",
+                    "target_allocation_floor_option_contract_round_up",
                 )
                 self.assertEqual(result.receipt["option_contract_path_symbol_count"], 1)
                 self.assertEqual(result.receipt["option_contract_path_bar_count"], 2)
@@ -2247,8 +2359,42 @@ def _current_layer_outputs(
     action_direction: float = 0.18,
     expected_return: float = 0.04,
     target_allocation_fraction: float = 0.20,
+    unified_decision_overrides: dict[str, object] | None = None,
+    direct_intent_overrides: dict[str, object] | None = None,
+    handoff_overrides: dict[str, object] | None = None,
 ) -> dict[str, object]:
     alpha_gate_status = "passed" if alpha_score >= 0.50 else "below_entry_threshold"
+    unified_decision_vector = {
+        "model_ref": "unified-decision-ref",
+        "unified_decision_vector_ref": "udv_test",
+        "unified_decision_confidence_score": alpha_score,
+        "minimum_entry_confidence": 0.50,
+        "4_resolved_target_allocation_fraction": target_allocation_fraction,
+    }
+    unified_decision_vector.update(unified_decision_overrides or {})
+    handoff_to_model_05 = {
+        "underlying_path_direction": direction,
+        "target_allocation_fraction": target_allocation_fraction,
+        "expected_holding_time_minutes": 1440,
+        "expected_entry_price": 100.0,
+        "expected_target_price": 110.0,
+        "target_price_high": 110.0,
+        "expected_favorable_move_pct": 0.06,
+        "expected_adverse_move_pct": 0.02,
+        "path_quality_score": 0.80,
+        "entry_price_assumption": entry_style,
+    }
+    handoff_to_model_05.update(handoff_overrides or {})
+    direct_underlying_intent = {
+        "model_ref": "unified-decision-ref",
+        "underlying_action_type": action_type,
+        "action_side": action_side,
+        "target_allocation_fraction": target_allocation_fraction,
+        "trade_intensity_score": trade_intensity,
+        "entry_style": entry_style,
+        "handoff_to_model_05": handoff_to_model_05,
+    }
+    direct_underlying_intent.update(direct_intent_overrides or {})
     return {
         "target_candidate_id": "replay_aapl_test",
         "target_context_state": {"model_ref": "target-context-ref"},
@@ -2261,33 +2407,8 @@ def _current_layer_outputs(
             "model_03_event_state": "event-ref",
             "model_04_unified_decision": "unified-ref",
         },
-        "unified_decision_vector": {
-            "model_ref": "unified-decision-ref",
-            "unified_decision_vector_ref": "udv_test",
-            "unified_decision_confidence_score": alpha_score,
-            "minimum_entry_confidence": 0.50,
-            "4_resolved_target_allocation_fraction": target_allocation_fraction,
-        },
-        "direct_underlying_intent": {
-            "model_ref": "unified-decision-ref",
-            "underlying_action_type": action_type,
-            "action_side": action_side,
-            "target_allocation_fraction": target_allocation_fraction,
-            "trade_intensity_score": trade_intensity,
-            "entry_style": entry_style,
-            "handoff_to_model_05": {
-                "underlying_path_direction": direction,
-                "target_allocation_fraction": target_allocation_fraction,
-                "expected_holding_time_minutes": 1440,
-                "expected_entry_price": 100.0,
-                "expected_target_price": 110.0,
-                "target_price_high": 110.0,
-                "expected_favorable_move_pct": 0.06,
-                "expected_adverse_move_pct": 0.02,
-                "path_quality_score": 0.80,
-                "entry_price_assumption": entry_style,
-            },
-        },
+        "unified_decision_vector": unified_decision_vector,
+        "direct_underlying_intent": direct_underlying_intent,
         "model_layer_diagnostics": {
             "entry_thresholds": {
                 "minimum_entry_alpha_confidence": 0.50,

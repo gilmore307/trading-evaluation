@@ -421,7 +421,7 @@ def build_candidate_policy_replay_execution_run(
             "residual_cash_replacement_policy": "insufficient_cash_falls_through_to_replacement",
             "position_invalidation_policy": "existing_position_exit_reduce_stop_take_profit_belongs_to_execution_c03_lifecycle_before_released_capital_reenters_ranked_candidate_path",
             "m05_trigger_policy": "ranked_m04_equity_intents_use_point_in_time_m05_selected_contract_cost_for_affordability",
-            "position_sizing_policy": "rank_ordered_best_first_with_simultaneous_position_cap_minimum_notional_floor_option_contract_round_up",
+            "position_sizing_policy": "rank_ordered_best_first_with_simultaneous_position_cap_target_allocation_floor_option_contract_round_up",
             "ranking_policy": {
                 "rank_field": "diagnostic_rank_score",
                 "role": "cross_target_ordering_for_replay_capital_feasibility",
@@ -1066,15 +1066,22 @@ def _target_allocation_context(
     default_target_allocation_fraction: float,
 ) -> dict[str, Any]:
     fraction, source = _model_output_target_allocation_fraction(layer_outputs)
+    partial_allowed = _partial_target_allocation_allowed(layer_outputs)
+    allocation_contract_status = "current"
     if fraction is None:
         fraction = default_target_allocation_fraction
         source = "portfolio_default_target_allocation_fraction"
+    elif fraction < default_target_allocation_fraction - 1e-9 and not partial_allowed:
+        allocation_contract_status = "below_minimum_actionable_slot_fraction"
     notional = max(0.0, total_portfolio_notional_usd * fraction)
     return {
         "target_allocation_fraction": float(fraction),
         "target_allocation_fraction_source": source,
         "total_portfolio_notional_usd": float(total_portfolio_notional_usd),
         "target_allocation_notional_usd": float(notional),
+        "minimum_actionable_target_allocation_fraction": float(default_target_allocation_fraction),
+        "partial_target_allocation_allowed": bool(partial_allowed),
+        "allocation_contract_status": allocation_contract_status,
     }
 
 
@@ -1095,6 +1102,32 @@ def _model_output_target_allocation_fraction(layer_outputs: Mapping[str, Any]) -
         if fraction is not None and 0.0 < fraction <= 1.0:
             return fraction, source
     return None, None
+
+
+def _partial_target_allocation_allowed(layer_outputs: Mapping[str, Any]) -> bool:
+    unified = _as_mapping(layer_outputs.get("unified_decision_vector"))
+    direct_intent = _as_mapping(layer_outputs.get("direct_underlying_intent") or unified.get("direct_underlying_intent"))
+    handoff = _as_mapping(direct_intent.get("handoff_to_model_05"))
+    raw_values = (
+        handoff.get("partial_target_allocation_allowed"),
+        handoff.get("partial_position_allowed"),
+        handoff.get("allocation_mode"),
+        direct_intent.get("partial_target_allocation_allowed"),
+        direct_intent.get("partial_position_allowed"),
+        direct_intent.get("allocation_mode"),
+        unified.get("partial_target_allocation_allowed"),
+        unified.get("partial_position_allowed"),
+        unified.get("allocation_mode"),
+    )
+    for raw in raw_values:
+        if isinstance(raw, bool):
+            if raw:
+                return True
+            continue
+        text = str(raw or "").strip().lower()
+        if text in {"partial_slot", "partial_position", "optimizer_weighted", "true", "1", "yes"}:
+            return True
+    return False
 
 
 def _candidate_position_allocation(
@@ -1232,6 +1265,7 @@ def _select_candidate_policy_portfolio_replay_keys(
         "portfolio_replacement_blocked_by_threshold_count": 0,
         "portfolio_replacement_blocked_by_expression_count": 0,
         "portfolio_replacement_blocked_by_allocation_count": 0,
+        "portfolio_allocation_contract_violation_count": 0,
         "portfolio_existing_position_continued_count": 0,
         "default_target_allocation_fraction": default_target_allocation_fraction,
         "target_allocation_fraction_role": "model_output_target_allocation_fraction_times_total_budget_not_single_position_cap",
@@ -1350,6 +1384,19 @@ def _select_candidate_policy_portfolio_replay_keys(
                     total_portfolio_notional_usd=initial_capital_usd,
                     default_target_allocation_fraction=default_target_allocation_fraction,
                 )
+                if allocation_context["allocation_contract_status"] != "current":
+                    portfolio_selection_diagnostics_by_key[key] = _portfolio_selection_diagnostics(
+                        action="not_selected",
+                        reason="target_allocation_fraction_below_minimum_actionable_slot",
+                        candidate=candidate,
+                        cash_before=cash,
+                        positions=positions,
+                        switch_minimum_rank_score_delta=switch_minimum_rank_score_delta,
+                        selected=False,
+                        replacement_status="blocked_by_allocation_contract",
+                    )
+                    summary["portfolio_allocation_contract_violation_count"] += 1
+                    continue
                 allocation = _candidate_position_allocation(
                     cash=cash,
                     minimum_position_notional_usd=allocation_context["target_allocation_notional_usd"],
@@ -1438,6 +1485,23 @@ def _select_candidate_policy_portfolio_replay_keys(
                 total_portfolio_notional_usd=initial_capital_usd,
                 default_target_allocation_fraction=default_target_allocation_fraction,
             )
+            if allocation_context["allocation_contract_status"] != "current":
+                portfolio_selection_diagnostics_by_key[key] = _portfolio_selection_diagnostics(
+                    action="not_selected_keep_current_positions",
+                    reason="replacement_target_allocation_fraction_below_minimum_actionable_slot",
+                    candidate=candidate,
+                    cash_before=cash,
+                    positions=positions,
+                    switch_minimum_rank_score_delta=switch_minimum_rank_score_delta,
+                    selected=False,
+                    replacement_status="blocked_by_allocation_contract",
+                    worst_target=worst_target,
+                    worst_position=worst_position,
+                    switch_rank_score_delta=switch_rank_score_delta,
+                )
+                summary["portfolio_allocation_contract_violation_count"] += 1
+                summary["portfolio_replacement_blocked_by_allocation_count"] += 1
+                continue
             allocation = _candidate_position_allocation(
                 cash=prospective_cash,
                 minimum_position_notional_usd=allocation_context["target_allocation_notional_usd"],
@@ -4707,9 +4771,12 @@ def _trade_risk_cap(
         "target_allocation_fraction": allocation.get("target_allocation_fraction"),
         "target_allocation_fraction_source": allocation.get("target_allocation_fraction_source"),
         "total_portfolio_notional_usd": allocation.get("total_portfolio_notional_usd"),
-        "position_sizing_policy": "minimum_notional_floor_option_contract_round_up",
+        "minimum_actionable_target_allocation_fraction": allocation.get("minimum_actionable_target_allocation_fraction"),
+        "partial_target_allocation_allowed": allocation.get("partial_target_allocation_allowed"),
+        "allocation_contract_status": allocation.get("allocation_contract_status"),
+        "position_sizing_policy": "target_allocation_floor_option_contract_round_up",
         "sizing_reason_codes": [
-            "minimum_position_notional_is_floor_not_cap",
+            "target_allocation_notional_is_floor_not_cap",
             "single_contract_allowed_above_minimum_notional",
         ],
         **({"estimated_contract_cost_usd": float(unit_cost)} if selected_contract else {}),
