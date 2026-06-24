@@ -546,6 +546,13 @@ class ReplayExecutionTests(unittest.TestCase):
         self.assertEqual(payload["sample"][0]["resolver_policy_ref"], "replay_on_demand_resolver_forward_only_asof")
         self.assertEqual(payload["sample"][0]["replay_time_pointer"], "2021-05-19T16:00:00-04:00")
         self.assertEqual(payload["sample"][0]["source_window_end"], "2021-05-19T16:00:00-04:00")
+        self.assertEqual(payload["sample"][0]["portfolio_capacity_policy"], replay_module.PORTFOLIO_CAPACITY_POLICY)
+        self.assertEqual(payload["sample"][0]["max_positions"], str(replay_module.DEFAULT_PORTFOLIO_MAX_POSITIONS))
+        self.assertEqual(payload["sample"][0]["switch_threshold_policy"], replay_module.PORTFOLIO_SWITCH_THRESHOLD_POLICY)
+        self.assertEqual(
+            payload["sample"][0]["switch_minimum_rank_score_delta"],
+            str(replay_module.DEFAULT_SWITCH_MINIMUM_RANK_SCORE_DELTA),
+        )
         self.assertEqual(payload["sample"][0]["future_source_rows_decision_visible"], "false")
         self.assertEqual(payload["sample"][1]["timestamp"], "2021-05-21T16:00:00-04:00")
 
