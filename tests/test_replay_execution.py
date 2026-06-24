@@ -1128,7 +1128,7 @@ class ReplayExecutionTests(unittest.TestCase):
                     "minimum_trade_intensity": 0.05,
                 }
             }
-            selected_keys, _, option_plans, missing_requirements, summary = replay_module._select_candidate_policy_portfolio_replay_keys(
+            selected_keys, _, option_plans, missing_requirements, _, summary = replay_module._select_candidate_policy_portfolio_replay_keys(
                 bars_by_target=bars_by_target,
                 candidate_model_ref="storage://trading-manager/model_group/test_fold",
                 after_cost_alpha_model=_after_cost_alpha_model(),
@@ -1155,6 +1155,140 @@ class ReplayExecutionTests(unittest.TestCase):
             self.assertEqual(summary["capital_selected_m05_count"], 1)
             self.assertEqual(summary["avoided_m05_request_count"], 1)
             self.assertEqual(summary["final_position_targets"], ["MSFT"])
+        finally:
+            replay_module._candidate_layer_outputs = original_layer_outputs
+            replay_module._option_expression_plan_for_bar = original_plan_builder
+
+    def test_portfolio_selection_replaces_weakest_when_cash_budget_is_full(self):
+        original_layer_outputs = replay_module._candidate_layer_outputs
+        original_plan_builder = replay_module._option_expression_plan_for_bar
+        try:
+            def fake_layer_outputs(*, target, **_):
+                return _current_layer_outputs(
+                    alpha_score={"AAPL": 0.60, "MSFT": 0.92}[target],
+                    target_allocation_fraction=1.0,
+                )
+
+            def fake_option_plan(*, bar, **_):
+                target = str(bar["symbol"])
+                return {
+                    "target_ref": target,
+                    "asset_expression_route": "listed_option_contract",
+                    "option_surface_status": "optionable_chain_available",
+                    "selected_expression_type": "long_call",
+                    "selected_contract": {
+                        "contract_ref": f"{target}_2021-01-15_C_100",
+                        "mid_price": 1.0,
+                    },
+                }
+
+            replay_module._candidate_layer_outputs = fake_layer_outputs
+            replay_module._option_expression_plan_for_bar = fake_option_plan
+            bars_by_target = {
+                "AAPL": [
+                    {
+                        "symbol": "AAPL",
+                        "asset_class": "us_equity",
+                        "source_id": "alpaca_bars",
+                        "timestamp": "2021-01-04T16:00:00-05:00",
+                        "date": "2021-01-04",
+                        "bar_open": 100.0,
+                        "bar_high": 101.0,
+                        "bar_low": 99.0,
+                        "bar_close": 100.0,
+                        "bar_volume": 1000.0,
+                    },
+                    {
+                        "symbol": "AAPL",
+                        "asset_class": "us_equity",
+                        "source_id": "alpaca_bars",
+                        "timestamp": "2021-01-05T16:00:00-05:00",
+                        "date": "2021-01-05",
+                        "bar_open": 101.0,
+                        "bar_high": 102.0,
+                        "bar_low": 100.0,
+                        "bar_close": 101.0,
+                        "bar_volume": 1100.0,
+                    },
+                    {
+                        "symbol": "AAPL",
+                        "asset_class": "us_equity",
+                        "source_id": "alpaca_bars",
+                        "timestamp": "2021-01-06T16:00:00-05:00",
+                        "date": "2021-01-06",
+                        "bar_open": 102.0,
+                        "bar_high": 103.0,
+                        "bar_low": 101.0,
+                        "bar_close": 102.0,
+                        "bar_volume": 1200.0,
+                    },
+                ],
+                "MSFT": [
+                    {
+                        "symbol": "MSFT",
+                        "asset_class": "us_equity",
+                        "source_id": "alpaca_bars",
+                        "timestamp": "2021-01-05T16:00:00-05:00",
+                        "date": "2021-01-05",
+                        "bar_open": 200.0,
+                        "bar_high": 201.0,
+                        "bar_low": 199.0,
+                        "bar_close": 200.0,
+                        "bar_volume": 1000.0,
+                    },
+                    {
+                        "symbol": "MSFT",
+                        "asset_class": "us_equity",
+                        "source_id": "alpaca_bars",
+                        "timestamp": "2021-01-06T16:00:00-05:00",
+                        "date": "2021-01-06",
+                        "bar_open": 201.0,
+                        "bar_high": 202.0,
+                        "bar_low": 200.0,
+                        "bar_close": 201.0,
+                        "bar_volume": 1100.0,
+                    },
+                ],
+            }
+
+            selected_keys, _, _, missing_requirements, portfolio_diagnostics, summary = (
+                replay_module._select_candidate_policy_portfolio_replay_keys(
+                    bars_by_target=bars_by_target,
+                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    after_cost_alpha_model=_after_cost_alpha_model(),
+                    entry_calibration=replay_module.EntryCalibration(
+                        artifact={
+                            "selected_thresholds": {
+                                "minimum_entry_alpha_confidence": 0.50,
+                                "minimum_trade_intensity": 0.05,
+                            }
+                        },
+                        path=Path("entry_threshold_calibration.json"),
+                    ),
+                    option_candidates_by_underlying_time={
+                        ("AAPL", "2021-01-04T16:00:00-05:00"): [{"contract_ref": "AAPL_2021-01-15_C_100"}],
+                        ("AAPL", "2021-01-05T16:00:00-05:00"): [{"contract_ref": "AAPL_2021-01-15_C_100"}],
+                        ("MSFT", "2021-01-05T16:00:00-05:00"): [{"contract_ref": "MSFT_2021-01-15_C_100"}],
+                    },
+                    initial_capital_usd=25_000.0,
+                    max_positions=0,
+                    default_target_allocation_fraction=1.0,
+                    switch_minimum_rank_score_delta=0.00001,
+                )
+            )
+
+            self.assertEqual(missing_requirements, [])
+            self.assertEqual(selected_keys, {("AAPL", 0), ("MSFT", 0)})
+            self.assertEqual(summary["portfolio_replacement_evaluated_count"], 2)
+            self.assertEqual(summary["portfolio_replacement_triggered_count"], 1)
+            self.assertEqual(summary["portfolio_replacement_blocked_by_threshold_count"], 1)
+            self.assertEqual(summary["final_position_targets"], ["MSFT"])
+            self.assertEqual(
+                portfolio_diagnostics[("MSFT", 0)]["portfolio_replacement_evaluation_status"],
+                "triggered",
+            )
+            self.assertEqual(portfolio_diagnostics[("MSFT", 0)]["portfolio_worst_held_target_before"], "AAPL")
+            self.assertGreater(portfolio_diagnostics[("MSFT", 0)]["portfolio_switch_rank_score_delta"], 0.00001)
         finally:
             replay_module._candidate_layer_outputs = original_layer_outputs
             replay_module._option_expression_plan_for_bar = original_plan_builder

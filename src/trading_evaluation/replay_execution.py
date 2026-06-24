@@ -315,6 +315,7 @@ def build_candidate_policy_replay_execution_run(
         precomputed_layer_outputs,
         precomputed_option_expression_plans,
         precomputed_option_feature_requirements,
+        precomputed_portfolio_selection_diagnostics,
         portfolio_selection_summary,
     ) = _select_candidate_policy_portfolio_replay_keys(
         bars_by_target=bars_by_target,
@@ -355,6 +356,7 @@ def build_candidate_policy_replay_execution_run(
         selected_equity_replay_keys=selected_equity_replay_keys,
         precomputed_layer_outputs=precomputed_layer_outputs,
         precomputed_option_expression_plans=precomputed_option_expression_plans,
+        precomputed_portfolio_selection_diagnostics=precomputed_portfolio_selection_diagnostics,
     )
     model_candidate_selection_trace_summary = _model_candidate_selection_trace_summary(
         model_candidate_selection_trace_rows
@@ -757,6 +759,9 @@ def _build_candidate_policy_portfolio_trace_rows(
         "independent_m05_signal_count": 0,
         "capital_selected_m05_count": 0,
         "avoided_m05_request_count": 0,
+        "portfolio_replacement_evaluated_count": 0,
+        "portfolio_replacement_triggered_count": 0,
+        "portfolio_replacement_blocked_by_threshold_count": 0,
     }
 
     for timestamp in timestamps:
@@ -816,8 +821,6 @@ def _build_candidate_policy_portfolio_trace_rows(
                 cash -= notional
                 selected_targets.append(target)
                 continue
-            if max_positions == 0:
-                continue
             if not positions:
                 continue
             worst_target, worst_position = min(
@@ -826,7 +829,9 @@ def _build_candidate_policy_portfolio_trace_rows(
             )
             candidate_score = float(candidate["diagnostic_rank_score"])
             worst_score = float(worst_position.get("last_rank_score") or worst_position.get("entry_rank_score") or 0.0)
+            summary["portfolio_replacement_evaluated_count"] += 1
             if candidate_score - worst_score < switch_minimum_rank_score_delta:
+                summary["portfolio_replacement_blocked_by_threshold_count"] += 1
                 continue
             cash += _portfolio_trace_position_value(worst_position)
             closed_targets.append(worst_target)
@@ -837,6 +842,7 @@ def _build_candidate_policy_portfolio_trace_rows(
             positions[target] = _portfolio_trace_position(candidate=candidate, notional=notional, opened_at=timestamp)
             cash -= notional
             selected_targets.append(target)
+            summary["portfolio_replacement_triggered_count"] += 1
 
         independent_count = len(scored_candidates)
         selected_count = len(selected_targets)
@@ -955,6 +961,45 @@ def _portfolio_trace_position_value(position: Mapping[str, Any]) -> float:
     if value > 0.0 and value >= notional * 0.5:
         return value
     return notional
+
+
+def _portfolio_selection_diagnostics(
+    *,
+    action: str,
+    reason: str,
+    candidate: Mapping[str, Any],
+    cash_before: float,
+    positions: Mapping[str, Mapping[str, Any]],
+    switch_minimum_rank_score_delta: float,
+    selected: bool,
+    replacement_status: str,
+    worst_target: str | None = None,
+    worst_position: Mapping[str, Any] | None = None,
+    switch_rank_score_delta: float | None = None,
+) -> dict[str, Any]:
+    candidate_score = _safe_float(candidate.get("diagnostic_rank_score"))
+    worst_score = _safe_float(_as_mapping(worst_position).get("last_rank_score")) or _safe_float(
+        _as_mapping(worst_position).get("entry_rank_score")
+    )
+    if switch_rank_score_delta is None and candidate_score is not None and worst_score is not None:
+        switch_rank_score_delta = candidate_score - worst_score
+    return {
+        "portfolio_selection_action": action,
+        "portfolio_selection_reason": reason,
+        "portfolio_selected": bool(selected),
+        "portfolio_cash_before": round(float(cash_before), 6),
+        "portfolio_open_position_count_before": len(positions),
+        "portfolio_open_targets_before": sorted(str(target) for target in positions),
+        "portfolio_replacement_evaluation_status": replacement_status,
+        "portfolio_switch_policy": "continue_scanning_after_budget_full; replace_weakest_held_only_when_new_rank_exceeds_threshold",
+        "portfolio_switch_minimum_rank_score_delta": switch_minimum_rank_score_delta,
+        "portfolio_candidate_rank_score": candidate_score,
+        "portfolio_worst_held_target_before": worst_target or "",
+        "portfolio_worst_held_rank_score_before": worst_score,
+        "portfolio_switch_rank_score_delta": None
+        if switch_rank_score_delta is None
+        else round(float(switch_rank_score_delta), 6),
+    }
 
 
 def _position_limit_allows_new_position(*, positions: Mapping[str, Any], max_positions: int) -> bool:
@@ -1115,6 +1160,7 @@ def _select_candidate_policy_portfolio_replay_keys(
     dict[tuple[str, int], dict[str, Any]],
     dict[tuple[str, int], Mapping[str, Any] | None],
     list[dict[str, Any]],
+    dict[tuple[str, int], dict[str, Any]],
     dict[str, Any],
 ]:
     _validate_portfolio_replay_policy(
@@ -1144,6 +1190,7 @@ def _select_candidate_policy_portfolio_replay_keys(
     selected_keys: set[tuple[str, int]] = set()
     layer_outputs_by_key: dict[tuple[str, int], dict[str, Any]] = {}
     option_expression_plans_by_key: dict[tuple[str, int], Mapping[str, Any] | None] = {}
+    portfolio_selection_diagnostics_by_key: dict[tuple[str, int], dict[str, Any]] = {}
     missing_option_feature_requirements: list[dict[str, Any]] = []
     summary = {
         "timestamp_count": 0,
@@ -1154,6 +1201,12 @@ def _select_candidate_policy_portfolio_replay_keys(
         "unexecutable_m05_plan_count": 0,
         "avoided_m05_request_count": 0,
         "missing_option_feature_requirement_count": 0,
+        "portfolio_replacement_evaluated_count": 0,
+        "portfolio_replacement_triggered_count": 0,
+        "portfolio_replacement_blocked_by_threshold_count": 0,
+        "portfolio_replacement_blocked_by_expression_count": 0,
+        "portfolio_replacement_blocked_by_allocation_count": 0,
+        "portfolio_existing_position_continued_count": 0,
         "default_target_allocation_fraction": default_target_allocation_fraction,
         "target_allocation_fraction_role": "model_output_target_allocation_fraction_times_total_budget_not_single_position_cap",
         "max_positions": max_positions,
@@ -1226,14 +1279,35 @@ def _select_candidate_policy_portfolio_replay_keys(
         selected_this_timestamp = 0
         for candidate in timestamp_candidates:
             target = str(candidate["target_ref"])
+            key = candidate["key"]
             if target in positions:
                 positions[target]["last_rank_score"] = candidate["diagnostic_rank_score"]
                 positions[target]["last_price"] = candidate["reference_price"]
+                portfolio_selection_diagnostics_by_key[key] = _portfolio_selection_diagnostics(
+                    action="continue_held_position",
+                    reason="target_already_held_update_rank_and_price",
+                    candidate=candidate,
+                    cash_before=cash,
+                    positions=positions,
+                    switch_minimum_rank_score_delta=switch_minimum_rank_score_delta,
+                    selected=False,
+                    replacement_status="held_target_continued",
+                )
+                summary["portfolio_existing_position_continued_count"] += 1
                 continue
-            key = candidate["key"]
             if _position_limit_allows_new_position(positions=positions, max_positions=max_positions) and cash > 0.0:
                 option_expression_plan = option_expression_plans_by_key.get(key)
                 if option_expression_plan is not None and not _option_expression_plan_has_selected_contract(option_expression_plan):
+                    portfolio_selection_diagnostics_by_key[key] = _portfolio_selection_diagnostics(
+                        action="not_selected",
+                        reason="option_expression_unexecutable_before_portfolio_allocation",
+                        candidate=candidate,
+                        cash_before=cash,
+                        positions=positions,
+                        switch_minimum_rank_score_delta=switch_minimum_rank_score_delta,
+                        selected=False,
+                        replacement_status="not_needed_capacity_available",
+                    )
                     summary["unexecutable_m05_plan_count"] += 1
                     continue
                 allocation_context = _target_allocation_context(
@@ -1248,7 +1322,27 @@ def _select_candidate_policy_portfolio_replay_keys(
                     reference_price=float(candidate["reference_price"]),
                 )
                 if allocation is None:
+                    portfolio_selection_diagnostics_by_key[key] = _portfolio_selection_diagnostics(
+                        action="not_selected",
+                        reason="allocation_unavailable_before_portfolio_entry",
+                        candidate=candidate,
+                        cash_before=cash,
+                        positions=positions,
+                        switch_minimum_rank_score_delta=switch_minimum_rank_score_delta,
+                        selected=False,
+                        replacement_status="not_needed_capacity_available",
+                    )
                     continue
+                portfolio_selection_diagnostics_by_key[key] = _portfolio_selection_diagnostics(
+                    action="open_new_position",
+                    reason="cash_and_position_capacity_available",
+                    candidate=candidate,
+                    cash_before=cash,
+                    positions=positions,
+                    switch_minimum_rank_score_delta=switch_minimum_rank_score_delta,
+                    selected=True,
+                    replacement_status="not_needed_capacity_available",
+                )
                 positions[target] = _portfolio_trace_position(
                     candidate=candidate,
                     notional=allocation["notional"],
@@ -1260,9 +1354,17 @@ def _select_candidate_policy_portfolio_replay_keys(
                 selected_keys.add(candidate["key"])
                 selected_this_timestamp += 1
                 continue
-            if max_positions == 0:
-                continue
             if not positions:
+                portfolio_selection_diagnostics_by_key[key] = _portfolio_selection_diagnostics(
+                    action="not_selected",
+                    reason="no_open_position_available_for_replacement",
+                    candidate=candidate,
+                    cash_before=cash,
+                    positions=positions,
+                    switch_minimum_rank_score_delta=switch_minimum_rank_score_delta,
+                    selected=False,
+                    replacement_status="not_evaluated_no_positions",
+                )
                 continue
             worst_target, worst_position = min(
                 positions.items(),
@@ -1270,11 +1372,41 @@ def _select_candidate_policy_portfolio_replay_keys(
             )
             candidate_score = float(candidate["diagnostic_rank_score"])
             worst_score = float(worst_position.get("last_rank_score") or worst_position.get("entry_rank_score") or 0.0)
-            if candidate_score - worst_score < switch_minimum_rank_score_delta:
+            switch_rank_score_delta = candidate_score - worst_score
+            summary["portfolio_replacement_evaluated_count"] += 1
+            if switch_rank_score_delta < switch_minimum_rank_score_delta:
+                portfolio_selection_diagnostics_by_key[key] = _portfolio_selection_diagnostics(
+                    action="not_selected_keep_current_positions",
+                    reason="candidate_not_significantly_better_than_weakest_held_position",
+                    candidate=candidate,
+                    cash_before=cash,
+                    positions=positions,
+                    switch_minimum_rank_score_delta=switch_minimum_rank_score_delta,
+                    selected=False,
+                    replacement_status="blocked_by_switch_threshold",
+                    worst_target=worst_target,
+                    worst_position=worst_position,
+                    switch_rank_score_delta=switch_rank_score_delta,
+                )
+                summary["portfolio_replacement_blocked_by_threshold_count"] += 1
                 continue
             option_expression_plan = option_expression_plans_by_key.get(key)
             if option_expression_plan is not None and not _option_expression_plan_has_selected_contract(option_expression_plan):
+                portfolio_selection_diagnostics_by_key[key] = _portfolio_selection_diagnostics(
+                    action="not_selected_keep_current_positions",
+                    reason="replacement_candidate_option_expression_unexecutable",
+                    candidate=candidate,
+                    cash_before=cash,
+                    positions=positions,
+                    switch_minimum_rank_score_delta=switch_minimum_rank_score_delta,
+                    selected=False,
+                    replacement_status="blocked_by_option_expression",
+                    worst_target=worst_target,
+                    worst_position=worst_position,
+                    switch_rank_score_delta=switch_rank_score_delta,
+                )
                 summary["unexecutable_m05_plan_count"] += 1
+                summary["portfolio_replacement_blocked_by_expression_count"] += 1
                 continue
             prospective_cash = cash + _portfolio_trace_position_value(worst_position)
             allocation_context = _target_allocation_context(
@@ -1289,7 +1421,34 @@ def _select_candidate_policy_portfolio_replay_keys(
                 reference_price=float(candidate["reference_price"]),
             )
             if allocation is None:
+                portfolio_selection_diagnostics_by_key[key] = _portfolio_selection_diagnostics(
+                    action="not_selected_keep_current_positions",
+                    reason="replacement_allocation_unavailable",
+                    candidate=candidate,
+                    cash_before=cash,
+                    positions=positions,
+                    switch_minimum_rank_score_delta=switch_minimum_rank_score_delta,
+                    selected=False,
+                    replacement_status="blocked_by_allocation",
+                    worst_target=worst_target,
+                    worst_position=worst_position,
+                    switch_rank_score_delta=switch_rank_score_delta,
+                )
+                summary["portfolio_replacement_blocked_by_allocation_count"] += 1
                 continue
+            portfolio_selection_diagnostics_by_key[key] = _portfolio_selection_diagnostics(
+                action="replace_weakest_held_position",
+                reason="candidate_significantly_better_than_weakest_held_position_after_switch_threshold",
+                candidate=candidate,
+                cash_before=cash,
+                positions=positions,
+                switch_minimum_rank_score_delta=switch_minimum_rank_score_delta,
+                selected=True,
+                replacement_status="triggered",
+                worst_target=worst_target,
+                worst_position=worst_position,
+                switch_rank_score_delta=switch_rank_score_delta,
+            )
             cash = prospective_cash
             del positions[worst_target]
             positions[target] = _portfolio_trace_position(
@@ -1302,6 +1461,7 @@ def _select_candidate_policy_portfolio_replay_keys(
             cash -= allocation["notional"]
             selected_keys.add(candidate["key"])
             selected_this_timestamp += 1
+            summary["portfolio_replacement_triggered_count"] += 1
 
         summary["timestamp_count"] += 1
         summary["capital_selected_m05_count"] += selected_this_timestamp
@@ -1310,7 +1470,14 @@ def _select_candidate_policy_portfolio_replay_keys(
     summary["final_cash"] = round(cash, 6)
     summary["final_position_count"] = len(positions)
     summary["final_position_targets"] = sorted(positions)
-    return selected_keys, layer_outputs_by_key, option_expression_plans_by_key, missing_option_feature_requirements, summary
+    return (
+        selected_keys,
+        layer_outputs_by_key,
+        option_expression_plans_by_key,
+        missing_option_feature_requirements,
+        portfolio_selection_diagnostics_by_key,
+        summary,
+    )
 
 
 def _build_model_candidate_selection_trace_rows(
@@ -1322,6 +1489,7 @@ def _build_model_candidate_selection_trace_rows(
     selected_equity_replay_keys: set[tuple[str, int]],
     precomputed_layer_outputs: Mapping[tuple[str, int], Mapping[str, Any]],
     precomputed_option_expression_plans: Mapping[tuple[str, int], Mapping[str, Any] | None],
+    precomputed_portfolio_selection_diagnostics: Mapping[tuple[str, int], Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
     """Return the model's point-in-time candidate discovery and selection trace."""
 
@@ -1335,6 +1503,7 @@ def _build_model_candidate_selection_trace_rows(
             key = (target, index)
             layer_outputs = _as_mapping(precomputed_layer_outputs.get(key))
             option_expression_plan = precomputed_option_expression_plans.get(key)
+            portfolio_selection = _as_mapping(precomputed_portfolio_selection_diagnostics.get(key))
             selected_contract = _as_mapping(_as_mapping(option_expression_plan).get("selected_contract"))
             row: dict[str, Any] = {
                 "contract_type": MODEL_CANDIDATE_SELECTION_TRACE_ROW_CONTRACT,
@@ -1352,6 +1521,26 @@ def _build_model_candidate_selection_trace_rows(
                 "model_score_available": bool(layer_outputs),
                 "model_rank_within_timestamp": None,
                 "selected_by_replay": key in selected_equity_replay_keys,
+                "portfolio_selection_action": portfolio_selection.get("portfolio_selection_action") or "",
+                "portfolio_selection_reason": portfolio_selection.get("portfolio_selection_reason") or "",
+                "portfolio_replacement_evaluation_status": portfolio_selection.get(
+                    "portfolio_replacement_evaluation_status"
+                )
+                or "",
+                "portfolio_switch_policy": portfolio_selection.get("portfolio_switch_policy")
+                or "continue_scanning_after_budget_full; replace_weakest_held_only_when_new_rank_exceeds_threshold",
+                "portfolio_switch_minimum_rank_score_delta": portfolio_selection.get(
+                    "portfolio_switch_minimum_rank_score_delta"
+                ),
+                "portfolio_candidate_rank_score": portfolio_selection.get("portfolio_candidate_rank_score"),
+                "portfolio_worst_held_target_before": portfolio_selection.get("portfolio_worst_held_target_before") or "",
+                "portfolio_worst_held_rank_score_before": portfolio_selection.get(
+                    "portfolio_worst_held_rank_score_before"
+                ),
+                "portfolio_switch_rank_score_delta": portfolio_selection.get("portfolio_switch_rank_score_delta"),
+                "portfolio_cash_before": portfolio_selection.get("portfolio_cash_before"),
+                "portfolio_open_position_count_before": portfolio_selection.get("portfolio_open_position_count_before"),
+                "portfolio_open_targets_before": portfolio_selection.get("portfolio_open_targets_before") or [],
                 "selected_option_contract_ref": selected_contract.get("contract_ref") or selected_contract.get("option_symbol"),
                 "model_selection_trace_policy": (
                     "records all point-in-time visible equity candidates scored by replay before settlement labels"
@@ -1439,7 +1628,13 @@ def _model_candidate_trace_status(
     option_expression_plan: Mapping[str, Any] | None,
 ) -> str:
     if bool(row.get("selected_by_replay")):
+        if str(row.get("portfolio_selection_action") or "") == "replace_weakest_held_position":
+            return "selected_by_replay_replacement"
         return "selected_by_replay"
+    portfolio_action = str(row.get("portfolio_selection_action") or "")
+    replacement_status = str(row.get("portfolio_replacement_evaluation_status") or "")
+    if portfolio_action == "continue_held_position":
+        return "held_position_continued"
     if not bool(row.get("m04_trade_intent")):
         return "scored_no_entry_intent"
     if not bool(row.get("option_expression_signal_required")):
@@ -1448,6 +1643,10 @@ def _model_candidate_trace_status(
         return "option_expression_features_missing_or_not_built"
     if not bool(row.get("option_expression_selected_contract_available")):
         return "option_expression_unexecutable"
+    if replacement_status == "blocked_by_switch_threshold":
+        return "scored_not_selected_switch_threshold"
+    if replacement_status in {"blocked_by_option_expression", "blocked_by_allocation"}:
+        return f"scored_not_selected_{replacement_status}"
     return "scored_not_selected_by_portfolio"
 
 
@@ -1492,6 +1691,7 @@ def _option_hard_filter_reason_counts(option_expression_plan: Mapping[str, Any])
 
 def _model_candidate_selection_trace_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     status_counts: dict[str, int] = defaultdict(int)
+    replacement_status_counts: dict[str, int] = defaultdict(int)
     unexecutable_reason_counts: dict[str, int] = defaultdict(int)
     hard_filter_reason_counts: dict[str, int] = defaultdict(int)
     selected_targets: set[str] = set()
@@ -1506,6 +1706,9 @@ def _model_candidate_selection_trace_summary(rows: Sequence[Mapping[str, Any]]) 
     )
     for row in rows:
         status_counts[str(row.get("model_candidate_trace_status") or "unknown")] += 1
+        replacement_status = str(row.get("portfolio_replacement_evaluation_status") or "").strip()
+        if replacement_status:
+            replacement_status_counts[replacement_status] += 1
         if str(row.get("model_candidate_trace_status") or "") == "option_expression_unexecutable":
             unexecutable_reason_counts[str(row.get("option_expression_unexecutable_reason") or "unknown")] += 1
             hard_filter_counts = row.get("option_hard_filter_reason_counts")
@@ -1524,6 +1727,21 @@ def _model_candidate_selection_trace_summary(rows: Sequence[Mapping[str, Any]]) 
         "scored_target_count": len(scored_targets),
         "selected_target_count": len(selected_targets),
         "status_counts": dict(sorted(status_counts.items())),
+        "portfolio_replacement_status_counts": dict(sorted(replacement_status_counts.items())),
+        "portfolio_replacement_evaluated_count": sum(
+            count
+            for status, count in replacement_status_counts.items()
+            if status
+            not in {
+                "not_needed_capacity_available",
+                "held_target_continued",
+                "not_evaluated_no_positions",
+            }
+        ),
+        "portfolio_replacement_triggered_count": replacement_status_counts.get("triggered", 0),
+        "portfolio_replacement_blocked_by_switch_threshold_count": replacement_status_counts.get(
+            "blocked_by_switch_threshold", 0
+        ),
         "option_expression_unexecutable_reason_counts": dict(sorted(unexecutable_reason_counts.items())),
         "option_hard_filter_reason_counts": dict(sorted(hard_filter_reason_counts.items())),
         "top_model_ranked_candidates_sample": [
@@ -1534,6 +1752,9 @@ def _model_candidate_selection_trace_summary(rows: Sequence[Mapping[str, Any]]) 
                 "diagnostic_rank_score": row.get("diagnostic_rank_score"),
                 "selected_by_replay": row.get("selected_by_replay"),
                 "model_candidate_trace_status": row.get("model_candidate_trace_status"),
+                "portfolio_replacement_evaluation_status": row.get("portfolio_replacement_evaluation_status"),
+                "portfolio_worst_held_target_before": row.get("portfolio_worst_held_target_before"),
+                "portfolio_switch_rank_score_delta": row.get("portfolio_switch_rank_score_delta"),
             }
             for row in top_rows[:20]
         ],
@@ -1969,6 +2190,7 @@ def _build_candidate_policy_decision_rows(
             precomputed_layer_outputs,
             precomputed_option_expression_plans,
             precomputed_option_feature_requirements,
+            _,
             _,
         ) = _select_candidate_policy_portfolio_replay_keys(
             bars_by_target=bars_by_target,
