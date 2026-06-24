@@ -70,8 +70,10 @@ MINIMUM_CALIBRATION_ALPHA_UNIQUE_VALUES = 3
 MINIMUM_CALIBRATION_ALPHA_STDEV = 0.0001
 REPLAY_COST_PER_FILLED_DECISION = 0.0015
 DEFAULT_REPLAY_INITIAL_CAPITAL_USD = 25_000.0
-DEFAULT_PORTFOLIO_MAX_POSITIONS = 0
 DEFAULT_TARGET_ALLOCATION_FRACTION = 0.20
+DEFAULT_PORTFOLIO_MAX_POSITIONS = int(1 / DEFAULT_TARGET_ALLOCATION_FRACTION)
+PORTFOLIO_CAPACITY_POLICY = "default_5_simultaneous_risk_slots_from_20pct_allocation"
+PORTFOLIO_UNBOUNDED_OVERRIDE_POLICY = "explicit_unbounded_position_count_override_for_research_only"
 US_OPTION_CONTRACT_MULTIPLIER = 100.0
 NEW_YORK = ZoneInfo("America/New_York")
 REPLAY_INITIAL_CAPITAL_CURRENCY = "USD"
@@ -398,6 +400,18 @@ def build_candidate_policy_replay_execution_run(
             "enabled_for_equity_options_sleeve": bool(include_equity),
             "time_major_candidate_selection": bool(include_equity),
             "max_positions": portfolio_max_positions,
+            "max_positions_role": (
+                "explicit_unbounded_override_for_research_only"
+                if portfolio_max_positions == 0
+                else "default_simultaneous_position_cap"
+            ),
+            "portfolio_capacity_policy": (
+                PORTFOLIO_CAPACITY_POLICY
+                if portfolio_max_positions == DEFAULT_PORTFOLIO_MAX_POSITIONS
+                else PORTFOLIO_UNBOUNDED_OVERRIDE_POLICY
+                if portfolio_max_positions == 0
+                else "explicit_simultaneous_position_cap_override"
+            ),
             "default_target_allocation_fraction": portfolio_default_target_allocation_fraction,
             "target_allocation_fraction_role": "model_output_target_allocation_fraction_times_total_budget_not_single_position_cap",
             "default_fraction_role": "fallback_only_when_model_output_target_allocation_fraction_is_missing",
@@ -407,7 +421,7 @@ def build_candidate_policy_replay_execution_run(
             "residual_cash_replacement_policy": "insufficient_cash_falls_through_to_replacement",
             "position_invalidation_policy": "existing_position_exit_reduce_stop_take_profit_belongs_to_execution_c03_lifecycle_before_released_capital_reenters_ranked_candidate_path",
             "m05_trigger_policy": "ranked_m04_equity_intents_use_point_in_time_m05_selected_contract_cost_for_affordability",
-            "position_sizing_policy": "rank_ordered_best_first_no_fixed_top_n_minimum_notional_floor_option_contract_round_up",
+            "position_sizing_policy": "rank_ordered_best_first_with_simultaneous_position_cap_minimum_notional_floor_option_contract_round_up",
             "ranking_policy": {
                 "rank_field": "diagnostic_rank_score",
                 "role": "cross_target_ordering_for_replay_capital_feasibility",
@@ -657,6 +671,16 @@ def build_candidate_policy_portfolio_trace_audit(
             "broker_or_account_state": False,
         },
         "max_positions": max_positions,
+        "max_positions_role": (
+            "explicit_unbounded_override_for_research_only" if max_positions == 0 else "simultaneous_position_cap"
+        ),
+        "portfolio_capacity_policy": (
+            PORTFOLIO_CAPACITY_POLICY
+            if max_positions == DEFAULT_PORTFOLIO_MAX_POSITIONS
+            else PORTFOLIO_UNBOUNDED_OVERRIDE_POLICY
+            if max_positions == 0
+            else "explicit_simultaneous_position_cap_override"
+        ),
         "default_target_allocation_fraction": default_target_allocation_fraction,
         "switch_minimum_rank_score_delta": switch_minimum_rank_score_delta,
         "switch_policy": "no_continuous_rebalance; replace_worst_held_only_when_new_rank_exceeds_threshold",
@@ -696,7 +720,7 @@ def build_candidate_policy_portfolio_trace_audit(
         "validation_status": "passed",
         "notes": [
             "diagnostic-only time-major portfolio trace over frozen replay bars",
-            "max_positions=0 means no fixed top-N position-count limit",
+            "default max_positions is the current five-slot portfolio-capacity policy; max_positions=0 is an explicit research-only unbounded override",
             "independent_m05_signal_count approximates current target-major replay option-expression demand",
             "capital_selected_m05_count approximates option-expression demand after a simple finite-capital portfolio screen",
             "this audit does not load M05 option candidates, call option providers, emit replay decision rows, or mutate broker/account state",
@@ -1212,7 +1236,16 @@ def _select_candidate_policy_portfolio_replay_keys(
         "default_target_allocation_fraction": default_target_allocation_fraction,
         "target_allocation_fraction_role": "model_output_target_allocation_fraction_times_total_budget_not_single_position_cap",
         "max_positions": max_positions,
-        "max_positions_role": "unbounded_when_zero" if max_positions == 0 else "optional_position_count_limit",
+        "max_positions_role": (
+            "explicit_unbounded_override_for_research_only" if max_positions == 0 else "simultaneous_position_cap"
+        ),
+        "portfolio_capacity_policy": (
+            PORTFOLIO_CAPACITY_POLICY
+            if max_positions == DEFAULT_PORTFOLIO_MAX_POSITIONS
+            else PORTFOLIO_UNBOUNDED_OVERRIDE_POLICY
+            if max_positions == 0
+            else "explicit_simultaneous_position_cap_override"
+        ),
         "switch_minimum_rank_score_delta": switch_minimum_rank_score_delta,
         "switch_policy": "no_continuous_rebalance; replace_worst_held_only_when_new_rank_exceeds_threshold",
         "position_invalidation_policy": "existing_position_exit_reduce_stop_take_profit_belongs_to_execution_c03_lifecycle",

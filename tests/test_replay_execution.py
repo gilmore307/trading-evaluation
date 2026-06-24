@@ -1159,6 +1159,105 @@ class ReplayExecutionTests(unittest.TestCase):
             replay_module._candidate_layer_outputs = original_layer_outputs
             replay_module._option_expression_plan_for_bar = original_plan_builder
 
+    def test_portfolio_selection_default_limits_initial_positions_to_five_risk_slots(self):
+        original_layer_outputs = replay_module._candidate_layer_outputs
+        original_plan_builder = replay_module._option_expression_plan_for_bar
+        try:
+            symbols = ("AAPL", "MSFT", "NVDA", "AMD", "META", "TSLA")
+
+            def fake_layer_outputs(*, target, **_):
+                score = {
+                    "AAPL": 0.91,
+                    "MSFT": 0.90,
+                    "NVDA": 0.89,
+                    "AMD": 0.88,
+                    "META": 0.87,
+                    "TSLA": 0.86,
+                }[target]
+                return _current_layer_outputs(alpha_score=score, target_allocation_fraction=0.03)
+
+            def fake_option_plan(*, bar, **_):
+                target = str(bar["symbol"])
+                return {
+                    "target_ref": target,
+                    "asset_expression_route": "listed_option_contract",
+                    "option_surface_status": "optionable_chain_available",
+                    "selected_expression_type": "long_call",
+                    "selected_contract": {
+                        "contract_ref": f"{target}_2021-01-15_C_100",
+                        "estimated_contract_cost_usd": 800.0,
+                    },
+                }
+
+            replay_module._candidate_layer_outputs = fake_layer_outputs
+            replay_module._option_expression_plan_for_bar = fake_option_plan
+            bars_by_target = {
+                symbol: [
+                    {
+                        "symbol": symbol,
+                        "asset_class": "us_equity",
+                        "source_id": "alpaca_bars",
+                        "timestamp": "2021-01-04T16:00:00-05:00",
+                        "date": "2021-01-04",
+                        "bar_open": 100.0,
+                        "bar_high": 101.0,
+                        "bar_low": 99.0,
+                        "bar_close": 100.0,
+                        "bar_volume": 1000.0,
+                    },
+                    {
+                        "symbol": symbol,
+                        "asset_class": "us_equity",
+                        "source_id": "alpaca_bars",
+                        "timestamp": "2021-01-05T16:00:00-05:00",
+                        "date": "2021-01-05",
+                        "bar_open": 101.0,
+                        "bar_high": 102.0,
+                        "bar_low": 100.0,
+                        "bar_close": 101.0,
+                        "bar_volume": 1100.0,
+                    },
+                ]
+                for symbol in symbols
+            }
+
+            selected_keys, _, _, missing_requirements, portfolio_diagnostics, summary = (
+                replay_module._select_candidate_policy_portfolio_replay_keys(
+                    bars_by_target=bars_by_target,
+                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    after_cost_alpha_model=_after_cost_alpha_model(),
+                    entry_calibration=replay_module.EntryCalibration(
+                        artifact={
+                            "selected_thresholds": {
+                                "minimum_entry_alpha_confidence": 0.50,
+                                "minimum_trade_intensity": 0.05,
+                            }
+                        },
+                        path=Path("entry_threshold_calibration.json"),
+                    ),
+                    option_candidates_by_underlying_time={
+                        (symbol, "2021-01-04T16:00:00-05:00"): [
+                            {"contract_ref": f"{symbol}_2021-01-15_C_100"}
+                        ]
+                        for symbol in symbols
+                    },
+                    initial_capital_usd=25_000.0,
+                    max_positions=replay_module.DEFAULT_PORTFOLIO_MAX_POSITIONS,
+                    default_target_allocation_fraction=replay_module.DEFAULT_TARGET_ALLOCATION_FRACTION,
+                    switch_minimum_rank_score_delta=999.0,
+                )
+            )
+
+            self.assertEqual(missing_requirements, [])
+            self.assertEqual(len(selected_keys), 5)
+            self.assertEqual(summary["max_positions"], 5)
+            self.assertEqual(summary["portfolio_capacity_policy"], replay_module.PORTFOLIO_CAPACITY_POLICY)
+            self.assertEqual(summary["final_position_count"], 5)
+            self.assertEqual(portfolio_diagnostics[("TSLA", 0)]["portfolio_replacement_evaluation_status"], "blocked_by_switch_threshold")
+        finally:
+            replay_module._candidate_layer_outputs = original_layer_outputs
+            replay_module._option_expression_plan_for_bar = original_plan_builder
+
     def test_portfolio_selection_replaces_weakest_when_cash_budget_is_full(self):
         original_layer_outputs = replay_module._candidate_layer_outputs
         original_plan_builder = replay_module._option_expression_plan_for_bar
