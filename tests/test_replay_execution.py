@@ -495,7 +495,7 @@ class ReplayExecutionTests(unittest.TestCase):
             )
         )
 
-    def test_option_expression_signal_requires_entry_ready_long_trade(self):
+    def test_option_expression_signal_requires_entry_ready_directional_trade(self):
         self.assertTrue(replay_module._option_expression_signal_required(_current_layer_outputs()))
         self.assertFalse(replay_module._option_expression_signal_required(_current_layer_outputs(alpha_score=0.25)))
         self.assertFalse(replay_module._option_expression_signal_required(_current_layer_outputs(trade_intensity=0.01)))
@@ -504,7 +504,7 @@ class ReplayExecutionTests(unittest.TestCase):
         self.assertFalse(
             replay_module._option_expression_signal_required(_current_layer_outputs(entry_style="wait_for_breakout_confirmation"))
         )
-        self.assertFalse(
+        self.assertTrue(
             replay_module._option_expression_signal_required(
                 _current_layer_outputs(action_type="open_short", action_side="short", direction="bearish", action_direction=-0.2, expected_return=-0.03)
             )
@@ -514,6 +514,62 @@ class ReplayExecutionTests(unittest.TestCase):
                 _current_layer_outputs(action_type="no_trade", action_side="none", direction="neutral", action_direction=0.0, expected_return=0.0)
             )
         )
+
+    def test_bearish_option_expression_selects_long_put(self):
+        plan = replay_module._option_expression_plan_for_bar(
+            bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
+            candidate_model_ref="storage://trading-manager/model_group/test_fold",
+            timestamp="2021-01-04T16:00:00-05:00",
+            layer_outputs=_current_layer_outputs(
+                action_type="open_short",
+                action_side="short",
+                direction="bearish",
+                action_direction=-0.2,
+                expected_return=-0.03,
+                handoff_overrides={"expected_target_price": 92.0, "target_price_low": 92.0},
+            ),
+            option_candidates=[
+                {
+                    "contract_ref": "AAPL_2021-01-15_C_100",
+                    "option_right": "CALL",
+                    "expiration": "2021-01-15",
+                    "strike": 100.0,
+                    "dte": 11,
+                    "bid_price": 2.1,
+                    "ask_price": 2.2,
+                    "mid_price": 2.15,
+                    "delta": 0.45,
+                    "theta": -0.02,
+                    "vega": 0.12,
+                    "volume": 500,
+                    "open_interest": 2000,
+                    "spread_pct_mid": 0.0465,
+                    "quote_age_seconds": 10,
+                },
+                {
+                    "contract_ref": "AAPL_2021-01-15_P_100",
+                    "option_right": "PUT",
+                    "expiration": "2021-01-15",
+                    "strike": 100.0,
+                    "dte": 11,
+                    "bid_price": 2.1,
+                    "ask_price": 2.2,
+                    "mid_price": 2.15,
+                    "delta": -0.45,
+                    "theta": -0.02,
+                    "vega": 0.12,
+                    "volume": 500,
+                    "open_interest": 2000,
+                    "spread_pct_mid": 0.0465,
+                    "quote_age_seconds": 10,
+                },
+            ],
+        )
+
+        assert plan is not None
+        self.assertEqual(plan["selected_expression_type"], "long_put")
+        self.assertEqual(plan["selected_option_right"], "put")
+        self.assertEqual(plan["selected_contract"]["contract_ref"], "AAPL_2021-01-15_P_100")
 
     def test_fixed_candidate_universe_can_emit_option_feature_requirements(self):
         with self.assertRaisesRegex(ValueError, "replay_option_feature_acquisition_required"):
@@ -2019,8 +2075,14 @@ class ReplayExecutionTests(unittest.TestCase):
                 self.assertEqual(rows[0]["point_in_time_policy"], "replay_time_pointer_excludes_future_decision_inputs")
                 self.assertEqual(rows[0]["asset_class"], "us_option")
                 self.assertEqual(rows[0]["decision_expression_type"], "long_put")
+                self.assertEqual(rows[0]["decision_intended_side"], "long")
+                self.assertEqual(rows[0]["decision_intended_action"], "open_long")
                 self.assertEqual(rows[0]["decision_instrument_scope"], "listed_option_contract")
                 self.assertEqual(rows[0]["selected_option_contract_ref"], "AAPL_2021-01-15_P_100")
+                self.assertEqual(rows[0]["selected_option_right"], "none")
+                self.assertEqual(rows[0]["option_direction_consistency_status"], "mismatch")
+                self.assertAlmostEqual(rows[0]["underlying_return"], (rows[0]["next_bar_close"] - rows[0]["bar_close"]) / rows[0]["bar_close"])
+                self.assertAlmostEqual(rows[0]["directional_underlying_return"], rows[0]["underlying_return"])
                 self.assertEqual(rows[0]["option_contract_path_status"], "available")
                 self.assertEqual(rows[0]["return_source"], "m05_option_expression_contract_path")
                 self.assertEqual(rows[0]["option_entry_price"], 2.0)

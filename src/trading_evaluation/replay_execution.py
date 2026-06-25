@@ -401,6 +401,7 @@ def build_candidate_policy_replay_execution_run(
         "portfolio_replay_policy": {
             "enabled_for_equity_options_sleeve": bool(include_equity),
             "time_major_candidate_selection": bool(include_equity),
+            "replay_continuity_policy": "continuous_cross_month_portfolio_path",
             "max_positions": portfolio_max_positions,
             "max_positions_role": (
                 "explicit_unbounded_override_for_research_only"
@@ -428,7 +429,7 @@ def build_candidate_policy_replay_execution_run(
             "ranking_policy": {
                 "rank_field": "diagnostic_rank_score",
                 "role": "cross_target_ordering_for_replay_capital_feasibility",
-                "formula": "positive(alpha_score-min_alpha) * positive(trade_intensity-min_trade_intensity) * positive(expected_return_score) * positive(action_direction_score)",
+                "formula": "positive(alpha_score-min_alpha) * positive(trade_intensity-min_trade_intensity) * abs(expected_return_score) * abs(action_direction_score)",
             },
         },
         "portfolio_selection_summary": portfolio_selection_summary,
@@ -449,6 +450,9 @@ def build_candidate_policy_replay_execution_run(
         "dataset_manifest_ref": str(dataset_root / "dataset_manifest.json"),
         "replay_freeze_receipt_ref": None if replay_month else str(freeze_receipt_path),
         "replay_month": replay_month,
+        "replay_continuity_policy": "continuous_cross_month_portfolio_path"
+        if include_equity and replay_month is None
+        else "bounded_month_diagnostic" if replay_month else "continuous_non_equity_replay",
         "decision_rows_ref": str(decision_rows_path),
         "model_candidate_selection_trace_ref": str(model_candidate_selection_trace_path),
         "model_candidate_selection_trace_summary": model_candidate_selection_trace_summary,
@@ -708,7 +712,7 @@ def build_candidate_policy_portfolio_trace_audit(
         "ranking_policy": {
             "rank_field": "diagnostic_rank_score",
             "role": "audit_only_cross_target_ordering_for_capital_feasibility",
-            "formula": "positive(alpha_score-min_alpha) * positive(trade_intensity-min_trade_intensity) * positive(expected_return_score) * positive(action_direction_score)",
+            "formula": "positive(alpha_score-min_alpha) * positive(trade_intensity-min_trade_intensity) * abs(expected_return_score) * abs(action_direction_score)",
             "promotion_or_execution_contract": False,
         },
         "side_effects": {
@@ -935,8 +939,8 @@ def _portfolio_trace_candidate_diagnostics(
     rank_score = (
         max(0.0, alpha_score - minimum_alpha)
         * max(0.0, trade_intensity - minimum_trade_intensity)
-        * max(0.0, expected_return)
-        * max(0.0, action_direction)
+        * abs(expected_return)
+        * abs(action_direction)
     )
     return {
         "target_ref": target,
@@ -1643,7 +1647,7 @@ def _build_model_candidate_selection_trace_rows(
                 ),
                 "selection_rank_policy": {
                     "rank_field": "diagnostic_rank_score",
-                    "formula": "positive(alpha_score-min_alpha) * positive(trade_intensity-min_trade_intensity) * positive(expected_return_score) * positive(action_direction_score)",
+                    "formula": "positive(alpha_score-min_alpha) * positive(trade_intensity-min_trade_intensity) * abs(expected_return_score) * abs(action_direction_score)",
                 },
             }
             if layer_outputs:
@@ -2092,7 +2096,8 @@ def _entry_calibration_observations(
             diagnostics = layer_outputs["model_layer_diagnostics"]
             layer4 = diagnostics["model_04_unified_decision"]
             dominant = layer4["dominant_horizon_scores"]
-            gross_return = (float(next_bar["bar_close"]) - reference_price) / reference_price
+            underlying_return = (float(next_bar["bar_close"]) - reference_price) / reference_price
+            gross_return = underlying_return
             observations.append(
                 {
                     "target_ref": target,
@@ -2412,7 +2417,8 @@ def _build_candidate_policy_decision_rows(
                 exit_timestamp=str(next_bar["timestamp"]),
                 option_contract_paths_by_symbol=option_contract_paths_by_symbol,
             )
-            gross_return = (float(next_bar["bar_close"]) - reference_price) / reference_price
+            underlying_return = (float(next_bar["bar_close"]) - reference_price) / reference_price
+            gross_return = underlying_return
             return_source = "underlying_next_bar"
             option_contract_path_status = "not_applicable"
             option_contract_path_rejection_reason = None
@@ -2438,6 +2444,13 @@ def _build_candidate_policy_decision_rows(
             decision_expression_type = _decision_expression_type(
                 asset_class=str(asset_class or ""),
                 option_expression_plan=option_expression_plan,
+            )
+            decision_intended_side = _decision_intended_side(layer_outputs)
+            decision_intended_action = _decision_intended_action(layer_outputs)
+            selected_option_right = _selected_option_right(option_expression_plan=option_expression_plan)
+            directional_underlying_return = _directional_underlying_return(
+                underlying_return=underlying_return,
+                intended_side=decision_intended_side,
             )
             decision_instrument_scope = _decision_instrument_scope(
                 asset_class=str(asset_class or ""),
@@ -2485,6 +2498,8 @@ def _build_candidate_policy_decision_rows(
                     "decision_status": entry["decision_status"],
                     "decision_action": entry["decision_action"],
                     "action": entry["decision_action"],
+                    "decision_intended_action": decision_intended_action,
+                    "decision_intended_side": decision_intended_side,
                     "fill_status": fill_status,
                     "planned_order_quantity": order_intent.get("sizing_plan", {}).get("quantity"),
                     "planned_position_notional_usd": replay_trade_risk_cap.get("planned_position_notional_usd"),
@@ -2497,6 +2512,14 @@ def _build_candidate_policy_decision_rows(
                     "prediction_score": layer_outputs["prediction_score"],
                     "outcome_label": outcome_label,
                     "realized_return": realized_return,
+                    "underlying_return": underlying_return,
+                    "directional_underlying_return": directional_underlying_return,
+                    "selected_option_right": selected_option_right,
+                    "option_direction_consistency_status": _option_direction_consistency_status(
+                        intended_side=decision_intended_side,
+                        selected_option_right=selected_option_right,
+                        decision_expression_type=decision_expression_type,
+                    ),
                     "baseline_return": 0.0,
                     "cost": cost,
                     "bar_close": reference_price,
@@ -2550,6 +2573,65 @@ def _decision_expression_type(*, asset_class: str, option_expression_plan: Mappi
     if asset_class == "us_equity":
         return "underlying_equity"
     return asset_class or "unknown"
+
+
+def _decision_intended_side(layer_outputs: Mapping[str, Any]) -> str:
+    plan = _as_mapping(layer_outputs.get("direct_underlying_intent"))
+    action_side = str(plan.get("action_side") or "").strip().lower()
+    if action_side in {"long", "short"}:
+        return action_side
+    action_type = str(plan.get("underlying_action_type") or plan.get("planned_underlying_action_type") or "").strip().lower()
+    if action_type in {"open_long", "increase_long", "reduce_long", "close_long"}:
+        return "long"
+    if action_type in {"open_short", "increase_short", "reduce_short", "cover_short", "bearish_underlying_path_but_no_short_allowed"}:
+        return "short"
+    return "flat" if action_type in {"", "no_trade", "maintain"} else "unknown"
+
+
+def _decision_intended_action(layer_outputs: Mapping[str, Any]) -> str:
+    plan = _as_mapping(layer_outputs.get("direct_underlying_intent"))
+    return str(plan.get("underlying_action_type") or plan.get("planned_underlying_action_type") or "").strip().lower()
+
+
+def _selected_option_right(*, option_expression_plan: Mapping[str, Any] | None) -> str:
+    plan = _as_mapping(option_expression_plan)
+    selected_contract = _as_mapping(plan.get("selected_contract"))
+    right = str(
+        selected_contract.get("option_right")
+        or selected_contract.get("right")
+        or plan.get("selected_option_right")
+        or ""
+    ).strip().lower()
+    if right in {"c", "call"}:
+        return "call"
+    if right in {"p", "put"}:
+        return "put"
+    return "none"
+
+
+def _directional_underlying_return(*, underlying_return: float, intended_side: str) -> float:
+    if intended_side == "short":
+        return -underlying_return
+    if intended_side == "long":
+        return underlying_return
+    return 0.0
+
+
+def _option_direction_consistency_status(
+    *,
+    intended_side: str,
+    selected_option_right: str,
+    decision_expression_type: str,
+) -> str:
+    if decision_expression_type == "long_call" or selected_option_right == "call":
+        return "aligned" if intended_side == "long" else "mismatch"
+    if decision_expression_type == "long_put" or selected_option_right == "put":
+        return "aligned" if intended_side == "short" else "mismatch"
+    if decision_expression_type == "underlying_equity":
+        return "underlying_expression"
+    if decision_expression_type in {"underlying_only_expression", "no_option_expression"}:
+        return decision_expression_type
+    return "unknown"
 
 
 def _decision_instrument_scope(*, asset_class: str, selected_option_contract_ref: str) -> str:
@@ -3894,9 +3976,9 @@ def _option_expression_signal_required(layer_outputs: Mapping[str, Any]) -> bool
         return False
     handoff = _as_mapping(plan.get("handoff_to_model_05"))
     direction = str(handoff.get("underlying_path_direction") or plan.get("action_side") or "").lower()
-    if not handoff or direction not in {"bullish", "long"}:
+    if not handoff or direction not in {"bullish", "long", "bearish", "short"}:
         return False
-    if str(plan.get("action_side") or "").lower() != "long":
+    if str(plan.get("action_side") or "").lower() not in {"long", "short"}:
         return False
     entry_style = str(plan.get("entry_style") or handoff.get("entry_price_assumption") or "").lower()
     if entry_style not in OPTION_EXPRESSION_CURRENT_ENTRY_STYLES:
@@ -3932,9 +4014,9 @@ def _option_expression_signal_required(layer_outputs: Mapping[str, Any]) -> bool
     )
     if trade_intensity < minimum_trade_intensity:
         return False
-    if (_safe_float(dominant.get("action_direction_score")) or 0.0) <= 0.0:
+    if abs(_safe_float(dominant.get("action_direction_score")) or 0.0) <= 0.0:
         return False
-    if (_safe_float(dominant.get("expected_return_score")) or 0.0) <= 0.0:
+    if abs(_safe_float(dominant.get("expected_return_score")) or 0.0) <= 0.0:
         return False
     return True
 
@@ -3989,12 +4071,21 @@ def _option_contract_path_return(
         return None
     entry_price = _safe_float(entry_row.get("bar_close"))
     exit_price = _safe_float(exit_row.get("bar_close"))
-    if entry_price is None or exit_price is None or entry_price <= 0:
+    if (
+        entry_price is None
+        or exit_price is None
+        or not math.isfinite(entry_price)
+        or not math.isfinite(exit_price)
+        or entry_price <= 0
+    ):
+        return None
+    gross_return = (exit_price - entry_price) / entry_price
+    if not math.isfinite(gross_return):
         return None
     return {
         "entry_price": entry_price,
         "exit_price": exit_price,
-        "gross_return": (exit_price - entry_price) / entry_price,
+        "gross_return": gross_return,
     }
 
 
