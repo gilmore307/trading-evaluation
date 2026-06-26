@@ -575,6 +575,103 @@ class ReplayExecutionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "replay_option_feature_acquisition_required"):
             _decision_rows_for_option_requirement_policy(allow_option_feature_requirements=True)
 
+    def test_portfolio_preselection_writes_runtime_trace_across_months(self):
+        original_layer_outputs = replay_module._candidate_layer_outputs
+        original_plan_builder = replay_module._option_expression_plan_for_bar
+        try:
+            replay_module._candidate_layer_outputs = lambda **_: _current_layer_outputs(target_allocation_fraction=0.20)
+            replay_module._option_expression_plan_for_bar = lambda **_: {
+                "selected_expression_type": "long_call",
+                "selected_contract": {
+                    "contract_ref": "AAPL_2021-02-19_C_100",
+                    "mid_price": 1.0,
+                    "contract_multiplier": 100.0,
+                },
+            }
+            with tempfile.TemporaryDirectory() as tmp:
+                trace_path = Path(tmp) / "replay_runtime_trace.jsonl"
+                selected_keys, _, _, missing_requirements, _, summary = (
+                    replay_module._select_candidate_policy_portfolio_replay_keys(
+                        bars_by_target={
+                            "AAPL": [
+                                {
+                                    "symbol": "AAPL",
+                                    "asset_class": "us_equity",
+                                    "source_id": "alpaca_bars",
+                                    "timestamp": "2021-01-29T16:00:00-05:00",
+                                    "date": "2021-01-29",
+                                    "bar_open": 100.0,
+                                    "bar_high": 101.0,
+                                    "bar_low": 99.0,
+                                    "bar_close": 100.0,
+                                    "bar_volume": 1000.0,
+                                },
+                                {
+                                    "symbol": "AAPL",
+                                    "asset_class": "us_equity",
+                                    "source_id": "alpaca_bars",
+                                    "timestamp": "2021-02-01T16:00:00-05:00",
+                                    "date": "2021-02-01",
+                                    "bar_open": 101.0,
+                                    "bar_high": 102.0,
+                                    "bar_low": 100.0,
+                                    "bar_close": 101.0,
+                                    "bar_volume": 1000.0,
+                                },
+                                {
+                                    "symbol": "AAPL",
+                                    "asset_class": "us_equity",
+                                    "source_id": "alpaca_bars",
+                                    "timestamp": "2021-02-02T16:00:00-05:00",
+                                    "date": "2021-02-02",
+                                    "bar_open": 102.0,
+                                    "bar_high": 103.0,
+                                    "bar_low": 101.0,
+                                    "bar_close": 102.0,
+                                    "bar_volume": 1000.0,
+                                },
+                            ]
+                        },
+                        candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                        after_cost_alpha_model=_after_cost_alpha_model(),
+                        entry_calibration=replay_module.EntryCalibration(
+                            artifact={
+                                "selected_thresholds": {
+                                    "minimum_entry_alpha_confidence": 0.50,
+                                    "minimum_trade_intensity": 0.05,
+                                }
+                            },
+                            path=Path("entry_threshold_calibration.json"),
+                        ),
+                        option_candidates_by_underlying_time={
+                            ("AAPL", "2021-01-29T16:00:00-05:00"): [{"contract_ref": "AAPL_2021-02-19_C_100"}],
+                            ("AAPL", "2021-02-01T16:00:00-05:00"): [{"contract_ref": "AAPL_2021-02-19_C_100"}],
+                        },
+                        initial_capital_usd=25_000.0,
+                        max_positions=1,
+                        default_target_allocation_fraction=0.20,
+                        switch_minimum_rank_score_delta=999.0,
+                        runtime_trace_path=trace_path,
+                        run_id="trace-test",
+                    )
+                )
+
+                rows = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+
+            self.assertEqual(selected_keys, {("AAPL", 0)})
+            self.assertEqual(missing_requirements, [])
+            self.assertEqual(summary["timestamp_count"], 2)
+            self.assertIn("replay_clock_processed", [row["trace_event_type"] for row in rows])
+            self.assertIn("replay_month_crossed", [row["trace_event_type"] for row in rows])
+            self.assertEqual(rows[-1]["trace_event_type"], "replay_runtime_trace_finalized")
+            month_crossed = next(row for row in rows if row["trace_event_type"] == "replay_month_crossed")
+            self.assertEqual(month_crossed["completed_replay_month"], "2021-01")
+            self.assertEqual(month_crossed["next_replay_month"], "2021-02")
+            self.assertEqual(month_crossed["position_targets_after"], ["AAPL"])
+        finally:
+            replay_module._candidate_layer_outputs = original_layer_outputs
+            replay_module._option_expression_plan_for_bar = original_plan_builder
+
     def test_point_in_time_handoff_can_emit_option_feature_requirements(self):
         with self.assertRaisesRegex(ValueError, "replay_option_feature_acquisition_required"):
             _decision_rows_for_option_requirement_policy(allow_option_feature_requirements=True)

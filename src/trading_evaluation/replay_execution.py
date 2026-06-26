@@ -28,6 +28,7 @@ from .execution_runtime import EXECUTION_REPLAY_ROUTE_REF, build_replay_runtime_
 REPLAY_EXECUTION_RUN_CONTRACT = "evaluation_replay_execution_run"
 REPLAY_DECISION_ROW_CONTRACT = "evaluation_replay_decision_row"
 REPLAY_PROGRESS_CONTRACT = "evaluation_replay_progress"
+REPLAY_RUNTIME_TRACE_ROW_CONTRACT = "evaluation_replay_runtime_trace_row"
 MODEL_CANDIDATE_SELECTION_TRACE_ROW_CONTRACT = "evaluation_model_candidate_selection_trace_row"
 PORTFOLIO_TRACE_AUDIT_CONTRACT = "candidate_policy_portfolio_trace_audit"
 PORTFOLIO_TRACE_AUDIT_ROW_CONTRACT = "candidate_policy_portfolio_trace_audit_row"
@@ -269,6 +270,9 @@ def build_candidate_policy_replay_execution_run(
     progress_path = progress_path or dataset_root / "replay_progress.jsonl"
     calibration_path = output_dir / "entry_threshold_calibration.json"
     option_feature_requirements_path = output_dir / "option_feature_requirements.jsonl"
+    runtime_trace_path = output_dir / "replay_runtime_trace.jsonl"
+    if runtime_trace_path.exists():
+        runtime_trace_path.unlink()
 
     bars_by_target = _load_candidate_policy_bars(
         plan_path=plan_path,
@@ -331,6 +335,8 @@ def build_candidate_policy_replay_execution_run(
         max_positions=portfolio_max_positions,
         default_target_allocation_fraction=portfolio_default_target_allocation_fraction,
         switch_minimum_rank_score_delta=portfolio_switch_minimum_rank_score_delta,
+        runtime_trace_path=runtime_trace_path,
+        run_id=run_id,
     )
     decision_rows = _build_candidate_policy_decision_rows(
         bars_by_target=bars_by_target,
@@ -455,6 +461,7 @@ def build_candidate_policy_replay_execution_run(
         else "bounded_month_diagnostic" if replay_month else "continuous_non_equity_replay",
         "decision_rows_ref": str(decision_rows_path),
         "model_candidate_selection_trace_ref": str(model_candidate_selection_trace_path),
+        "replay_runtime_trace_ref": str(runtime_trace_path),
         "model_candidate_selection_trace_summary": model_candidate_selection_trace_summary,
         "progress_ref": str(progress_path),
         "entry_threshold_calibration_ref": str(entry_calibration.path),
@@ -1223,6 +1230,8 @@ def _select_candidate_policy_portfolio_replay_keys(
     max_positions: int,
     default_target_allocation_fraction: float,
     switch_minimum_rank_score_delta: float,
+    runtime_trace_path: Path | None = None,
+    run_id: str | None = None,
 ) -> tuple[
     set[tuple[str, int]],
     dict[tuple[str, int], dict[str, Any]],
@@ -1298,7 +1307,32 @@ def _select_candidate_policy_portfolio_replay_keys(
         "final_position_targets": [],
     }
 
+    previous_trace_month: str | None = None
     for timestamp in sorted(candidates_by_time, key=_timestamp_sort_key):
+        trace_month = str(timestamp)[:7]
+        if (
+            runtime_trace_path is not None
+            and previous_trace_month is not None
+            and trace_month
+            and trace_month != previous_trace_month
+        ):
+            _append_replay_runtime_trace_row(
+                runtime_trace_path,
+                {
+                    "contract_type": REPLAY_RUNTIME_TRACE_ROW_CONTRACT,
+                    "trace_event_type": "replay_month_crossed",
+                    "replay_execution_run_id": run_id,
+                    "completed_replay_month": previous_trace_month,
+                    "next_replay_month": trace_month,
+                    "replay_time_pointer": timestamp,
+                    "cash_after": round(cash, 6),
+                    "open_position_count_after": len(positions),
+                    "position_targets_after": sorted(positions),
+                    "cumulative_summary": dict(summary),
+                },
+            )
+        if trace_month:
+            previous_trace_month = trace_month
         timestamp_candidates: list[dict[str, Any]] = []
         for target, index, bar in candidates_by_time[timestamp]:
             target_rows = history_by_target[target]
@@ -1353,9 +1387,30 @@ def _select_candidate_policy_portfolio_replay_keys(
         if timestamp_missing_requirements:
             missing_option_feature_requirements.extend(timestamp_missing_requirements)
             summary["missing_option_feature_requirement_count"] += len(timestamp_missing_requirements)
+            if runtime_trace_path is not None:
+                _append_replay_runtime_trace_row(
+                    runtime_trace_path,
+                    {
+                        "contract_type": REPLAY_RUNTIME_TRACE_ROW_CONTRACT,
+                        "trace_event_type": "replay_option_feature_requirements_blocked",
+                        "replay_execution_run_id": run_id,
+                        "replay_month": trace_month,
+                        "replay_time_pointer": timestamp,
+                        "timestamp_candidate_count": len(timestamp_candidates),
+                        "missing_option_feature_requirement_count": len(timestamp_missing_requirements),
+                        "missing_option_feature_requirement_sample": [
+                            dict(item) for item in timestamp_missing_requirements[:5]
+                        ],
+                        "cash_after": round(cash, 6),
+                        "open_position_count_after": len(positions),
+                        "position_targets_after": sorted(positions),
+                        "cumulative_summary": dict(summary),
+                    },
+                )
             break
 
         selected_this_timestamp = 0
+        selected_targets_this_timestamp: list[str] = []
         for candidate in timestamp_candidates:
             target = str(candidate["target_ref"])
             key = candidate["key"]
@@ -1434,6 +1489,7 @@ def _select_candidate_policy_portfolio_replay_keys(
                     cash -= allocation["notional"]
                     selected_keys.add(candidate["key"])
                     selected_this_timestamp += 1
+                    selected_targets_this_timestamp.append(target)
                     continue
             if not positions:
                 portfolio_selection_diagnostics_by_key[key] = _portfolio_selection_diagnostics(
@@ -1559,15 +1615,47 @@ def _select_candidate_policy_portfolio_replay_keys(
             cash -= allocation["notional"]
             selected_keys.add(candidate["key"])
             selected_this_timestamp += 1
+            selected_targets_this_timestamp.append(target)
             summary["portfolio_replacement_triggered_count"] += 1
 
         summary["timestamp_count"] += 1
         summary["capital_selected_m05_count"] += selected_this_timestamp
         summary["avoided_m05_request_count"] += max(0, len(timestamp_candidates) - selected_this_timestamp)
+        if runtime_trace_path is not None:
+            _append_replay_runtime_trace_row(
+                runtime_trace_path,
+                {
+                    "contract_type": REPLAY_RUNTIME_TRACE_ROW_CONTRACT,
+                    "trace_event_type": "replay_clock_processed",
+                    "replay_execution_run_id": run_id,
+                    "replay_month": trace_month,
+                    "replay_time_pointer": timestamp,
+                    "timestamp_candidate_count": len(timestamp_candidates),
+                    "selected_count": selected_this_timestamp,
+                    "selected_targets": selected_targets_this_timestamp,
+                    "cash_after": round(cash, 6),
+                    "open_position_count_after": len(positions),
+                    "position_targets_after": sorted(positions),
+                    "cumulative_summary": dict(summary),
+                },
+            )
 
     summary["final_cash"] = round(cash, 6)
     summary["final_position_count"] = len(positions)
     summary["final_position_targets"] = sorted(positions)
+    if runtime_trace_path is not None:
+        _append_replay_runtime_trace_row(
+            runtime_trace_path,
+            {
+                "contract_type": REPLAY_RUNTIME_TRACE_ROW_CONTRACT,
+                "trace_event_type": "replay_runtime_trace_finalized",
+                "replay_execution_run_id": run_id,
+                "cash_after": round(cash, 6),
+                "open_position_count_after": len(positions),
+                "position_targets_after": sorted(positions),
+                "cumulative_summary": dict(summary),
+            },
+        )
     return (
         selected_keys,
         layer_outputs_by_key,
@@ -4944,6 +5032,14 @@ def _write_jsonl(path: Path, rows: Iterable[Mapping[str, Any]]) -> None:
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
+
+
+def _append_replay_runtime_trace_row(path: Path, row: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = dict(row)
+    payload.setdefault("generated_at_utc", _now_utc())
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, sort_keys=True) + "\n")
 
 
 def _write_replay_progress_jsonl(path: Path, rows: Iterable[Mapping[str, Any]]) -> None:
