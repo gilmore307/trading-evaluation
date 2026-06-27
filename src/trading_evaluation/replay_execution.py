@@ -29,6 +29,7 @@ REPLAY_EXECUTION_RUN_CONTRACT = "evaluation_replay_execution_run"
 REPLAY_DECISION_ROW_CONTRACT = "evaluation_replay_decision_row"
 REPLAY_PROGRESS_CONTRACT = "evaluation_replay_progress"
 REPLAY_RUNTIME_TRACE_ROW_CONTRACT = "evaluation_replay_runtime_trace_row"
+REPLAY_RESUME_CHECKPOINT_CONTRACT = "evaluation_replay_resume_checkpoint"
 MODEL_CANDIDATE_SELECTION_TRACE_ROW_CONTRACT = "evaluation_model_candidate_selection_trace_row"
 PORTFOLIO_TRACE_AUDIT_CONTRACT = "candidate_policy_portfolio_trace_audit"
 PORTFOLIO_TRACE_AUDIT_ROW_CONTRACT = "candidate_policy_portfolio_trace_audit_row"
@@ -214,6 +215,7 @@ def build_candidate_policy_replay_execution_run(
     portfolio_max_positions: int = DEFAULT_PORTFOLIO_MAX_POSITIONS,
     portfolio_default_target_allocation_fraction: float = DEFAULT_TARGET_ALLOCATION_FRACTION,
     portfolio_switch_minimum_rank_score_delta: float = DEFAULT_SWITCH_MINIMUM_RANK_SCORE_DELTA,
+    resume_checkpoint_path: Path | None = None,
 ) -> ReplayExecutionResult:
     """Run candidate-policy replay over frozen crypto plus materialized equity bars."""
 
@@ -271,8 +273,10 @@ def build_candidate_policy_replay_execution_run(
     calibration_path = output_dir / "entry_threshold_calibration.json"
     option_feature_requirements_path = output_dir / "option_feature_requirements.jsonl"
     runtime_trace_path = output_dir / "replay_runtime_trace.jsonl"
+    resume_checkpoint_output_path = output_dir / "replay_resume_checkpoint.json"
     if runtime_trace_path.exists():
         runtime_trace_path.unlink()
+    resume_checkpoint = _load_replay_resume_checkpoint(resume_checkpoint_path)
 
     bars_by_target = _load_candidate_policy_bars(
         plan_path=plan_path,
@@ -336,6 +340,8 @@ def build_candidate_policy_replay_execution_run(
         default_target_allocation_fraction=portfolio_default_target_allocation_fraction,
         switch_minimum_rank_score_delta=portfolio_switch_minimum_rank_score_delta,
         runtime_trace_path=runtime_trace_path,
+        checkpoint_output_path=resume_checkpoint_output_path,
+        resume_checkpoint=resume_checkpoint,
         run_id=run_id,
     )
     decision_rows = _build_candidate_policy_decision_rows(
@@ -462,6 +468,9 @@ def build_candidate_policy_replay_execution_run(
         "decision_rows_ref": str(decision_rows_path),
         "model_candidate_selection_trace_ref": str(model_candidate_selection_trace_path),
         "replay_runtime_trace_ref": str(runtime_trace_path),
+        "resume_checkpoint_ref": str(resume_checkpoint_path) if resume_checkpoint_path else None,
+        "resume_after_time_pointer": resume_checkpoint.get("replay_time_pointer") if resume_checkpoint else None,
+        "resume_checkpoint_output_ref": str(resume_checkpoint_output_path),
         "model_candidate_selection_trace_summary": model_candidate_selection_trace_summary,
         "progress_ref": str(progress_path),
         "entry_threshold_calibration_ref": str(entry_calibration.path),
@@ -1004,6 +1013,83 @@ def _portfolio_trace_position_value(position: Mapping[str, Any]) -> float:
     return notional
 
 
+def _portfolio_state_payload(*, cash: float, positions: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    return {
+        "cash": round(float(cash), 6),
+        "positions": {str(target): dict(position) for target, position in sorted(positions.items())},
+    }
+
+
+def _resume_checkpoint_positions(resume_checkpoint: Mapping[str, Any] | None) -> dict[str, dict[str, Any]]:
+    checkpoint = _as_mapping(resume_checkpoint)
+    state = _as_mapping(checkpoint.get("portfolio_state_after"))
+    raw_positions = state.get("positions")
+    if not isinstance(raw_positions, Mapping):
+        raw_positions = checkpoint.get("positions_after")
+    if not isinstance(raw_positions, Mapping):
+        return {}
+    positions: dict[str, dict[str, Any]] = {}
+    for target, position in raw_positions.items():
+        if isinstance(position, Mapping):
+            positions[str(target)] = dict(position)
+    return positions
+
+
+def _load_replay_resume_checkpoint(path: Path | None) -> dict[str, Any] | None:
+    if path is None:
+        return None
+    checkpoint = _load_json(path)
+    if checkpoint.get("contract_type") != REPLAY_RESUME_CHECKPOINT_CONTRACT:
+        raise ValueError(f"unexpected replay resume checkpoint contract_type: {path}")
+    replay_time_pointer = str(checkpoint.get("replay_time_pointer") or "").strip()
+    if not replay_time_pointer:
+        raise ValueError(f"replay resume checkpoint missing replay_time_pointer: {path}")
+    cash = _safe_float(checkpoint.get("cash_after"))
+    if cash is None:
+        cash = _safe_float(_as_mapping(checkpoint.get("portfolio_state_after")).get("cash"))
+    if cash is None:
+        raise ValueError(f"replay resume checkpoint missing cash_after: {path}")
+    payload = dict(checkpoint)
+    payload["cash_after"] = cash
+    payload["checkpoint_ref"] = str(path)
+    return payload
+
+
+def _write_replay_resume_checkpoint(
+    path: Path,
+    *,
+    run_id: str | None,
+    replay_month: str,
+    replay_time_pointer: str,
+    cash: float,
+    positions: Mapping[str, Mapping[str, Any]],
+    summary: Mapping[str, Any],
+    initial_capital_usd: float,
+    max_positions: int,
+    default_target_allocation_fraction: float,
+    switch_minimum_rank_score_delta: float,
+) -> Path:
+    payload = {
+        "contract_type": REPLAY_RESUME_CHECKPOINT_CONTRACT,
+        "replay_execution_run_id": run_id,
+        "replay_month": replay_month,
+        "replay_time_pointer": replay_time_pointer,
+        "cash_after": round(float(cash), 6),
+        "open_position_count_after": len(positions),
+        "position_targets_after": sorted(positions),
+        "portfolio_state_after": _portfolio_state_payload(cash=cash, positions=positions),
+        "cumulative_summary": dict(summary),
+        "initial_capital_usd": initial_capital_usd,
+        "max_positions": max_positions,
+        "default_target_allocation_fraction": default_target_allocation_fraction,
+        "switch_minimum_rank_score_delta": switch_minimum_rank_score_delta,
+        "generated_at_utc": _now_utc(),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
+
+
 def _portfolio_selection_diagnostics(
     *,
     action: str,
@@ -1231,6 +1317,8 @@ def _select_candidate_policy_portfolio_replay_keys(
     default_target_allocation_fraction: float,
     switch_minimum_rank_score_delta: float,
     runtime_trace_path: Path | None = None,
+    checkpoint_output_path: Path | None = None,
+    resume_checkpoint: Mapping[str, Any] | None = None,
     run_id: str | None = None,
 ) -> tuple[
     set[tuple[str, int]],
@@ -1262,13 +1350,17 @@ def _select_candidate_policy_portfolio_replay_keys(
                 continue
             candidates_by_time[_replay_time_pointer_for_bar(bar)].append((target, index, bar))
 
-    cash = initial_capital_usd
-    positions: dict[str, dict[str, Any]] = {}
+    resume_after_time_pointer = str(_as_mapping(resume_checkpoint).get("replay_time_pointer") or "").strip()
+    cash = _safe_float(_as_mapping(resume_checkpoint).get("cash_after")) if resume_checkpoint else None
+    if cash is None:
+        cash = initial_capital_usd
+    positions = _resume_checkpoint_positions(resume_checkpoint)
     selected_keys: set[tuple[str, int]] = set()
     layer_outputs_by_key: dict[tuple[str, int], dict[str, Any]] = {}
     option_expression_plans_by_key: dict[tuple[str, int], Mapping[str, Any] | None] = {}
     portfolio_selection_diagnostics_by_key: dict[tuple[str, int], dict[str, Any]] = {}
     missing_option_feature_requirements: list[dict[str, Any]] = []
+    checkpoint_summary = _as_mapping(_as_mapping(resume_checkpoint).get("cumulative_summary"))
     summary = {
         "timestamp_count": 0,
         "candidate_count": 0,
@@ -1306,9 +1398,35 @@ def _select_candidate_policy_portfolio_replay_keys(
         "final_position_count": 0,
         "final_position_targets": [],
     }
+    if checkpoint_summary:
+        for key in tuple(summary):
+            if key in checkpoint_summary:
+                summary[key] = checkpoint_summary[key]
 
-    previous_trace_month: str | None = None
+    previous_trace_month: str | None = (
+        str(_as_mapping(resume_checkpoint).get("replay_month") or "").strip()
+        if resume_checkpoint
+        else None
+    )
+    if resume_checkpoint and runtime_trace_path is not None:
+        _append_replay_runtime_trace_row(
+            runtime_trace_path,
+            {
+                "contract_type": REPLAY_RUNTIME_TRACE_ROW_CONTRACT,
+                "trace_event_type": "replay_resume_checkpoint_loaded",
+                "replay_execution_run_id": run_id,
+                "resume_checkpoint_ref": str(_as_mapping(resume_checkpoint).get("checkpoint_ref") or ""),
+                "resume_after_time_pointer": resume_after_time_pointer,
+                "cash_after": round(float(cash), 6),
+                "open_position_count_after": len(positions),
+                "position_targets_after": sorted(positions),
+                "portfolio_state_after": _portfolio_state_payload(cash=cash, positions=positions),
+                "cumulative_summary": dict(summary),
+            },
+        )
     for timestamp in sorted(candidates_by_time, key=_timestamp_sort_key):
+        if resume_after_time_pointer and _timestamp_sort_key(timestamp) <= _timestamp_sort_key(resume_after_time_pointer):
+            continue
         trace_month = str(timestamp)[:7]
         if (
             runtime_trace_path is not None
@@ -1328,6 +1446,7 @@ def _select_candidate_policy_portfolio_replay_keys(
                     "cash_after": round(cash, 6),
                     "open_position_count_after": len(positions),
                     "position_targets_after": sorted(positions),
+                    "portfolio_state_after": _portfolio_state_payload(cash=cash, positions=positions),
                     "cumulative_summary": dict(summary),
                 },
             )
@@ -1404,6 +1523,7 @@ def _select_candidate_policy_portfolio_replay_keys(
                         "cash_after": round(cash, 6),
                         "open_position_count_after": len(positions),
                         "position_targets_after": sorted(positions),
+                        "portfolio_state_after": _portfolio_state_payload(cash=cash, positions=positions),
                         "cumulative_summary": dict(summary),
                     },
                 )
@@ -1622,6 +1742,21 @@ def _select_candidate_policy_portfolio_replay_keys(
         summary["capital_selected_m05_count"] += selected_this_timestamp
         summary["avoided_m05_request_count"] += max(0, len(timestamp_candidates) - selected_this_timestamp)
         if runtime_trace_path is not None:
+            checkpoint_ref = None
+            if checkpoint_output_path is not None:
+                checkpoint_ref = _write_replay_resume_checkpoint(
+                    checkpoint_output_path,
+                    run_id=run_id,
+                    replay_month=trace_month,
+                    replay_time_pointer=timestamp,
+                    cash=cash,
+                    positions=positions,
+                    summary=summary,
+                    initial_capital_usd=initial_capital_usd,
+                    max_positions=max_positions,
+                    default_target_allocation_fraction=default_target_allocation_fraction,
+                    switch_minimum_rank_score_delta=switch_minimum_rank_score_delta,
+                )
             _append_replay_runtime_trace_row(
                 runtime_trace_path,
                 {
@@ -1636,6 +1771,8 @@ def _select_candidate_policy_portfolio_replay_keys(
                     "cash_after": round(cash, 6),
                     "open_position_count_after": len(positions),
                     "position_targets_after": sorted(positions),
+                    "portfolio_state_after": _portfolio_state_payload(cash=cash, positions=positions),
+                    "resume_checkpoint_ref": str(checkpoint_ref) if checkpoint_ref else None,
                     "cumulative_summary": dict(summary),
                 },
             )
@@ -1653,6 +1790,7 @@ def _select_candidate_policy_portfolio_replay_keys(
                 "cash_after": round(cash, 6),
                 "open_position_count_after": len(positions),
                 "position_targets_after": sorted(positions),
+                "portfolio_state_after": _portfolio_state_payload(cash=cash, positions=positions),
                 "cumulative_summary": dict(summary),
             },
         )

@@ -672,6 +672,140 @@ class ReplayExecutionTests(unittest.TestCase):
             replay_module._candidate_layer_outputs = original_layer_outputs
             replay_module._option_expression_plan_for_bar = original_plan_builder
 
+    def test_portfolio_preselection_resumes_after_checkpoint(self):
+        original_layer_outputs = replay_module._candidate_layer_outputs
+        original_plan_builder = replay_module._option_expression_plan_for_bar
+        try:
+            replay_module._candidate_layer_outputs = lambda **_: _current_layer_outputs(target_allocation_fraction=0.20)
+            replay_module._option_expression_plan_for_bar = lambda **_: {
+                "selected_expression_type": "long_call",
+                "selected_contract": {
+                    "contract_ref": "AAPL_2021-02-19_C_100",
+                    "mid_price": 1.0,
+                    "contract_multiplier": 100.0,
+                },
+            }
+            with tempfile.TemporaryDirectory() as tmp:
+                trace_path = Path(tmp) / "replay_runtime_trace.jsonl"
+                checkpoint_path = Path(tmp) / "replay_resume_checkpoint.json"
+                resume_checkpoint = {
+                    "contract_type": "evaluation_replay_resume_checkpoint",
+                    "replay_execution_run_id": "previous-run",
+                    "replay_month": "2021-01",
+                    "replay_time_pointer": "2021-01-04T16:00:00-05:00",
+                    "cash_after": 20000.0,
+                    "portfolio_state_after": {
+                        "cash": 20000.0,
+                        "positions": {
+                            "AAPL": {
+                                "target_ref": "AAPL",
+                                "opened_at": "2021-01-04T16:00:00-05:00",
+                                "entry_price": 100.0,
+                                "last_price": 100.0,
+                                "quantity": 50.0,
+                                "unit_cost": None,
+                                "notional": 5000.0,
+                                "entry_rank_score": 1.0,
+                                "last_rank_score": 1.0,
+                            }
+                        },
+                    },
+                    "cumulative_summary": {
+                        "timestamp_count": 1,
+                        "candidate_count": 1,
+                        "m04_trade_intent_count": 1,
+                        "independent_m05_signal_count": 1,
+                        "capital_selected_m05_count": 1,
+                        "unexecutable_m05_plan_count": 0,
+                        "avoided_m05_request_count": 0,
+                        "missing_option_feature_requirement_count": 0,
+                        "portfolio_existing_position_continued_count": 0,
+                    },
+                }
+                checkpoint_path.write_text(json.dumps(resume_checkpoint, sort_keys=True) + "\n", encoding="utf-8")
+                selected_keys, _, _, missing_requirements, _, summary = (
+                    replay_module._select_candidate_policy_portfolio_replay_keys(
+                        bars_by_target={
+                            "AAPL": [
+                                {
+                                    "symbol": "AAPL",
+                                    "asset_class": "us_equity",
+                                    "source_id": "alpaca_bars",
+                                    "timestamp": "2021-01-04T16:00:00-05:00",
+                                    "date": "2021-01-04",
+                                    "bar_open": 100.0,
+                                    "bar_high": 101.0,
+                                    "bar_low": 99.0,
+                                    "bar_close": 100.0,
+                                    "bar_volume": 1000.0,
+                                },
+                                {
+                                    "symbol": "AAPL",
+                                    "asset_class": "us_equity",
+                                    "source_id": "alpaca_bars",
+                                    "timestamp": "2021-01-05T16:00:00-05:00",
+                                    "date": "2021-01-05",
+                                    "bar_open": 101.0,
+                                    "bar_high": 102.0,
+                                    "bar_low": 100.0,
+                                    "bar_close": 101.0,
+                                    "bar_volume": 1000.0,
+                                },
+                                {
+                                    "symbol": "AAPL",
+                                    "asset_class": "us_equity",
+                                    "source_id": "alpaca_bars",
+                                    "timestamp": "2021-01-06T16:00:00-05:00",
+                                    "date": "2021-01-06",
+                                    "bar_open": 102.0,
+                                    "bar_high": 103.0,
+                                    "bar_low": 101.0,
+                                    "bar_close": 102.0,
+                                    "bar_volume": 1000.0,
+                                },
+                            ]
+                        },
+                        candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                        after_cost_alpha_model=_after_cost_alpha_model(),
+                        entry_calibration=replay_module.EntryCalibration(
+                            artifact={
+                                "selected_thresholds": {
+                                    "minimum_entry_alpha_confidence": 0.50,
+                                    "minimum_trade_intensity": 0.05,
+                                }
+                            },
+                            path=Path("entry_threshold_calibration.json"),
+                        ),
+                        option_candidates_by_underlying_time={
+                            ("AAPL", "2021-01-05T16:00:00-05:00"): [{"contract_ref": "AAPL_2021-02-19_C_100"}],
+                        },
+                        initial_capital_usd=25_000.0,
+                        max_positions=1,
+                        default_target_allocation_fraction=0.20,
+                        switch_minimum_rank_score_delta=999.0,
+                        runtime_trace_path=trace_path,
+                        checkpoint_output_path=checkpoint_path,
+                        resume_checkpoint=replay_module._load_replay_resume_checkpoint(checkpoint_path),
+                        run_id="resume-test",
+                    )
+                )
+
+                rows = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+                updated_checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(selected_keys, set())
+            self.assertEqual(missing_requirements, [])
+            self.assertEqual(summary["timestamp_count"], 2)
+            self.assertEqual(rows[0]["trace_event_type"], "replay_resume_checkpoint_loaded")
+            processed_rows = [row for row in rows if row["trace_event_type"] == "replay_clock_processed"]
+            self.assertEqual([row["replay_time_pointer"] for row in processed_rows], ["2021-01-05T16:00:00-05:00"])
+            self.assertEqual(updated_checkpoint["replay_time_pointer"], "2021-01-05T16:00:00-05:00")
+            self.assertEqual(updated_checkpoint["cash_after"], 20000.0)
+            self.assertEqual(updated_checkpoint["position_targets_after"], ["AAPL"])
+        finally:
+            replay_module._candidate_layer_outputs = original_layer_outputs
+            replay_module._option_expression_plan_for_bar = original_plan_builder
+
     def test_portfolio_preselection_stops_requirements_at_first_gap(self):
         original_layer_outputs = replay_module._candidate_layer_outputs
         try:

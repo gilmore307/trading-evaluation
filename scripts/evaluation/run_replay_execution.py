@@ -73,6 +73,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=float,
         default=DEFAULT_SWITCH_MINIMUM_RANK_SCORE_DELTA,
     )
+    parser.add_argument("--resume-checkpoint-path", type=Path)
     args = parser.parse_args(argv)
     after_cost_alpha_model = json.loads(args.after_cost_alpha_model_json.read_text(encoding="utf-8"))
 
@@ -104,6 +105,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         portfolio_max_positions=args.portfolio_max_positions,
         portfolio_default_target_allocation_fraction=args.portfolio_default_target_allocation_fraction,
         portfolio_switch_minimum_rank_score_delta=args.portfolio_switch_minimum_rank_score_delta,
+        resume_checkpoint_path=args.resume_checkpoint_path,
     )
     print(json.dumps(result.receipt, indent=2, sort_keys=True))
     return 0
