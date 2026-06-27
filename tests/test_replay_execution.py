@@ -672,6 +672,87 @@ class ReplayExecutionTests(unittest.TestCase):
             replay_module._candidate_layer_outputs = original_layer_outputs
             replay_module._option_expression_plan_for_bar = original_plan_builder
 
+    def test_portfolio_preselection_collects_requirements_after_first_gap(self):
+        original_layer_outputs = replay_module._candidate_layer_outputs
+        try:
+            replay_module._candidate_layer_outputs = lambda **_: _current_layer_outputs(target_allocation_fraction=0.20)
+            with tempfile.TemporaryDirectory() as tmp:
+                trace_path = Path(tmp) / "replay_runtime_trace.jsonl"
+                _, _, _, missing_requirements, _, summary = replay_module._select_candidate_policy_portfolio_replay_keys(
+                    bars_by_target={
+                        "AAPL": [
+                            {
+                                "symbol": "AAPL",
+                                "asset_class": "us_equity",
+                                "source_id": "alpaca_bars",
+                                "timestamp": "2021-01-04T16:00:00-05:00",
+                                "date": "2021-01-04",
+                                "bar_open": 100.0,
+                                "bar_high": 101.0,
+                                "bar_low": 99.0,
+                                "bar_close": 100.0,
+                                "bar_volume": 1000.0,
+                            },
+                            {
+                                "symbol": "AAPL",
+                                "asset_class": "us_equity",
+                                "source_id": "alpaca_bars",
+                                "timestamp": "2021-01-05T16:00:00-05:00",
+                                "date": "2021-01-05",
+                                "bar_open": 101.0,
+                                "bar_high": 102.0,
+                                "bar_low": 100.0,
+                                "bar_close": 101.0,
+                                "bar_volume": 1000.0,
+                            },
+                            {
+                                "symbol": "AAPL",
+                                "asset_class": "us_equity",
+                                "source_id": "alpaca_bars",
+                                "timestamp": "2021-01-06T16:00:00-05:00",
+                                "date": "2021-01-06",
+                                "bar_open": 102.0,
+                                "bar_high": 103.0,
+                                "bar_low": 101.0,
+                                "bar_close": 102.0,
+                                "bar_volume": 1000.0,
+                            },
+                        ]
+                    },
+                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    after_cost_alpha_model=_after_cost_alpha_model(),
+                    entry_calibration=replay_module.EntryCalibration(
+                        artifact={
+                            "selected_thresholds": {
+                                "minimum_entry_alpha_confidence": 0.50,
+                                "minimum_trade_intensity": 0.05,
+                            }
+                        },
+                        path=Path("entry_threshold_calibration.json"),
+                    ),
+                    option_candidates_by_underlying_time={},
+                    initial_capital_usd=25_000.0,
+                    max_positions=1,
+                    default_target_allocation_fraction=0.20,
+                    switch_minimum_rank_score_delta=999.0,
+                    runtime_trace_path=trace_path,
+                    run_id="trace-test",
+                )
+
+                rows = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+
+            self.assertEqual(
+                [row["timestamp"] for row in missing_requirements],
+                ["2021-01-04T16:00:00-05:00", "2021-01-05T16:00:00-05:00"],
+            )
+            self.assertEqual(summary["missing_option_feature_requirement_count"], 2)
+            self.assertEqual(
+                [row["replay_time_pointer"] for row in rows if row["trace_event_type"] == "replay_option_feature_requirements_blocked"],
+                ["2021-01-04T16:00:00-05:00", "2021-01-05T16:00:00-05:00"],
+            )
+        finally:
+            replay_module._candidate_layer_outputs = original_layer_outputs
+
     def test_point_in_time_handoff_can_emit_option_feature_requirements(self):
         with self.assertRaisesRegex(ValueError, "replay_option_feature_acquisition_required"):
             _decision_rows_for_option_requirement_policy(allow_option_feature_requirements=True)
