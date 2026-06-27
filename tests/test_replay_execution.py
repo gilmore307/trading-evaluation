@@ -672,7 +672,7 @@ class ReplayExecutionTests(unittest.TestCase):
             replay_module._candidate_layer_outputs = original_layer_outputs
             replay_module._option_expression_plan_for_bar = original_plan_builder
 
-    def test_portfolio_preselection_collects_requirements_after_first_gap(self):
+    def test_portfolio_preselection_stops_requirements_at_first_gap(self):
         original_layer_outputs = replay_module._candidate_layer_outputs
         try:
             replay_module._candidate_layer_outputs = lambda **_: _current_layer_outputs(target_allocation_fraction=0.20)
@@ -743,12 +743,12 @@ class ReplayExecutionTests(unittest.TestCase):
 
             self.assertEqual(
                 [row["timestamp"] for row in missing_requirements],
-                ["2021-01-04T16:00:00-05:00", "2021-01-05T16:00:00-05:00"],
+                ["2021-01-04T16:00:00-05:00"],
             )
-            self.assertEqual(summary["missing_option_feature_requirement_count"], 2)
+            self.assertEqual(summary["missing_option_feature_requirement_count"], 1)
             self.assertEqual(
                 [row["replay_time_pointer"] for row in rows if row["trace_event_type"] == "replay_option_feature_requirements_blocked"],
-                ["2021-01-04T16:00:00-05:00", "2021-01-05T16:00:00-05:00"],
+                ["2021-01-04T16:00:00-05:00"],
             )
         finally:
             replay_module._candidate_layer_outputs = original_layer_outputs

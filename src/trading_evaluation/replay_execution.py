@@ -1407,7 +1407,7 @@ def _select_candidate_policy_portfolio_replay_keys(
                         "cumulative_summary": dict(summary),
                     },
                 )
-            continue
+            break
 
         selected_this_timestamp = 0
         selected_targets_this_timestamp: list[str] = []
