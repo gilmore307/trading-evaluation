@@ -2041,6 +2041,30 @@ class ReplayExecutionTests(unittest.TestCase):
             rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
             self.assertEqual([(row["replay_execution_run_id"], row["month"]) for row in rows], [("run_1", "2021-01"), ("run_2", "2021-02")])
 
+    def test_replay_progress_includes_processed_months_without_decisions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows = replay_module._build_replay_progress_rows(
+                decision_rows=[
+                    {
+                        "timestamp": "2021-01-04T16:00:00-05:00",
+                        "target_ref": "AAPL",
+                    }
+                ],
+                market_dates=["2021-01-04", "2021-02-01"],
+                run_id="run_1",
+                generated_at_utc="2026-06-28T13:00:00Z",
+                receipt_path=root / "receipt.json",
+                decision_rows_path=root / "decision_rows.jsonl",
+                initial_capital_usd=25000.0,
+            )
+
+            self.assertEqual([row["month"] for row in rows], ["2021-01", "2021-02"])
+            self.assertEqual(rows[0]["decision_row_count"], 1)
+            self.assertEqual(rows[0]["target_refs"], ["AAPL"])
+            self.assertEqual(rows[1]["decision_row_count"], 0)
+            self.assertEqual(rows[1]["target_refs"], [])
+
     def test_target_market_universe_rows_selects_current_target(self):
         universe = (
             {"target_ref": "AAPL", "reference_price": 100.0},

@@ -387,6 +387,7 @@ def build_candidate_policy_replay_execution_run(
     _write_jsonl(model_candidate_selection_trace_path, model_candidate_selection_trace_rows)
     progress_rows = _build_replay_progress_rows(
         decision_rows=decision_rows,
+        market_dates=market_dates,
         run_id=run_id,
         generated_at_utc=generated_at,
         receipt_path=receipt_path,
@@ -2176,6 +2177,7 @@ def _after_cost_artifact_is_degenerate(artifact: Mapping[str, Any]) -> bool:
 def _build_replay_progress_rows(
     *,
     decision_rows: Sequence[Mapping[str, Any]],
+    market_dates: Sequence[str],
     run_id: str,
     generated_at_utc: str,
     receipt_path: Path,
@@ -2188,8 +2190,14 @@ def _build_replay_progress_rows(
         replay_month = timestamp[:7]
         if len(replay_month) == 7 and replay_month[4] == "-":
             rows_by_month[replay_month].append(row)
+    replay_months = {
+        str(date)[:7]
+        for date in market_dates
+        if len(str(date)) >= 7 and str(date)[4] == "-"
+    }
+    replay_months.update(rows_by_month)
     progress_rows: list[dict[str, Any]] = []
-    for replay_month in sorted(rows_by_month):
+    for replay_month in sorted(replay_months):
         month_rows = rows_by_month[replay_month]
         progress_rows.append(
             {
