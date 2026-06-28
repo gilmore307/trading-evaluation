@@ -202,6 +202,14 @@ After accepted base-context coverage, the replay contract references one frozen 
 
 Replay uses the execution runtime component graph with a historical clock. It consumes point-in-time market, event, liquidity, and account-context inputs from the frozen snapshot and on-demand replay cache, calls the same task-level components used by live execution, and then settles the emitted decision rows. Models are component input evidence; C01-C07 are the execution units. M06 is called only through execution's `failure_explanation_component` after observed model or trade failure; normal entry and lifecycle event risk comes from M03 event-state. Option-chain snapshots are requested only when replayed components create buy or option-expression points.
 
+Replay must satisfy the manager-owned `train_replay_realtime_input_parity`
+contract. Frozen replay snapshots and on-demand replay cache rows may differ
+physically from training artifacts and realtime refs, but they must resolve to
+the same declared semantic input families, feature/vector definitions, PIT
+availability rules, freshness/fallback states, and governance status. Replay-only
+stress or missing-data states must be explicit and must not silently become a
+different model input surface.
+
 ## Fold Settlement Run
 
 `fold_settlement_run` summarizes one completed fold against one accepted replay contract.
