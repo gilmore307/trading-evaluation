@@ -12,7 +12,7 @@ from trading_evaluation import freeze_replay_dataset, prepare_replay_dataset
 VALID_DATASET_CONTRACT = {
     "contract_id": "promotion_replay_dataset_test",
     "replay_mode": "candidate_policy_replay",
-    "candidate_fold_id": "fold_2016-01_2016-06",
+    "candidate_fold_id": "fold_2016-01_2017-06",
     "base_context_policy_ref": "trading-model://model_02_target_candidate_universe_policy/live_equivalent",
     "start_date": "2021-01-01",
     "end_date": "2026-01-01",
@@ -81,7 +81,7 @@ class ReplayDatasetPreparationTests(unittest.TestCase):
 
             self.assertEqual(prepared.manifest["contract_type"], "replay_dataset_preparation_manifest")
             self.assertEqual(prepared.manifest["replay_mode"], "candidate_policy_replay")
-            self.assertEqual(prepared.manifest["candidate_fold_id"], "fold_2016-01_2016-06")
+            self.assertEqual(prepared.manifest["candidate_fold_id"], "fold_2016-01_2017-06")
             self.assertEqual(prepared.manifest["replay_execution_unit"], "execution_runtime_component_graph")
             self.assertEqual(prepared.manifest["replay_execution_policy"]["model_role"], "component_input_evidence")
             self.assertEqual(

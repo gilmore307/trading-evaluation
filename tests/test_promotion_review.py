@@ -13,7 +13,7 @@ class PromotionEvaluationReviewTests(unittest.TestCase):
         return {
             "contract_type": "fold_settlement_run",
             "fold_settlement_run_id": "settlement_fixture",
-            "fold_id": "fold_2016-01_2016-06",
+            "fold_id": "fold_2016-01_2017-06",
             "candidate_model_ref": "trading-model://candidate",
             "replay_contract_ref": "trading-evaluation/replays/promotion_replay_candidate_policy.json",
             "replay_result_ref": "storage://replay/run",

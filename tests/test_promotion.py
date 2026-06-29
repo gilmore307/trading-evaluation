@@ -15,7 +15,7 @@ from trading_evaluation import (
 class PromotionTests(unittest.TestCase):
     def test_builds_readiness_from_eligible_decision(self):
         decision = build_promotion_eligibility_decision(
-            fold_id="fold_2016-01_2016-06",
+            fold_id="fold_2016-01_2017-06",
             candidate_model_ref="storage://models/candidate",
             replay_contract_ref="replay://primary",
             settlement_run_ref="storage://settlement/run",
@@ -74,7 +74,7 @@ class PromotionTests(unittest.TestCase):
     def test_rejects_eligible_decision_without_gate_evidence(self):
         with self.assertRaisesRegex(ValueError, "replay_validation_ref is required"):
             build_promotion_eligibility_decision(
-                fold_id="fold_2016-01_2016-06",
+                fold_id="fold_2016-01_2017-06",
                 candidate_model_ref="storage://models/candidate",
                 replay_contract_ref="replay://primary",
                 settlement_run_ref="storage://settlement/run",
@@ -84,7 +84,7 @@ class PromotionTests(unittest.TestCase):
 
     def test_rejects_readiness_from_non_eligible_decision(self):
         decision = build_promotion_eligibility_decision(
-            fold_id="fold_2016-01_2016-06",
+            fold_id="fold_2016-01_2017-06",
             candidate_model_ref="storage://models/candidate",
             replay_contract_ref="replay://primary",
             settlement_run_ref="storage://settlement/run",

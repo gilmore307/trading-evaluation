@@ -32,7 +32,7 @@ class SettlementTests(unittest.TestCase):
 
     def test_builds_settlement_with_auroc_and_structure_metrics(self):
         payload = build_fold_settlement_run(
-            fold_id="fold_2016-01_2016-06",
+            fold_id="fold_2016-01_2017-06",
             candidate_model_ref="model://candidate/a",
             replay_contract_ref="replay://promotion",
             replay_result_ref="storage://replay/result",
@@ -68,7 +68,7 @@ class SettlementTests(unittest.TestCase):
         )
 
         payload = build_fold_settlement_run(
-            fold_id="fold_2016-01_2016-06",
+            fold_id="fold_2016-01_2017-06",
             candidate_model_ref="model://candidate/a",
             replay_contract_ref="replay://promotion",
             replay_result_ref="storage://replay/result",
@@ -82,7 +82,7 @@ class SettlementTests(unittest.TestCase):
 
     def test_small_or_weak_evidence_requires_review(self):
         payload = build_fold_settlement_run(
-            fold_id="fold_2016-01_2016-06",
+            fold_id="fold_2016-01_2017-06",
             candidate_model_ref="model://candidate/a",
             replay_contract_ref="replay://promotion",
             replay_result_ref="storage://replay/result",
@@ -96,7 +96,7 @@ class SettlementTests(unittest.TestCase):
         payload = {
             "contract_type": "fold_settlement_run",
             "fold_settlement_run_id": "settlement_test",
-            "fold_id": "fold_2016-01_2016-06",
+            "fold_id": "fold_2016-01_2017-06",
             "candidate_model_ref": "model://candidate/a",
             "replay_contract_ref": "replay://promotion",
             "replay_result_ref": "storage://replay/result",
@@ -121,7 +121,7 @@ class SettlementTests(unittest.TestCase):
 
     def test_rejects_inconsistent_settlement_metrics(self):
         payload = build_fold_settlement_run(
-            fold_id="fold_2016-01_2016-06",
+            fold_id="fold_2016-01_2017-06",
             candidate_model_ref="model://candidate/a",
             replay_contract_ref="replay://promotion",
             replay_result_ref="storage://replay/result",
@@ -136,7 +136,7 @@ class SettlementTests(unittest.TestCase):
 
     def test_rejects_missing_nullable_metric_keys(self):
         payload = build_fold_settlement_run(
-            fold_id="fold_2016-01_2016-06",
+            fold_id="fold_2016-01_2017-06",
             candidate_model_ref="model://candidate/a",
             replay_contract_ref="replay://promotion",
             replay_result_ref="storage://replay/result",
@@ -165,7 +165,7 @@ class SettlementTests(unittest.TestCase):
                     "--decision-rows",
                     str(rows_path),
                     "--fold-id",
-                    "fold_2016-01_2016-06",
+                    "fold_2016-01_2017-06",
                     "--candidate-model-ref",
                     "model://candidate/a",
                     "--replay-contract-ref",

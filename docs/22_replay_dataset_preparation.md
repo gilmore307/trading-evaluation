@@ -15,7 +15,7 @@ This preparation step is not a replay freeze and does not use the manager task/r
 
 - source contract: accepted candidate-policy replay under `trading-evaluation/replays/`
 - replay window: canonical `2021-01-01` through `2026-01-01` end-exclusive unless an explicitly reviewed exception is supplied
-- candidate fold id: explicit, for example `fold_2016-01_2016-06`
+- candidate fold id: explicit, for example `fold_2016-01_2017-06`
 - base context artifact: explicit M01/M02 base-context used to validate replay substrate coverage
 - local coverage scan root: `trading-storage/storage/01_source_data`
 - runtime output root: `trading-storage/storage/05_replay_datasets`
@@ -57,7 +57,7 @@ This keeps historical replay close to live execution while preserving the traini
 ```bash
 PYTHONPATH=src python3 scripts/evaluation/prepare_replay_dataset.py \
   --contract replays/promotion_replay_candidate_policy.json \
-  --candidate-fold-id fold_2016-01_2016-06 \
+  --candidate-fold-id fold_2016-01_2017-06 \
   --base-context-ref /root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy/base_context.json \
   --output-root /root/projects/trading-storage/storage/05_replay_datasets \
   --data-root /root/projects/trading-storage/storage/01_source_data

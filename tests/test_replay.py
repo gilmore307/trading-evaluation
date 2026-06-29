@@ -11,7 +11,7 @@ from trading_evaluation import is_training_fold_blocked_by_replay, validate_repl
 VALID_CONTRACT = {
     "contract_id": "promotion_replay_fixture",
     "replay_mode": "candidate_policy_replay",
-    "candidate_fold_id": "fold_2016-01_2016-06",
+    "candidate_fold_id": "fold_2016-01_2017-06",
     "base_context_policy_ref": "trading-model://model_02_target_candidate_universe_policy/live_equivalent",
     "base_context_ref": "/tmp/replay_base_context.json",
     "start_date": "2021-01-01",
@@ -70,7 +70,7 @@ class ReplayContractTests(unittest.TestCase):
     def test_fold_bound_replay_window_is_allowed(self):
         payload = dict(
             VALID_CONTRACT,
-            candidate_fold_id="fold_2016-01_2016-06",
+            candidate_fold_id="fold_2016-01_2017-06",
             start_date="2016-01-01",
             end_date="2016-07-01",
             min_trading_days=120,
@@ -85,7 +85,7 @@ class ReplayContractTests(unittest.TestCase):
         result = validate_replay_contract(payload)
         self.assertEqual(result.validation_status, "passed")
         assert result.contract is not None
-        self.assertEqual(result.contract.candidate_fold_id, "fold_2016-01_2016-06")
+        self.assertEqual(result.contract.candidate_fold_id, "fold_2016-01_2017-06")
 
     def test_fold_bound_replay_window_requires_positive_min_trading_days(self):
         payload = dict(
