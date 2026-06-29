@@ -447,6 +447,8 @@ def build_candidate_policy_replay_execution_run(
         },
         "portfolio_selection_summary": portfolio_selection_summary,
         "candidate_model_ref": candidate_model_ref,
+        "candidate_training_target": _candidate_training_target_from_model_ref(candidate_model_ref),
+        "target_symbol": _candidate_training_target_from_model_ref(candidate_model_ref),
         "after_cost_alpha_model_ref": after_cost_alpha_model_ref,
         "replay_contract_ref": replay_contract_ref,
         "replay_route_ref": EXECUTION_REPLAY_ROUTE_REF,
@@ -2104,7 +2106,7 @@ def _validate_replay_candidate_model_scope(
     candidate_model_ref: str,
     candidate_handoff: Mapping[str, Any],
 ) -> None:
-    """Reject full-universe replay when the model ref is still target-scoped."""
+    """Require full-universe replay to name the evaluated candidate model lane."""
 
     source = str(candidate_handoff.get("source") or "").strip()
     symbols = tuple(_string_set(candidate_handoff.get("candidate_symbols")))
@@ -2115,11 +2117,22 @@ def _validate_replay_candidate_model_scope(
         return
     tail = candidate_model_ref.split(marker, 1)[1].strip("/")
     parts = tuple(part for part in tail.split("/") if part)
-    if len(parts) >= 2:
+    if len(parts) < 2:
         raise ValueError(
-            "full fixed-universe replay requires a fold-scoped model_group candidate_model_ref; "
-            "target-scoped model refs are valid only for diagnostic single-target replay"
+            "full fixed-universe replay requires a candidate-lane-scoped model_group candidate_model_ref; "
+            "use model_group/{candidate_training_target}/{fold_window} while keeping the replay universe unrestricted"
         )
+
+
+def _candidate_training_target_from_model_ref(candidate_model_ref: str) -> str:
+    marker = "/model_group/"
+    if marker not in candidate_model_ref:
+        return ""
+    tail = candidate_model_ref.split(marker, 1)[1].strip("/")
+    parts = tuple(part for part in tail.split("/") if part)
+    if len(parts) < 2:
+        return ""
+    return parts[0].upper()
 
 
 def _validated_initial_capital_usd(value: float) -> float:
@@ -2704,6 +2717,7 @@ def _build_candidate_policy_decision_rows(
                     "source_order_intent_id": order_intent["execution_order_intent_id"],
                     "source_fill_event_id": fill["simulated_fill_event_id"],
                     "candidate_model_ref": candidate_model_ref,
+                    "candidate_training_target": _candidate_training_target_from_model_ref(candidate_model_ref),
                     "replay_contract_ref": replay_contract_ref,
                     "account_sleeve_id": _account_sleeve_for_bar(bar),
                     "target_ref": target,

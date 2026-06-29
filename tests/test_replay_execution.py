@@ -328,7 +328,7 @@ class ReplayExecutionTests(unittest.TestCase):
             result = build_crypto_replay_execution_run(
                 dataset_root=dataset_root,
                 run_id="test_run",
-                candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                 after_cost_alpha_model=_after_cost_alpha_model(),
                 max_decision_rows=2,
             )
@@ -462,7 +462,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 result = build_candidate_policy_replay_execution_run(
                     dataset_root=dataset_root,
                     run_id="test_candidate_policy",
-                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                     after_cost_alpha_model=_after_cost_alpha_model(),
                     equity_source_root=equity_source_root,
                     equity_symbols=["AAPL"],
@@ -479,7 +479,7 @@ class ReplayExecutionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "replay_option_feature_acquisition_required"):
             replay_module._option_expression_plan_for_bar(
                 bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
-                candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                 timestamp="2021-01-04T16:00:00-05:00",
                 layer_outputs=_current_layer_outputs(),
                 option_candidates=[],
@@ -488,7 +488,7 @@ class ReplayExecutionTests(unittest.TestCase):
         self.assertIsNone(
             replay_module._option_expression_plan_for_bar(
                 bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
-                candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                 timestamp="2021-01-04T16:00:00-05:00",
                 layer_outputs=_current_layer_outputs(alpha_score=0.25),
                 option_candidates=[],
@@ -518,7 +518,7 @@ class ReplayExecutionTests(unittest.TestCase):
     def test_bearish_option_expression_selects_long_put(self):
         plan = replay_module._option_expression_plan_for_bar(
             bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
-            candidate_model_ref="storage://trading-manager/model_group/test_fold",
+            candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
             timestamp="2021-01-04T16:00:00-05:00",
             layer_outputs=_current_layer_outputs(
                 action_type="open_short",
@@ -632,7 +632,7 @@ class ReplayExecutionTests(unittest.TestCase):
                                 },
                             ]
                         },
-                        candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                        candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                         after_cost_alpha_model=_after_cost_alpha_model(),
                         entry_calibration=replay_module.EntryCalibration(
                             artifact={
@@ -765,7 +765,7 @@ class ReplayExecutionTests(unittest.TestCase):
                                 },
                             ]
                         },
-                        candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                        candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                         after_cost_alpha_model=_after_cost_alpha_model(),
                         entry_calibration=replay_module.EntryCalibration(
                             artifact={
@@ -853,7 +853,7 @@ class ReplayExecutionTests(unittest.TestCase):
                             },
                         ]
                     },
-                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                     after_cost_alpha_model=_after_cost_alpha_model(),
                     entry_calibration=replay_module.EntryCalibration(
                         artifact={
@@ -1011,7 +1011,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 index=0,
                 market_universe=[{"reference_price": 100.0}],
                 reference_price=100.0,
-                candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                 after_cost_alpha_model={"score": 0.25},
                 entry_calibration=calibration,
             )
@@ -1021,7 +1021,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 index=0,
                 market_universe=[{"reference_price": 100.0}],
                 reference_price=100.0,
-                candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                 after_cost_alpha_model={"score": 0.82},
                 entry_calibration=calibration,
             )
@@ -1045,7 +1045,7 @@ class ReplayExecutionTests(unittest.TestCase):
     def test_option_expression_plan_continues_when_option_source_unavailable(self):
         plan = replay_module._option_expression_plan_for_bar(
             bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
-            candidate_model_ref="storage://trading-manager/model_group/test_fold",
+            candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
             timestamp="2021-01-04T16:00:00-05:00",
             layer_outputs=_current_layer_outputs(),
             option_candidates=[
@@ -1064,7 +1064,7 @@ class ReplayExecutionTests(unittest.TestCase):
         self.assertIsNone(
             replay_module._option_expression_plan_for_bar(
                 bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
-                candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                 timestamp="2021-01-04T16:00:00-05:00",
                 layer_outputs=_current_layer_outputs(action_type="no_trade", action_side="none", direction="neutral"),
                 option_candidates=[],
@@ -1081,7 +1081,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 build_candidate_policy_replay_execution_run(
                     dataset_root=dataset_root,
                     run_id="test_candidate_handoff_required",
-                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                     after_cost_alpha_model=_after_cost_alpha_model(),
                     equity_source_root=equity_source_root,
                     include_crypto=False,
@@ -1112,7 +1112,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 {"contract_ref": "AAPL_2021-01-15_C_100"}
             ]
             replay_module._option_expression_plan_for_bar = lambda **_: {
-                "model_ref": "storage://trading-manager/model_group/test_fold/model_05_option_expression/test",
+                "model_ref": "storage://trading-manager/model_group/aapl/test_fold/model_05_option_expression/test",
                 "target_ref": "AAPL",
                 "asset_expression_route": "listed_option_contract",
                 "option_surface_status": "optionable_chain_available",
@@ -1131,7 +1131,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 result = build_candidate_policy_replay_execution_run(
                     dataset_root=dataset_root,
                     run_id="test_candidate_handoff_symbols",
-                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                     after_cost_alpha_model=_after_cost_alpha_model(),
                     equity_source_root=equity_source_root,
                     include_crypto=False,
@@ -1186,7 +1186,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 result = build_candidate_policy_replay_execution_run(
                     dataset_root=dataset_root,
                     run_id="test_fixed_candidate_universe",
-                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                     after_cost_alpha_model=_after_cost_alpha_model(),
                     equity_source_root=equity_source_root,
                     include_crypto=False,
@@ -1236,18 +1236,18 @@ class ReplayExecutionTests(unittest.TestCase):
         finally:
             replay_module._option_expression_plan_for_bar = original_plan_builder
 
-    def test_full_fixed_candidate_universe_rejects_target_scoped_model_ref(self):
+    def test_full_fixed_candidate_universe_requires_candidate_lane_scoped_model_ref(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             dataset_root = self._dataset(root)
             equity_source_root = self._equity_source_root(root)
             candidate_universe_path = self._candidate_universe(root, ["AAPL", "MSFT"])
 
-            with self.assertRaisesRegex(ValueError, "requires a fold-scoped model_group candidate_model_ref"):
+            with self.assertRaisesRegex(ValueError, "requires a candidate-lane-scoped model_group candidate_model_ref"):
                 build_candidate_policy_replay_execution_run(
                     dataset_root=dataset_root,
-                    run_id="test_target_scoped_candidate_model_ref",
-                    candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
+                    run_id="test_unscoped_candidate_model_ref",
+                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
                     after_cost_alpha_model=_after_cost_alpha_model(),
                     equity_source_root=equity_source_root,
                     include_crypto=False,
@@ -1334,7 +1334,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 result = build_candidate_policy_portfolio_trace_audit(
                     dataset_root=dataset_root,
                     run_id="test_portfolio_trace_audit",
-                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                     after_cost_alpha_model=_after_cost_alpha_model(),
                     include_crypto=False,
                     max_trace_timestamps=1,
@@ -1439,7 +1439,7 @@ class ReplayExecutionTests(unittest.TestCase):
                     build_candidate_policy_replay_execution_run(
                         dataset_root=dataset_root,
                         run_id="test_ranked_affordable_requirements",
-                        candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                        candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                         after_cost_alpha_model=_after_cost_alpha_model(),
                         include_crypto=False,
                         option_feature_database_url="",
@@ -1526,7 +1526,7 @@ class ReplayExecutionTests(unittest.TestCase):
             }
             selected_keys, _, option_plans, missing_requirements, _, summary = replay_module._select_candidate_policy_portfolio_replay_keys(
                 bars_by_target=bars_by_target,
-                candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                 after_cost_alpha_model=_after_cost_alpha_model(),
                 entry_calibration=replay_module.EntryCalibration(
                     artifact=calibration_artifact,
@@ -1620,7 +1620,7 @@ class ReplayExecutionTests(unittest.TestCase):
             selected_keys, _, _, missing_requirements, portfolio_diagnostics, summary = (
                 replay_module._select_candidate_policy_portfolio_replay_keys(
                     bars_by_target=bars_by_target,
-                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                     after_cost_alpha_model=_after_cost_alpha_model(),
                     entry_calibration=replay_module.EntryCalibration(
                         artifact={
@@ -1709,7 +1709,7 @@ class ReplayExecutionTests(unittest.TestCase):
             selected_keys, _, _, missing_requirements, portfolio_diagnostics, summary = (
                 replay_module._select_candidate_policy_portfolio_replay_keys(
                     bars_by_target=bars_by_target,
-                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                     after_cost_alpha_model=_after_cost_alpha_model(),
                     entry_calibration=replay_module.EntryCalibration(
                         artifact={
@@ -1840,7 +1840,7 @@ class ReplayExecutionTests(unittest.TestCase):
             selected_keys, _, _, missing_requirements, portfolio_diagnostics, summary = (
                 replay_module._select_candidate_policy_portfolio_replay_keys(
                     bars_by_target=bars_by_target,
-                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                     after_cost_alpha_model=_after_cost_alpha_model(),
                     entry_calibration=replay_module.EntryCalibration(
                         artifact={
@@ -1890,7 +1890,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 build_candidate_policy_replay_execution_run(
                     dataset_root=dataset_root,
                     run_id="test_partial_candidate_bars",
-                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                     after_cost_alpha_model=_after_cost_alpha_model(),
                     equity_source_root=equity_source_root,
                     include_crypto=False,
@@ -2240,7 +2240,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 result = build_candidate_policy_replay_execution_run(
                     dataset_root=dataset_root,
                     run_id="test_month_replay",
-                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                     after_cost_alpha_model=_after_cost_alpha_model(),
                     replay_month="2021-01",
                     include_crypto=False,
@@ -2378,7 +2378,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 ]
             }
             replay_module._option_expression_plan_for_bar = lambda **_: {
-                "model_ref": "storage://trading-manager/model_group/test_fold/model_05_option_expression/test",
+                "model_ref": "storage://trading-manager/model_group/aapl/test_fold/model_05_option_expression/test",
                 "target_ref": "AAPL",
                 "asset_expression_route": "listed_option_contract",
                 "option_surface_status": "optionable_chain_available",
@@ -2396,7 +2396,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 result = build_candidate_policy_replay_execution_run(
                     dataset_root=dataset_root,
                     run_id="test_candidate_policy_option_path",
-                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                     after_cost_alpha_model=_after_cost_alpha_model(),
                     equity_source_root=equity_source_root,
                     equity_symbols=["AAPL"],
@@ -2481,7 +2481,7 @@ class ReplayExecutionTests(unittest.TestCase):
             ]
             replay_module._load_option_contract_path_bars = lambda **_: {}
             replay_module._option_expression_plan_for_bar = lambda **_: {
-                "model_ref": "storage://trading-manager/model_group/test_fold/model_05_option_expression/test",
+                "model_ref": "storage://trading-manager/model_group/aapl/test_fold/model_05_option_expression/test",
                 "target_ref": "AAPL",
                 "asset_expression_route": "listed_option_contract",
                 "option_surface_status": "optionable_chain_available",
@@ -2497,7 +2497,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 result = build_candidate_policy_replay_execution_run(
                     dataset_root=self._dataset(root),
                     run_id="test_candidate_policy_missing_option_path",
-                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                     after_cost_alpha_model=_after_cost_alpha_model(),
                     equity_source_root=self._equity_source_root(root),
                     equity_symbols=["AAPL"],
@@ -2529,7 +2529,7 @@ class ReplayExecutionTests(unittest.TestCase):
     def test_option_expression_plan_selects_loaded_contract_candidate(self):
         plan = replay_module._option_expression_plan_for_bar(
             bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
-            candidate_model_ref="storage://trading-manager/model_group/test_fold",
+            candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
             timestamp="2021-01-04T16:00:00-05:00",
                 layer_outputs=_current_layer_outputs(),
             option_candidates=[
@@ -2562,7 +2562,7 @@ class ReplayExecutionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "replay_option_feature_future_data_rejected"):
             replay_module._option_expression_plan_for_bar(
                 bar={"symbol": "AAPL", "asset_class": "us_equity", "bar_close": 100.0},
-                candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                 timestamp="2021-01-04T10:00:00-05:00",
                 layer_outputs=_current_layer_outputs(),
                 option_candidates=[
@@ -2641,7 +2641,7 @@ class ReplayExecutionTests(unittest.TestCase):
                     "--run-id",
                     "cli_run",
                     "--candidate-model-ref",
-                    "storage://trading-manager/model_group/test_fold",
+                    "storage://trading-manager/model_group/aapl/test_fold",
                     "--after-cost-alpha-model-json",
                     str(artifact_path),
                     "--max-decision-rows",
@@ -2675,7 +2675,7 @@ class ReplayExecutionTests(unittest.TestCase):
                 build_crypto_replay_execution_run(
                     dataset_root=dataset_root,
                     run_id="bad_initial_capital",
-                    candidate_model_ref="storage://trading-manager/model_group/test_fold",
+                    candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
                     after_cost_alpha_model=_after_cost_alpha_model(),
                     max_decision_rows=1,
                     initial_capital_usd=0,
@@ -2883,7 +2883,7 @@ def _decision_rows_for_option_requirement_policy(*, allow_option_feature_require
             },
             market_dates=["2021-01-04", "2021-01-05"],
             run_id="test-option-requirement-policy",
-            candidate_model_ref="storage://trading-manager/model_group/test_fold",
+            candidate_model_ref="storage://trading-manager/model_group/aapl/test_fold",
             after_cost_alpha_model=_after_cost_alpha_model(),
             replay_contract_ref="test-contract",
             max_decision_rows=None,
