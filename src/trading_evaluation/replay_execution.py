@@ -2162,6 +2162,12 @@ def _validated_initial_capital_usd(value: float) -> float:
 def _validate_after_cost_alpha_model_for_replay(after_cost_alpha_model: Mapping[str, Any]) -> None:
     if _safe_float(after_cost_alpha_model.get("score")) is not None:
         return
+    score_model = after_cost_alpha_model.get("score_model")
+    if isinstance(score_model, Mapping) and score_model.get("model_family") == "logistic_regression":
+        feature_names = score_model.get("feature_names")
+        coefficients = score_model.get("coefficients")
+        if isinstance(feature_names, Sequence) and isinstance(coefficients, Sequence) and len(feature_names) == len(coefficients):
+            return
     if after_cost_alpha_model.get("contract_type") == "current_replay_entry_utility_model_bundle":
         return
     artifacts = after_cost_alpha_model.get("artifacts_by_horizon")
@@ -4950,11 +4956,54 @@ def _resolved_entry_utility_score(
     fixed_score = _safe_float(after_cost_alpha_model.get("score"))
     if fixed_score is not None:
         return _clip01(fixed_score)
+    score_model = after_cost_alpha_model.get("score_model")
+    if isinstance(score_model, Mapping) and score_model.get("model_family") == "logistic_regression":
+        score = _logistic_entry_utility_score(score_model=score_model, target_state=target_state, event_state=event_state)
+        if score is not None:
+            return score
     direction = _safe_float(target_state.get("2_target_direction_score_1D")) or _safe_float(target_state.get("2_target_direction_score_1W")) or 0.0
     trend = _safe_float(target_state.get("2_target_trend_quality_score_1D")) or 0.5
     tradability = _safe_float(target_state.get("2_tradability_score_1D")) or 0.5
     event_risk = _safe_float(event_state.get("3_event_path_risk_score_1D")) or 0.0
     return _clip01(0.50 + direction * 0.25 + (trend - 0.50) * 0.15 + (tradability - 0.50) * 0.10 - event_risk * 0.10)
+
+
+def _logistic_entry_utility_score(
+    *,
+    score_model: Mapping[str, Any],
+    target_state: Mapping[str, Any],
+    event_state: Mapping[str, Any],
+) -> float | None:
+    feature_names = score_model.get("feature_names")
+    coefficients = score_model.get("coefficients")
+    if not isinstance(feature_names, Sequence) or isinstance(feature_names, (str, bytes)):
+        return None
+    if not isinstance(coefficients, Sequence) or isinstance(coefficients, (str, bytes)):
+        return None
+    if len(feature_names) != len(coefficients):
+        return None
+    means = score_model.get("feature_means")
+    scales = score_model.get("feature_scales")
+    means = means if isinstance(means, Mapping) else {}
+    scales = scales if isinstance(scales, Mapping) else {}
+    z_value = _safe_float(score_model.get("intercept")) or 0.0
+    for raw_name, raw_coefficient in zip(feature_names, coefficients, strict=True):
+        name = str(raw_name)
+        coefficient = _safe_float(raw_coefficient)
+        if coefficient is None:
+            return None
+        value = _safe_float(target_state.get(name))
+        if value is None:
+            value = _safe_float(event_state.get(name))
+        if value is None:
+            value = 0.0
+        mean = _safe_float(means.get(name)) or 0.0
+        scale = _safe_float(scales.get(name)) or 1.0
+        if scale == 0.0:
+            scale = 1.0
+        z_value += coefficient * ((value - mean) / scale)
+    z_value = max(-30.0, min(30.0, z_value))
+    return _clip01(1.0 / (1.0 + math.exp(-z_value)))
 
 
 def _residual_event_governance_for_bar(

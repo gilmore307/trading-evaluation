@@ -444,6 +444,36 @@ class ReplayExecutionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "degenerate_entry_utility_artifact"):
             replay_module._validate_after_cost_alpha_model_for_replay(artifact)
 
+    def test_replay_accepts_supervised_logistic_after_cost_alpha_artifact(self):
+        artifact = {
+            "contract_type": "after_cost_alpha_model",
+            "model_type": "fold_supervised_after_cost_alpha_logistic",
+            "training_summary": {"training_mode": "supervised_fit", "sample_count": 128},
+            "score_model": {
+                "model_family": "logistic_regression",
+                "feature_names": ["2_target_direction_score_1D"],
+                "coefficients": [2.0],
+                "intercept": 0.0,
+                "feature_means": {"2_target_direction_score_1D": 0.0},
+                "feature_scales": {"2_target_direction_score_1D": 1.0},
+            },
+        }
+
+        replay_module._validate_after_cost_alpha_model_for_replay(artifact)
+        low = replay_module._resolved_entry_utility_score(
+            after_cost_alpha_model=artifact,
+            target_state={"2_target_direction_score_1D": -1.0},
+            event_state={},
+        )
+        high = replay_module._resolved_entry_utility_score(
+            after_cost_alpha_model=artifact,
+            target_state={"2_target_direction_score_1D": 1.0},
+            event_state={},
+        )
+
+        self.assertLess(low, 0.5)
+        self.assertGreater(high, 0.5)
+
     def test_candidate_policy_replay_does_not_prefetch_option_features_for_materialized_equity_rows(self):
         original_plan_builder = replay_module._option_expression_plan_for_bar
         original_bulk_feature_loader = replay_module._load_option_candidate_features
