@@ -17,6 +17,13 @@ ELIGIBLE_FOLD_STACK_STATUS = "complete_m01_m06"
 ELIGIBLE_GUARDRAIL_STATUS = "passed"
 ELIGIBLE_INCUMBENT_COMPARISON_STATUS = "passed"
 ELIGIBLE_AGENT_REVIEW_RECOMMENDATION = "eligible_for_shadow"
+MODEL_INPUT_CONTEXT_LAYERS = (
+    "model_02_target_state",
+    "model_03_event_state",
+    "model_04_unified_decision",
+    "model_05_option_expression",
+    "model_06_residual_event_governance",
+)
 
 
 def _now_utc() -> str:
@@ -30,6 +37,40 @@ def _stable_id(prefix: str, *parts: object) -> str:
 
 def _list(values: Iterable[str] | None) -> list[str]:
     return [str(value) for value in values or []]
+
+
+def _model_input_context_bundle(
+    *,
+    promotion_readiness_record_id: str,
+    promotion_eligibility_decision: Mapping[str, Any],
+    candidate_config_ref: str,
+    historical_dataset_snapshot_ref: str | None = None,
+) -> dict[str, Any]:
+    """Build the canonical context-ref bundle handed to realtime/shadow input builders."""
+
+    fold_stack_ref = str(promotion_eligibility_decision.get("fold_stack_evidence_ref") or "").strip()
+    replay_contract_ref = str(promotion_eligibility_decision.get("replay_contract_ref") or "").strip()
+    dataset_ref = str(historical_dataset_snapshot_ref or "").strip()
+    if not dataset_ref:
+        dataset_ref = f"{replay_contract_ref}#historical_dataset_snapshot"
+    return {
+        "contract_type": "model_input_context_bundle",
+        "context_bundle_id": _stable_id("modelctx", promotion_readiness_record_id, fold_stack_ref, candidate_config_ref),
+        "promotion_readiness_record_ref": promotion_readiness_record_id,
+        "historical_dataset_snapshot_ref": dataset_ref,
+        "frozen_model_config_ref": candidate_config_ref,
+        "upstream_context_refs": {
+            layer: f"{fold_stack_ref}#{layer}_context"
+            for layer in MODEL_INPUT_CONTEXT_LAYERS
+        },
+        "context_source_refs": {
+            "fold_stack_evidence_ref": fold_stack_ref,
+            "replay_contract_ref": replay_contract_ref,
+            "replay_validation_ref": str(promotion_eligibility_decision.get("replay_validation_ref") or ""),
+            "settlement_run_ref": str(promotion_eligibility_decision.get("settlement_run_ref") or ""),
+        },
+        "context_status": "ready_for_realtime_shadow_snapshot",
+    }
 
 
 @dataclass(frozen=True)
@@ -172,6 +213,7 @@ def build_promotion_readiness_record(
     candidate_config_ref: str,
     rollback_ref: str,
     execution_shadow_scope: str = "paper_or_live_shadow",
+    historical_dataset_snapshot_ref: str | None = None,
     readiness_record_id: str | None = None,
     created_at_utc: str | None = None,
 ) -> dict[str, Any]:
@@ -191,13 +233,22 @@ def build_promotion_readiness_record(
         if not value:
             raise ValueError(f"{field} is required")
     decision_ref = str(promotion_eligibility_decision["promotion_eligibility_decision_id"])
+    record_id = readiness_record_id or _stable_id("promready", decision_ref, candidate_model_ref, candidate_config_ref, rollback_ref)
+    model_input_context_bundle = _model_input_context_bundle(
+        promotion_readiness_record_id=record_id,
+        promotion_eligibility_decision=promotion_eligibility_decision,
+        candidate_config_ref=candidate_config_ref,
+        historical_dataset_snapshot_ref=historical_dataset_snapshot_ref,
+    )
     record = {
         "contract_type": PROMOTION_READINESS_RECORD_CONTRACT,
-        "promotion_readiness_record_id": readiness_record_id
-        or _stable_id("promready", decision_ref, candidate_model_ref, candidate_config_ref, rollback_ref),
+        "promotion_readiness_record_id": record_id,
         "promotion_eligibility_decision_ref": decision_ref,
         "candidate_model_ref": candidate_model_ref,
         "candidate_config_ref": candidate_config_ref,
+        "historical_dataset_snapshot_ref": model_input_context_bundle["historical_dataset_snapshot_ref"],
+        "frozen_model_config_ref": model_input_context_bundle["frozen_model_config_ref"],
+        "model_input_context_bundle": model_input_context_bundle,
         "rollback_ref": rollback_ref,
         "execution_shadow_scope": execution_shadow_scope,
         "replay_contract_ref": promotion_eligibility_decision["replay_contract_ref"],
@@ -240,6 +291,9 @@ def validate_promotion_readiness_record(payload: Mapping[str, Any]) -> Activatio
         "replay_contract_ref",
         "replay_validation_ref",
         "replay_freeze_status",
+        "historical_dataset_snapshot_ref",
+        "frozen_model_config_ref",
+        "model_input_context_bundle",
         "settlement_run_ref",
         "fold_stack_evidence_ref",
         "fold_stack_status",
@@ -258,6 +312,7 @@ def validate_promotion_readiness_record(payload: Mapping[str, Any]) -> Activatio
     for field in ("metric_refs", "guardrail_refs"):
         if not isinstance(payload.get(field), list) or not payload.get(field):
             errors.append(f"{field} must be a non-empty list")
+    _validate_model_input_context_bundle(payload, errors)
     _validate_eligible_evidence(payload, errors)
     for field in (
         "model_activation_performed",
@@ -272,3 +327,31 @@ def validate_promotion_readiness_record(payload: Mapping[str, Any]) -> Activatio
         validation_status="passed" if not errors else "failed",
         errors=tuple(errors),
     )
+
+
+def _validate_model_input_context_bundle(payload: Mapping[str, Any], errors: list[str]) -> None:
+    bundle = payload.get("model_input_context_bundle")
+    if not isinstance(bundle, Mapping):
+        errors.append("model_input_context_bundle must be an object")
+        return
+    if bundle.get("contract_type") != "model_input_context_bundle":
+        errors.append("model_input_context_bundle.contract_type must be model_input_context_bundle")
+    if bundle.get("promotion_readiness_record_ref") != payload.get("promotion_readiness_record_id"):
+        errors.append("model_input_context_bundle.promotion_readiness_record_ref must match promotion_readiness_record_id")
+    for field in ("context_bundle_id", "historical_dataset_snapshot_ref", "frozen_model_config_ref", "context_status"):
+        if not bundle.get(field):
+            errors.append(f"model_input_context_bundle.{field} is required")
+    if bundle.get("historical_dataset_snapshot_ref") != payload.get("historical_dataset_snapshot_ref"):
+        errors.append("model_input_context_bundle.historical_dataset_snapshot_ref must match readiness record")
+    if bundle.get("frozen_model_config_ref") != payload.get("frozen_model_config_ref"):
+        errors.append("model_input_context_bundle.frozen_model_config_ref must match readiness record")
+    upstream_refs = bundle.get("upstream_context_refs")
+    if not isinstance(upstream_refs, Mapping):
+        errors.append("model_input_context_bundle.upstream_context_refs must be an object")
+        return
+    for layer in MODEL_INPUT_CONTEXT_LAYERS:
+        value = str(upstream_refs.get(layer) or "")
+        if not value:
+            errors.append(f"model_input_context_bundle.upstream_context_refs.{layer} is required")
+        if value.startswith("placeholder://"):
+            errors.append(f"model_input_context_bundle.upstream_context_refs.{layer} must not be placeholder")

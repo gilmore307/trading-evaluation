@@ -16,6 +16,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--promotion-eligibility-json", required=True, type=Path)
     parser.add_argument("--candidate-model-ref", required=True)
     parser.add_argument("--candidate-config-ref", required=True)
+    parser.add_argument("--historical-dataset-snapshot-ref")
     parser.add_argument("--rollback-ref", required=True)
     parser.add_argument("--execution-shadow-scope", default="paper_or_live_shadow")
     parser.add_argument("--output", type=Path)
@@ -28,6 +29,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         promotion_eligibility_decision=decision,
         candidate_model_ref=args.candidate_model_ref,
         candidate_config_ref=args.candidate_config_ref,
+        historical_dataset_snapshot_ref=args.historical_dataset_snapshot_ref,
         rollback_ref=args.rollback_ref,
         execution_shadow_scope=args.execution_shadow_scope,
     )

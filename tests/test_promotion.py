@@ -53,6 +53,22 @@ class PromotionTests(unittest.TestCase):
         self.assertEqual(record["agent_review_recommendation"], "eligible_for_shadow")
         self.assertTrue(record["first_model_bootstrap"])
         self.assertEqual(record["bootstrap_baseline_ref"], "storage://settlement/run")
+        self.assertEqual(record["frozen_model_config_ref"], "storage://configs/market_regime/new")
+        self.assertEqual(record["historical_dataset_snapshot_ref"], "replay://primary#historical_dataset_snapshot")
+        bundle = record["model_input_context_bundle"]
+        self.assertEqual(bundle["contract_type"], "model_input_context_bundle")
+        self.assertEqual(bundle["frozen_model_config_ref"], record["frozen_model_config_ref"])
+        self.assertEqual(bundle["historical_dataset_snapshot_ref"], record["historical_dataset_snapshot_ref"])
+        self.assertEqual(
+            sorted(bundle["upstream_context_refs"]),
+            [
+                "model_02_target_state",
+                "model_03_event_state",
+                "model_04_unified_decision",
+                "model_05_option_expression",
+                "model_06_residual_event_governance",
+            ],
+        )
         self.assertEqual(validate_promotion_readiness_record(record).validation_status, "passed")
 
     def test_rejects_eligible_decision_without_gate_evidence(self):
@@ -98,6 +114,8 @@ class PromotionTests(unittest.TestCase):
                     "storage://models/market_regime/new",
                     "--candidate-config-ref",
                     "storage://configs/market_regime/new",
+                    "--historical-dataset-snapshot-ref",
+                    "storage://snapshots/historical/unit",
                     "--rollback-ref",
                     "storage://models/market_regime/old",
                 ],
@@ -108,6 +126,7 @@ class PromotionTests(unittest.TestCase):
         payload = json.loads(completed.stdout)
         self.assertEqual(payload["contract_type"], "promotion_readiness_record")
         self.assertEqual(payload["promotion_eligibility_decision_ref"], "promelig_fixture")
+        self.assertEqual(payload["historical_dataset_snapshot_ref"], "storage://snapshots/historical/unit")
 
 
 if __name__ == "__main__":
