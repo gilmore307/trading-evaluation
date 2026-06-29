@@ -459,7 +459,7 @@ def build_candidate_policy_replay_execution_run(
             "evaluation_decision_rows_role": "settlement_view_over_component_outputs",
             "replay_specific_component_contracts_allowed": False,
         },
-        "candidate_fold_id": str(manifest.get("candidate_fold_id") or manifest.get("fold_id") or ""),
+        "candidate_fold_id": _candidate_fold_id_from_model_ref(candidate_model_ref),
         "pre_replay_target_refs": sorted(_string_set(manifest.get("pre_replay_target_refs"))),
         "dataset_root": str(dataset_root),
         "dataset_manifest_ref": str(dataset_root / "dataset_manifest.json"),
@@ -2133,6 +2133,23 @@ def _candidate_training_target_from_model_ref(candidate_model_ref: str) -> str:
     if len(parts) < 2:
         return ""
     return parts[0].upper()
+
+
+def _candidate_fold_id_from_model_ref(candidate_model_ref: str) -> str:
+    marker = "/model_group/"
+    if marker not in candidate_model_ref:
+        return ""
+    tail = candidate_model_ref.split(marker, 1)[1].strip("/")
+    parts = tuple(part for part in tail.split("/") if part)
+    if len(parts) < 2:
+        return ""
+    fold_window = parts[1]
+    if "_" not in fold_window:
+        return ""
+    start_month, end_month = fold_window.split("_", 1)
+    if not start_month or not end_month:
+        return ""
+    return f"fold_{start_month}_{end_month}"
 
 
 def _validated_initial_capital_usd(value: float) -> float:
