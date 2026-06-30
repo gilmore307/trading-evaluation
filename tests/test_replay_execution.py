@@ -19,6 +19,24 @@ from trading_evaluation import replay_execution as replay_module
 
 
 class ReplayExecutionTests(unittest.TestCase):
+    def test_candidate_fold_id_from_model_ref_uses_target_year_contract(self):
+        self.assertEqual(
+            replay_module._candidate_fold_id_from_model_ref(
+                "storage://trading-manager/model_group/aapl/2017-01_2018-06"
+            ),
+            "fold_aapl_2017",
+        )
+
+    def test_legacy_candidate_fold_id_normalizes_to_target_year_contract(self):
+        self.assertEqual(
+            replay_module._resolved_candidate_fold_id(
+                candidate_fold_id="fold_2017-01_2018-06",
+                candidate_training_target="AAPL",
+                candidate_model_ref="storage://trading-manager/model_group/aapl/2017-01_2018-06",
+            ),
+            "fold_aapl_2017",
+        )
+
     def test_equity_market_close_timestamp_uses_new_york_dst_offset(self):
         self.assertEqual(replay_module._equity_market_close_timestamp("2021-01-04"), "2021-01-04T16:00:00-05:00")
         self.assertEqual(replay_module._equity_market_close_timestamp("2021-04-14"), "2021-04-14T16:00:00-04:00")

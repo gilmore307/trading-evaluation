@@ -15,6 +15,7 @@ import inspect
 import json
 import math
 import os
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, time
@@ -404,9 +405,10 @@ def build_candidate_policy_replay_execution_run(
         str(candidate_training_target or "").strip().upper()
         or _candidate_training_target_from_model_ref(candidate_model_ref)
     )
-    resolved_candidate_fold_id = (
-        str(candidate_fold_id or "").strip().lower()
-        or _candidate_fold_id_from_model_ref(candidate_model_ref)
+    resolved_candidate_fold_id = _resolved_candidate_fold_id(
+        candidate_fold_id=candidate_fold_id,
+        candidate_training_target=resolved_candidate_training_target,
+        candidate_model_ref=candidate_model_ref,
     )
     receipt = {
         "contract_type": REPLAY_EXECUTION_RUN_CONTRACT,
@@ -2163,7 +2165,33 @@ def _candidate_fold_id_from_model_ref(candidate_model_ref: str) -> str:
     start_month, end_month = fold_window.split("_", 1)
     if not start_month or not end_month:
         return ""
-    return f"fold_{start_month}_{end_month}"
+    target_token = _safe_fold_target_token(parts[0])
+    if not target_token:
+        return ""
+    return f"fold_{target_token}_{start_month[:4]}"
+
+
+def _resolved_candidate_fold_id(
+    *,
+    candidate_fold_id: str | None,
+    candidate_training_target: str,
+    candidate_model_ref: str,
+) -> str:
+    explicit = str(candidate_fold_id or "").strip().lower()
+    if re.fullmatch(r"fold_[a-z0-9]+_\d{4}", explicit):
+        return explicit
+    target_token = _safe_fold_target_token(candidate_training_target) or _safe_fold_target_token(
+        _candidate_training_target_from_model_ref(candidate_model_ref)
+    )
+    legacy = re.fullmatch(r"fold_(\d{4})-\d{2}_(\d{4})-\d{2}", explicit)
+    if legacy and target_token:
+        return f"fold_{target_token}_{legacy.group(1)}"
+    return _candidate_fold_id_from_model_ref(candidate_model_ref) or explicit
+
+
+def _safe_fold_target_token(target_symbol: str | None) -> str:
+    token = "".join(char.lower() if char.isalnum() else "_" for char in str(target_symbol or "").strip().upper())
+    return "_".join(part for part in token.split("_") if part)
 
 
 def _validated_initial_capital_usd(value: float) -> float:
