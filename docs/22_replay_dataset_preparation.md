@@ -15,7 +15,7 @@ This preparation step is not a replay freeze and does not use the manager task/r
 
 - source contract: accepted candidate-policy replay under `trading-evaluation/replays/`
 - replay window: canonical `2021-01-01` through `2026-01-01` end-exclusive unless an explicitly reviewed exception is supplied
-- candidate fold id: explicit, for example `fold_2016-01_2017-06`
+- candidate fold id: explicit source-plus-training-year identity, for example `fold_aapl_2016`
 - base context artifact: explicit M01/M02 base-context used to validate replay substrate coverage
 - local coverage scan root: `trading-storage/storage/01_source_data`
 - runtime output root: `trading-storage/storage/05_replay_datasets`
@@ -36,7 +36,9 @@ Replay predeclares only the M01/M02 base-context refs through `base_context_ref`
 Replay acquisition is bounded by the historical replay clock, candidate policy, execution component graph, and monthly shard budget:
 
 - preflight may query or estimate source coverage, request counts, row counts, and storage footprint before provider execution;
-- M01/M02 base-context source data lives in canonical long-lived monthly backfill source roots and is retained after replay;
+- reusable source data lives in canonical long-lived monthly backfill source roots under `storage/01_source_data` and is retained after replay;
+- training and replay must reference the same valid canonical 2021-2026 source partitions rather than redownloading or copying them into a replay-private source body cache;
+- provider execution for replay may fill only missing canonical source partitions or truly temporary model-specific evidence that cannot become reusable source data;
 - provider execution may temporarily materialize only demand-driven evidence
   created by replay-visible component state during the replay shard, including
   admitted candidate equities, symbol-scoped liquidity/news, option-chain
@@ -45,7 +47,7 @@ Replay acquisition is bounded by the historical replay clock, candidate policy, 
   duration tracking extends coverage through the default forward staging chunks
   in `docs/03_contracts.md`, whose future rows and coverage metadata remain
   decision-invisible until the replay pointer reaches them;
-- temporary on-demand month-cache data lives under the replay dataset/run boundary, not under canonical long-lived monthly backfill source roots;
+- temporary model-specific on-demand data may live under the replay dataset/run boundary only when it is not a reusable training/replay source partition;
 - raw provider payloads are not persisted unless a source contract explicitly requires raw evidence;
 - after the month shard writes its replay receipt, decision rows, coverage summary, row counts, and input hashes, the temporary month-cache data is deleted;
 - retained replay evidence is lightweight manifest, receipt, coverage, hash, and decision-row evidence sufficient to prove what was replayed without keeping every transient downloaded input.
@@ -57,13 +59,13 @@ This keeps historical replay close to live execution while preserving the traini
 ```bash
 PYTHONPATH=src python3 scripts/evaluation/prepare_replay_dataset.py \
   --contract replays/promotion_replay_candidate_policy.json \
-  --candidate-fold-id fold_2016-01_2017-06 \
+  --candidate-fold-id fold_aapl_2016 \
   --base-context-ref /root/projects/trading-storage/storage/05_replay_datasets/promotion_replay_candidate_policy/base_context.json \
   --output-root /root/projects/trading-storage/storage/05_replay_datasets \
   --data-root /root/projects/trading-storage/storage/01_source_data
 ```
 
-The generated acquisition plan records feed parameters, base refs, asset classes, instrument types, and output roots. Trading Economics rows use `use_authenticated_cookies=false`; the completed historical TE pass is a one-time replay seed and does not depend on an ongoing subscription. Historical provider calls for missing base rows or on-demand candidate rows require a separate one-shot replay acquisition gate, but they do not need manager task rows or reusable task keys because this dataset is a sealed replay artifact.
+The generated acquisition plan records feed parameters, base refs, asset classes, instrument types, and output roots. Reusable rows point at canonical `storage/01_source_data` output roots; the replay dataset keeps manifests, coverage, receipts, hashes, decision rows, and review outputs rather than source body copies. Trading Economics rows use `use_authenticated_cookies=false`; the completed historical TE pass is a canonical source seed and does not depend on an ongoing subscription. Historical provider calls for missing base rows or on-demand candidate rows require a separate one-shot replay acquisition gate, but they do not need manager task rows or reusable task keys because this dataset is a sealed replay artifact.
 
 ## Frozen Snapshot
 
