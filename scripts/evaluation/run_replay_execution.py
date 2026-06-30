@@ -35,6 +35,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--candidate-model-ref",
         required=True,
     )
+    parser.add_argument("--candidate-fold-id")
+    parser.add_argument("--candidate-training-target")
     parser.add_argument("--after-cost-alpha-model-json", type=Path, required=True)
     parser.add_argument(
         "--replay-contract-ref",
@@ -82,6 +84,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         output_dir=args.output_dir,
         run_id=args.run_id,
         candidate_model_ref=args.candidate_model_ref,
+        candidate_fold_id=args.candidate_fold_id,
+        candidate_training_target=args.candidate_training_target,
         after_cost_alpha_model=after_cost_alpha_model,
         after_cost_alpha_model_ref=str(args.after_cost_alpha_model_json),
         replay_contract_ref=args.replay_contract_ref,

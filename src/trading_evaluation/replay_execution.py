@@ -158,6 +158,8 @@ def build_crypto_replay_execution_run(
     output_dir: Path | None = None,
     run_id: str | None = None,
     candidate_model_ref: str,
+    candidate_fold_id: str | None = None,
+    candidate_training_target: str | None = None,
     after_cost_alpha_model: Mapping[str, Any] | None,
     after_cost_alpha_model_ref: str | None = None,
     replay_contract_ref: str = "trading-evaluation/replays/promotion_replay_candidate_policy.json",
@@ -173,6 +175,8 @@ def build_crypto_replay_execution_run(
         output_dir=output_dir,
         run_id=run_id,
         candidate_model_ref=candidate_model_ref,
+        candidate_fold_id=candidate_fold_id,
+        candidate_training_target=candidate_training_target,
         after_cost_alpha_model=after_cost_alpha_model,
         after_cost_alpha_model_ref=after_cost_alpha_model_ref,
         replay_contract_ref=replay_contract_ref,
@@ -191,6 +195,8 @@ def build_candidate_policy_replay_execution_run(
     output_dir: Path | None = None,
     run_id: str | None = None,
     candidate_model_ref: str,
+    candidate_fold_id: str | None = None,
+    candidate_training_target: str | None = None,
     after_cost_alpha_model: Mapping[str, Any] | None,
     after_cost_alpha_model_ref: str | None = None,
     replay_contract_ref: str = "trading-evaluation/replays/promotion_replay_candidate_policy.json",
@@ -394,6 +400,14 @@ def build_candidate_policy_replay_execution_run(
         decision_rows_path=decision_rows_path,
         initial_capital_usd=initial_capital_usd,
     )
+    resolved_candidate_training_target = (
+        str(candidate_training_target or "").strip().upper()
+        or _candidate_training_target_from_model_ref(candidate_model_ref)
+    )
+    resolved_candidate_fold_id = (
+        str(candidate_fold_id or "").strip().lower()
+        or _candidate_fold_id_from_model_ref(candidate_model_ref)
+    )
     receipt = {
         "contract_type": REPLAY_EXECUTION_RUN_CONTRACT,
         "replay_execution_run_id": run_id,
@@ -447,8 +461,8 @@ def build_candidate_policy_replay_execution_run(
         },
         "portfolio_selection_summary": portfolio_selection_summary,
         "candidate_model_ref": candidate_model_ref,
-        "candidate_training_target": _candidate_training_target_from_model_ref(candidate_model_ref),
-        "target_symbol": _candidate_training_target_from_model_ref(candidate_model_ref),
+        "candidate_training_target": resolved_candidate_training_target,
+        "target_symbol": resolved_candidate_training_target,
         "after_cost_alpha_model_ref": after_cost_alpha_model_ref,
         "replay_contract_ref": replay_contract_ref,
         "replay_route_ref": EXECUTION_REPLAY_ROUTE_REF,
@@ -459,7 +473,7 @@ def build_candidate_policy_replay_execution_run(
             "evaluation_decision_rows_role": "settlement_view_over_component_outputs",
             "replay_specific_component_contracts_allowed": False,
         },
-        "candidate_fold_id": _candidate_fold_id_from_model_ref(candidate_model_ref),
+        "candidate_fold_id": resolved_candidate_fold_id,
         "pre_replay_target_refs": sorted(_string_set(manifest.get("pre_replay_target_refs"))),
         "dataset_root": str(dataset_root),
         "dataset_manifest_ref": str(dataset_root / "dataset_manifest.json"),

@@ -1217,6 +1217,8 @@ class ReplayExecutionTests(unittest.TestCase):
                     dataset_root=dataset_root,
                     run_id="test_fixed_candidate_universe",
                     candidate_model_ref="storage://trading-manager/model_group/aapl/2016-01_2017-06",
+                    candidate_fold_id="fold_aapl_2016",
+                    candidate_training_target="AAPL",
                     after_cost_alpha_model=_after_cost_alpha_model(),
                     equity_source_root=equity_source_root,
                     include_crypto=False,
@@ -1227,7 +1229,7 @@ class ReplayExecutionTests(unittest.TestCase):
 
                 self.assertEqual(result.receipt["candidate_handoff_status"], "available")
                 self.assertEqual(result.receipt["candidate_training_target"], "AAPL")
-                self.assertEqual(result.receipt["candidate_fold_id"], "fold_2016-01_2017-06")
+                self.assertEqual(result.receipt["candidate_fold_id"], "fold_aapl_2016")
                 self.assertEqual(
                     result.receipt["candidate_handoff_source"],
                     "fixed_current_snapshot_historical_candidate_universe",
