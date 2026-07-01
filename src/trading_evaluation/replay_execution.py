@@ -223,6 +223,7 @@ def build_candidate_policy_replay_execution_run(
     portfolio_default_target_allocation_fraction: float = DEFAULT_TARGET_ALLOCATION_FRACTION,
     portfolio_switch_minimum_rank_score_delta: float = DEFAULT_SWITCH_MINIMUM_RANK_SCORE_DELTA,
     resume_checkpoint_path: Path | None = None,
+    collect_all_option_feature_requirements: bool = False,
 ) -> ReplayExecutionResult:
     """Run candidate-policy replay over frozen crypto plus materialized equity bars."""
 
@@ -350,6 +351,7 @@ def build_candidate_policy_replay_execution_run(
         checkpoint_output_path=resume_checkpoint_output_path,
         resume_checkpoint=resume_checkpoint,
         run_id=run_id,
+        collect_all_option_feature_requirements=collect_all_option_feature_requirements,
     )
     decision_rows = _build_candidate_policy_decision_rows(
         bars_by_target=bars_by_target,
@@ -1339,6 +1341,7 @@ def _select_candidate_policy_portfolio_replay_keys(
     checkpoint_output_path: Path | None = None,
     resume_checkpoint: Mapping[str, Any] | None = None,
     run_id: str | None = None,
+    collect_all_option_feature_requirements: bool = False,
 ) -> tuple[
     set[tuple[str, int]],
     dict[tuple[str, int], dict[str, Any]],
@@ -1546,7 +1549,9 @@ def _select_candidate_policy_portfolio_replay_keys(
                         "cumulative_summary": dict(summary),
                     },
                 )
-            break
+            if not collect_all_option_feature_requirements:
+                break
+            continue
 
         selected_this_timestamp = 0
         selected_targets_this_timestamp: list[str] = []
